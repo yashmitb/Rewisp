@@ -31,7 +31,10 @@ IDLE_GUARD_SECONDS = 300  # 5 min no input -> stop capturing
 DEDUPE_THUMB_SIZE = 32  # NxN grayscale thumbnail for pixel diff
 DEDUPE_CHANGED_FRACTION = 0.05  # <5% pixels changed -> discard
 DEDUPE_PIXEL_DELTA = 24  # per-pixel gray delta (0-255) counted as "changed"
-MAX_OCR_CHARS = 10_000
+MAX_OCR_CHARS = 25_000  # dense pages hit 10k and got truncated mid-content
+OCR_TILING = True        # second OCR pass over 2x2 overlapping tiles for small text
+OCR_TILE_MIN_WIDTH = 1600  # skip tiling for small frames — whole pass suffices
+OCR_TILE_OVERLAP = 0.08  # fraction of overlap between tiles so seam text isn't cut
 URL_POLL_SECONDS = 1.0  # throttle AppleScript URL queries
 HEARTBEAT_SECONDS = 60  # periodic capture when no trigger fired; dedupe drops unchanged screens
 

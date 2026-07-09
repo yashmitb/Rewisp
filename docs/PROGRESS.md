@@ -21,6 +21,12 @@
 - [x] Screenshot of display containing frontmost window (2026-07-08)
 - [x] Vision framework OCR (local, verified on real screen) (2026-07-08)
 - [x] OCR reading-order reassembly — boxes grouped into visual rows, sorted top→bottom, left→right (dense multi-column pages were scrambled) (2026-07-08)
+- [x] OCR max-recall pass (2026-07-09): Vision revision 3 + auto language;
+      MAX_OCR_CHARS 10k→25k (dense pages were truncated); tiled second pass —
+      2x2 overlapping quadrants at full res catch small text the whole-frame
+      pass under-resolves, merged with spatial + seam-fragment dedupe.
+      Measured on a real 3024x1964 frame: 1,985 → 3,294 chars (+39 whole
+      boxes recovered: file-tree items, code lines, tab titles), 1.3s/capture.
 - [x] SQLite store with FTS5 (WAL mode, triggers keep FTS synced) (2026-07-08)
 - [x] Image never touches disk — CGImage OCR'd in memory, released (2026-07-08)
 - [x] URL trigger via Dia AppleScript (2026-07-08)

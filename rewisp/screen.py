@@ -114,29 +114,104 @@ def is_duplicate(thumb: bytes, prev_thumb: bytes | None) -> bool:
 
 # --- OCR --------------------------------------------------------------------
 
-def ocr_cgimage(cg_image) -> str:
-    """OCR a CGImage with Apple Vision. Local, free.
-
-    Vision returns observations in detection order, which on dense multi-column
-    pages (Canvas, docs) is scrambled. Reassemble reading order: group boxes
-    into visual rows by y, sort rows top-to-bottom and boxes left-to-right.
-    Vision coordinates are normalized with origin at the bottom-left.
-    """
+def _ocr_boxes(cg_image) -> list[tuple[float, float, str]]:
+    """Vision text boxes for one image: [(mid_y, x, text)], normalized 0-1,
+    origin bottom-left (Vision's convention). Accurate mode, latest revision."""
     handler = Vision.VNImageRequestHandler.alloc().initWithCGImage_options_(cg_image, None)
     request = Vision.VNRecognizeTextRequest.alloc().init()
     request.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelAccurate)
     request.setUsesLanguageCorrection_(True)
+    if hasattr(Vision, "VNRecognizeTextRequestRevision3"):
+        request.setRevision_(Vision.VNRecognizeTextRequestRevision3)
+    if request.respondsToSelector_("setAutomaticallyDetectsLanguage:"):
+        request.setAutomaticallyDetectsLanguage_(True)
     ok, err = handler.performRequests_error_([request], None)
     if not ok:
         raise RuntimeError(f"Vision OCR failed: {err}")
-
-    boxes = []  # (mid_y, x, text)
+    boxes = []
     for obs in request.results() or []:
         top = obs.topCandidates_(1)
         if top and top.count() > 0:
             bb = obs.boundingBox()
             mid_y = bb.origin.y + bb.size.height / 2
             boxes.append((mid_y, bb.origin.x, str(top.objectAtIndex_(0).string())))
+    return boxes
+
+
+def _tile_boxes(cg_image, width: int, height: int) -> list[tuple[float, float, str]]:
+    """Second pass: OCR 2x2 overlapping tiles at full resolution. Vision's
+    effective input is capped, so tiny text on a large frame is under-resolved
+    in the whole-frame pass; per-quadrant it is ~2x larger and gets recognized.
+    Tile coordinates are remapped into full-frame normalized space."""
+    ov = config.OCR_TILE_OVERLAP
+    tw, th = width * (0.5 + ov), height * (0.5 + ov)
+    out = []
+    for col in (0, 1):
+        for row in (0, 1):
+            # CGImage crop rect: pixel space, origin top-left
+            x0 = min(col * width * (0.5 - ov), width - tw)
+            y0 = min(row * height * (0.5 - ov), height - th)
+            tile = Quartz.CGImageCreateWithImageInRect(
+                cg_image, Quartz.CGRectMake(x0, y0, tw, th))
+            if tile is None:
+                continue
+            for mid_y, x, text in _ocr_boxes(tile):
+                gx = (x0 + x * tw) / width
+                # tile mid_y is bottom-left normalized within the tile; the
+                # tile's top edge sits y0 pixels below the frame's top edge
+                gy = 1.0 - (y0 + (1.0 - mid_y) * th) / height
+                out.append((gy, gx, text))
+    return out
+
+
+def _merge_boxes(primary: list, extra: list) -> list:
+    """Add boxes from the tiled pass that the whole-frame pass missed.
+    'Same box' = same normalized text within a small spatial distance
+    (tiles overlap each other and the whole pass, so duplicates abound)."""
+    def norm(t: str) -> str:
+        return " ".join(t.split()).lower()
+
+    seen: dict[str, list[tuple[float, float]]] = {}
+    merged = list(primary)
+    by_row: list[tuple[float, str]] = []  # (mid_y, norm text) for fragment check
+    for mid_y, x, text in primary:
+        seen.setdefault(norm(text), []).append((mid_y, x))
+        by_row.append((mid_y, norm(text)))
+    for mid_y, x, text in extra:
+        key = norm(text)
+        if len(key) < 2:
+            continue  # stray glyphs from icons/tab strips — noise
+        if any(abs(mid_y - py) < 0.02 and abs(x - px) < 0.03
+               for py, px in seen.get(key, [])):
+            continue
+        # Fragment cut at a tile seam: a longer line on the same visual row
+        # already starts with / contains this text — the whole pass saw the
+        # full line, the tile saw it truncated (last word may be garbled).
+        if len(key) >= 4 and any(
+                abs(mid_y - py) < 0.015 and len(full) > len(key)
+                and (key in full or key[:10] == full[:10])
+                for py, full in by_row):
+            continue
+        seen.setdefault(key, []).append((mid_y, x))
+        by_row.append((mid_y, key))
+        merged.append((mid_y, x, text))
+    return merged
+
+
+def ocr_cgimage(cg_image) -> str:
+    """OCR a CGImage with Apple Vision. Local, free.
+
+    Recall strategy: whole-frame pass + (for large frames) a 2x2 overlapping
+    tile pass merged in — catches small text the whole pass under-resolves.
+    Vision returns observations in detection order, which on dense multi-column
+    pages (Canvas, docs) is scrambled. Reassemble reading order: group boxes
+    into visual rows by y, sort rows top-to-bottom and boxes left-to-right.
+    """
+    boxes = _ocr_boxes(cg_image)
+    width = Quartz.CGImageGetWidth(cg_image)
+    height = Quartz.CGImageGetHeight(cg_image)
+    if config.OCR_TILING and width >= config.OCR_TILE_MIN_WIDTH:
+        boxes = _merge_boxes(boxes, _tile_boxes(cg_image, width, height))
     if not boxes:
         return ""
 
