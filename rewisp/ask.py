@@ -52,7 +52,7 @@ def _local_offset() -> str:
 # Small on-device models are unreliable at needle-extraction; a phone number
 # in a trusted file shouldn't depend on one.
 FACT_VALUE_PATTERNS = {
-    "phone": re.compile(r"(?:\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]\d{3}[\s\-.]?\d{4}"),
+    "phone": re.compile(r"(?:\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}\b"),
     "email": re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"),
     "address": None,  # line-based
     "birthday": re.compile(r"(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* \d{1,2},? \d{4})", re.I),
@@ -72,7 +72,12 @@ def vault_fact(conn, question: str) -> dict | None:
     if "my" not in q:
         return None
     from . import vault
-    conn.executescript(vault.VAULT_SCHEMA)
+    # Edits to vault files must be visible immediately — reindex is mtime-guarded,
+    # so this is a handful of stat() calls when nothing changed.
+    try:
+        vault.reindex(conn)
+    except Exception:
+        pass
     rows = conn.execute("SELECT path, content FROM vault_files").fetchall()
     kind = next((k for k, words in FACT_KEYWORDS.items()
                  if any(w in q for w in words)), None)
@@ -112,7 +117,8 @@ def vault_fact(conn, question: str) -> dict | None:
                         return {"answer": m.group(0).strip(),
                                 "source": f"Vault · {path}",
                                 "copy_text": m.group(0).strip()}
-    return None
+    # Typed pattern missed (unusual formatting) — try the generic Label: value path.
+    return _generic_vault_fact(rows, q)
 
 
 def _generic_vault_fact(rows, question: str) -> dict | None:
