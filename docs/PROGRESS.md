@@ -1,7 +1,7 @@
 # Rewisp — Build Progress
 
 **Current status:** Phases 0–4 built and verified. Phase X (Yashmit's batch) largely done: panel expand fixed + auto-verified, Esc everywhere, menu bar icon state, main window (Chat/Vault/Memory/Settings), Apple on-device model for quick answers with Claude fallback, retrieval overhaul (verified: "what do i have due on july 12th" → correct homework answer), API token auth, repo reorganized.
-**Next up:** first automatic Digest (tonight 9 PM), onboarding flow, GitHub push, DMG + auto-update, landing page.
+**Next up:** first automatic Digest (tonight 9 PM), 5-question success test after 2 days of data, Phase 5 extras (export, weekly report, form detector).
 
 ---
 
@@ -88,12 +88,16 @@
 
 ## Phase 5 — Distribution + Polish
 
-- [ ] Onboarding flow (first launch): welcome → permissions (Screen Recording,
-      Accessibility) with live checks → Claude sign-in check → hotkey tutorial
-- [ ] GitHub repo (public, "Rewisp", user sole owner) — README written
-- [ ] Auto-update: app checks GitHub Releases at launch, one-click download of new DMG
-- [ ] DMG packaging (scripts/make_dmg.sh) + installer for other machines
-- [ ] Landing page (site/, tryknock.app-style)
+- [x] Onboarding flow (first launch): welcome → privacy → permissions with live
+      status checks + Open Settings buttons → tutorial. Screenshot-verified. (2026-07-08)
+- [x] GitHub repo: public https://github.com/yashmitb/Rewisp, sole collaborator
+      yashmitb, README written (2026-07-08)
+- [x] Auto-update: app checks GitHub Releases daily, "Get update" banner in the
+      popover downloads the new DMG. v0.1.0 released with DMG asset. (2026-07-08)
+- [x] DMG packaging: scripts/make_dmg.sh bundles the daemon inside the app +
+      "Install Rewisp.command" (launchd setup, pyobjc check). dist/Rewisp-0.1.0.dmg built. (2026-07-08)
+- [x] Landing page live at https://yashmitb.github.io/Rewisp/ (site/, GitHub
+      Pages via Actions, typed-demo hero, privacy + how-it-works sections) (2026-07-08)
 - [ ] Weekly time report, export everything, form detector, notification settings
 - [ ] SUCCESS TESTS (definition of done): <5% CPU, <300 MB RAM all day; kill list zero rows; memory learned 1 fact; export human-readable; $0 beyond Pro
 
