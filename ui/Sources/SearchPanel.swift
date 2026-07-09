@@ -142,6 +142,7 @@ final class KeyablePanel: NSPanel {
 
 extension Notification.Name {
     static let rewispPanelShown = Notification.Name("rewispPanelShown")
+    static let rewispMainShown = Notification.Name("rewispMainShown")
     // Local automation hook: synthetic keystrokes can't reach a nonactivating
     // panel, so tests drive the search flow through this instead.
     static let rewispTestAsk = Notification.Name("rewispTestAsk")

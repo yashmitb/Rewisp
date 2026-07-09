@@ -65,6 +65,7 @@ struct DashboardView: View {
         .padding(16)
         .frame(width: 360)
         .frame(minHeight: 320, maxHeight: 560)
+        .popoverReveal()
         .task { await refresh() }
         // Esc anywhere in the popover closes it (Spotlight-style).
         .onExitCommand { NSApp.keyWindow?.close() }

@@ -36,10 +36,19 @@ final class MainWindowController {
         NSApp.setActivationPolicy(.regular)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        // Replay the launch splash on every open (window is reused, so the
+        // view's own .task only fires the first time).
+        NotificationCenter.default.post(name: .rewispMainShown, object: nil)
     }
 }
 
 struct MainWindowView: View {
+    var body: some View {
+        LaunchReveal { MainWindowContent() }
+    }
+}
+
+struct MainWindowContent: View {
     @ObservedObject var state = MainWindowState.shared
 
     var body: some View {
@@ -181,7 +190,7 @@ struct WispMark: View {
     }
 }
 
-private struct WispPath: Shape {
+struct WispPath: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
         p.move(to: CGPoint(x: rect.minX, y: rect.midY + 2))
@@ -317,10 +326,18 @@ struct TodayTab: View {
 
 // MARK: - Chat
 
+struct ChatSession: Identifiable {
+    let id: String
+    let heading: String
+    let messages: [RewispAPI.ChatMessage]
+}
+
 struct ChatTab: View {
     @State private var messages: [RewispAPI.ChatMessage] = []
     @State private var input = ""
     @State private var asking = false
+    @State private var loaded = false
+    @State private var scrollTick = 0
     @FocusState private var focused: Bool
 
     private let suggestions = [
@@ -329,15 +346,45 @@ struct ChatTab: View {
         "That video from last night?",
     ]
 
+    // Split the flat log into conversation sessions: a gap over 20 minutes
+    // between messages starts a new one, so history reads as distinct chats
+    // instead of one endless thread.
+    private var sessions: [ChatSession] {
+        guard !messages.isEmpty else { return [] }
+        var out: [ChatSession] = []
+        var bucket: [RewispAPI.ChatMessage] = []
+        var prev: Date?
+        func flush() {
+            guard let first = bucket.first else { return }
+            out.append(ChatSession(id: first.id,
+                                   heading: Self.sessionHeading(first.ts),
+                                   messages: bucket))
+            bucket = []
+        }
+        for m in messages {
+            let t = Self.parseTS(m.ts)
+            if let p = prev, let t, t.timeIntervalSince(p) > 1200 { flush() }
+            bucket.append(m)
+            if let t { prev = t }
+        }
+        flush()
+        return out
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            if messages.isEmpty && !asking {
+            if messages.isEmpty && !asking && loaded {
                 emptyState
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 14) {
-                            ForEach(messages) { m in bubble(m) }
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(sessions) { session in
+                                sessionDivider(session.heading)
+                                ForEach(session.messages) { m in
+                                    bubble(m).padding(.vertical, 6)
+                                }
+                            }
                             if asking {
                                 HStack(spacing: 8) {
                                     WispMark().frame(width: 22, height: 22)
@@ -345,15 +392,18 @@ struct ChatTab: View {
                                     Text("Searching your memory…")
                                         .font(.callout).foregroundStyle(.secondary)
                                 }
-                                .id("busy")
+                                .padding(.top, 6)
                             }
+                            Color.clear.frame(height: 1).id("BOTTOM")
                         }
                         .padding(24)
                     }
                     .onChange(of: messages.count) {
-                        withAnimation(Theme.spring) {
-                            proxy.scrollTo(asking ? "busy" : messages.last?.id, anchor: .bottom)
-                        }
+                        withAnimation(Theme.spring) { proxy.scrollTo("BOTTOM", anchor: .bottom) }
+                    }
+                    .onChange(of: scrollTick) {
+                        // Deferred (post-layout) jump to newest, no animation.
+                        proxy.scrollTo("BOTTOM", anchor: .bottom)
                     }
                 }
             }
@@ -387,8 +437,44 @@ struct ChatTab: View {
         }
         .task {
             messages = (try? await RewispAPI.get("chats", as: RewispAPI.Chats.self))?.chats ?? []
+            loaded = true
             focused = true
+            // Let the lazy stack lay out, then jump to the newest message.
+            try? await Task.sleep(for: .milliseconds(60))
+            scrollTick += 1
         }
+    }
+
+    private func sessionDivider(_ text: String) -> some View {
+        HStack(spacing: 10) {
+            Rectangle().fill(.quaternary.opacity(0.4)).frame(height: 1)
+            Text(text)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.tertiary)
+                .fixedSize()
+            Rectangle().fill(.quaternary.opacity(0.4)).frame(height: 1)
+        }
+        .padding(.top, 10)
+        .padding(.bottom, 2)
+    }
+
+    // ts arrives as UTC "yyyy-MM-dd HH:mm:ss" (server) or ISO8601 (optimistic).
+    static func parseTS(_ ts: String) -> Date? {
+        let iso = ISO8601DateFormatter()
+        if let d = iso.date(from: ts) { return d }
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        df.timeZone = TimeZone(identifier: "UTC")
+        return df.date(from: ts)
+    }
+
+    static func sessionHeading(_ ts: String) -> String {
+        guard let d = parseTS(ts) else { return "Earlier" }
+        let cal = Calendar.current
+        let time = d.formatted(date: .omitted, time: .shortened)
+        if cal.isDateInToday(d) { return "Today · \(time)" }
+        if cal.isDateInYesterday(d) { return "Yesterday · \(time)" }
+        return d.formatted(.dateTime.month().day().hour().minute())
     }
 
     private var emptyState: some View {
