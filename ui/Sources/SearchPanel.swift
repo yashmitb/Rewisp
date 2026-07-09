@@ -165,6 +165,9 @@ struct SearchPanelView: View {
     // the window can't expand because the content reports small because the
     // window is small. Measuring inside breaks that cycle.
     @State private var answerHeight: CGFloat = 0
+    // Form detector: the panel is non-activating, so the app behind keeps
+    // focus — if a text field is focused there, offer to look it up.
+    @State private var fieldLabel: String?
     @FocusState private var focused: Bool
 
     private let spring = Animation.spring(response: 0.35, dampingFraction: 0.8)
@@ -185,6 +188,27 @@ struct SearchPanelView: View {
             }
             .padding(.horizontal, 18)
             .frame(height: 56)
+
+            if let label = fieldLabel, result == nil, !asking, query.isEmpty {
+                Divider().opacity(0.4)
+                HStack(spacing: 10) {
+                    Image(systemName: "character.cursor.ibeam")
+                        .foregroundStyle(Theme.wisp)
+                    Text("You were in a “\(label)” field")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer()
+                    Button("Find mine") {
+                        query = "what is my \(label.lowercased())?"
+                        ask()
+                    }
+                    .controlSize(.small)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+                .transition(.opacity.combined(with: .offset(y: -6)))
+            }
 
             if asking {
                 Divider().opacity(0.4)
@@ -219,6 +243,12 @@ struct SearchPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .rewispPanelShown)) { _ in
             reset()
             DispatchQueue.main.async { focused = true }
+            Task { @MainActor in
+                let ctx = try? await RewispAPI.get("form-context", as: RewispAPI.FormContext.self)
+                if let label = ctx?.field?.label, !label.isEmpty, label.count < 40 {
+                    withAnimation(spring) { fieldLabel = label }
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .rewispTestAsk)) { note in
             if let q = note.object as? String {
@@ -302,6 +332,7 @@ struct SearchPanelView: View {
         result = nil
         asking = false
         answerHeight = 0
+        fieldLabel = nil
     }
 
     private func ask() {

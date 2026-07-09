@@ -152,6 +152,17 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/settings":
                 self._json({**config.load_settings(),
                             "available": _engine_availability()})
+            elif self.path == "/form-context":
+                # Served from the daemon's tick cache — by the time the panel
+                # asks, the panel itself is key and a live AX query would see
+                # the panel's own search field instead of the user's.
+                import time as _time
+                from . import daemon
+                field = daemon.STATE.get("last_field")
+                if field and _time.time() - field.get("ts", 0) < 8:
+                    self._json({"field": {k: v for k, v in field.items() if k != "ts"}})
+                else:
+                    self._json({"field": None})
             elif self.path == "/digest/status":
                 self._json({"running": _digest["running"],
                             "error": _digest["error"],

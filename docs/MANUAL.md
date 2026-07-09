@@ -84,6 +84,20 @@ Defaults: Messages, WhatsApp, password managers, ~20 banking/finance domains,
 private/incognito windows. Defaults can't be removed. Add your own apps/domains in
 the main window → **Settings** tab — changes apply live, no restart needed.
 
+### Browsers
+URL capture + the banking-site kill list work in **Dia, Chrome, Arc, Edge,
+Brave, Vivaldi, Opera** (Chromium AppleScript) and **Safari**. Incognito is
+detected directly in Chromium browsers (capture fully pauses); Safari private
+windows rely on window-title keywords. **Firefox**: title-only — no URL
+trigger and no URL kill list there. First use of each browser triggers one
+macOS automation consent prompt.
+
+### Form assist
+Focused a form field, forgot the value? Hit ⌘⇧Space — the panel notices the
+field behind it ("You were in a 'Email' field") and offers **Find mine**, which
+looks it up in your Vault/history with a Copy button. Rewisp never types into
+or submits forms — you paste it yourself.
+
 ---
 
 ## Terminal reference

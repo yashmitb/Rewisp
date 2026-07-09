@@ -22,7 +22,7 @@ DEFAULT_SETTINGS = {
     "digest_interval_days": 1,       # 1 = nightly, 2 = every other day, 7 = weekly
 }
 
-BROWSER_APP = "Dia"
+# (browser support lives in browser.BROWSERS — Chromium family, Safari, Firefox title-only)
 
 # Capture tuning
 TICK_SECONDS = 0.5
@@ -35,7 +35,8 @@ MAX_OCR_CHARS = 25_000  # dense pages hit 10k and got truncated mid-content
 OCR_TILING = True        # second OCR pass over 2x2 overlapping tiles for small text
 OCR_TILE_MIN_WIDTH = 1600  # skip tiling for small frames — whole pass suffices
 OCR_TILE_OVERLAP = 0.08  # fraction of overlap between tiles so seam text isn't cut
-URL_POLL_SECONDS = 1.0  # throttle AppleScript URL queries
+URL_POLL_SECONDS = 2.0  # throttle AppleScript URL queries — each osascript spawn
+                        # costs ~130ms, so 1s polling ate ~13% of a core while browsing
 HEARTBEAT_SECONDS = 60  # periodic capture when no trigger fired; dedupe drops unchanged screens
 
 RETENTION_DAYS = 183  # ~6 months for captures and chats

@@ -25,6 +25,8 @@ class Daemon:
         self.killlist_active = False
         self.last_capture = 0.0
         self.last_kill_check = 0.0
+        self.private_window = False
+        self.last_field_check = 0.0
 
     # -- state checks ---------------------------------------------------------
 
@@ -76,7 +78,7 @@ class Daemon:
             self.last_kill_check = now_mono
             self.kill.reload_if_changed()
 
-        app, pid = screen.frontmost_app()
+        app, pid, title = screen.frontmost_info()
         if not app:
             return
 
@@ -91,15 +93,30 @@ class Daemon:
         self.killlist_active = False
         STATE["capture"] = "active"
 
-        title = screen.frontmost_window_title(pid)
+        # Cache the focused form field (1s cadence). The search panel can't ask
+        # live — once it becomes key, the focused element is its own text field.
+        if now_mono - self.last_field_check > 1:
+            self.last_field_check = now_mono
+            try:
+                from . import form
+                field = form.focused_field()
+                # form.py reports the app OWNING the focused element — the
+                # window-server frontmost is wrong here: the non-activating
+                # search panel can hold AX focus while another app is frontmost.
+                if field and field.get("app") != "Rewisp":
+                    STATE["last_field"] = {**field, "ts": time.time()}
+            except Exception:  # AX permission missing — feature just stays off
+                pass
+
         url = None
         reason = None
 
-        if app == config.BROWSER_APP:
+        if browser.is_browser(app):
             now = time.monotonic()
             if now - self.last_url_poll >= config.URL_POLL_SECONDS:
                 self.last_url_poll = now
-                url, tab_title = browser.active_tab()
+                url, tab_title, private = browser.active_tab(app)
+                self.private_window = private
                 if tab_title:
                     title = tab_title
                 if url and url != self.last_url:
@@ -107,6 +124,13 @@ class Daemon:
                 self.last_url = url
             else:
                 url = self.last_url
+            # Private/incognito window: capture fully pauses, like a kill-list
+            # app. (Chromium reports mode; Safari relies on title keywords.)
+            if self.private_window:
+                STATE["capture"] = "killlist"
+                return
+        else:
+            self.private_window = False
 
         if self.kill.blocks(app, title, url):
             if reason:

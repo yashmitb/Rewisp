@@ -29,6 +29,26 @@ def frontmost_app() -> tuple[str, int]:
     return "", -1
 
 
+def frontmost_info() -> tuple[str, int, str | None]:
+    """(app name, pid, window title) in ONE window-server query — the tick
+    loop runs at 0.5s, and app + title were two separate full window-list
+    copies before."""
+    wins = Quartz.CGWindowListCopyWindowInfo(
+        Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements,
+        Quartz.kCGNullWindowID,
+    )
+    for w in wins or []:
+        if w.get("kCGWindowLayer", 1) == 0:
+            pid = int(w.get("kCGWindowOwnerPID", -1))
+            name = w.get("kCGWindowOwnerName")
+            if not name and pid > 0:
+                app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
+                name = app.localizedName() if app else None
+            title = w.get("kCGWindowName")
+            return (str(name) if name else "", pid, str(title) if title else None)
+    return "", -1, None
+
+
 def frontmost_window_title(pid: int) -> str | None:
     """Title of the frontmost window owned by pid, via the window server (no AX needed)."""
     wins = Quartz.CGWindowListCopyWindowInfo(

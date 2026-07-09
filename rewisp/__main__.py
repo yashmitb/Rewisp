@@ -20,8 +20,8 @@ def cmd_once():
     app, pid = screen.frontmost_app()
     title = screen.frontmost_window_title(pid)
     url = None
-    if app == config.BROWSER_APP:
-        url, tab_title = browser.active_tab()
+    if browser.is_browser(app):
+        url, tab_title, _private = browser.active_tab(app)
         title = tab_title or title
     img = screen.capture_frontmost_display(pid)
     text = screen.ocr_cgimage(img)

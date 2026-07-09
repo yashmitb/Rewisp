@@ -130,8 +130,17 @@
 - [x] Animation pass on popover + search panel: overshoot-settle entrance,
       pulsing sparkles while searching, offset+fade content transitions (2026-07-09)
 - [x] Landing page: wisp SVG favicon + stroke-icon cards (emojis out) (2026-07-09)
-- [ ] Form detector + info panel from Vault (deferred — the Ask panel already
-      answers "what's my X" from the Vault with a Copy button)
+- [x] Multi-browser support (2026-07-09): Chromium family (Chrome, Arc, Edge,
+      Brave, Vivaldi, Opera, Dia) + Safari get URL trigger + URL kill list;
+      Chromium incognito detected via window `mode` (capture fully pauses) —
+      live-verified on Chrome (normal vs incognito) and Safari. Firefox
+      title-only. Was Dia-only: silent kill-list gap for DMG users.
+- [x] Form detector (2026-07-09): daemon /form-context reads the focused text
+      field over AX (panel is non-activating, so the field keeps focus);
+      panel shows "You were in a '<label>' field — Find mine" which asks the
+      Vault and offers Copy. Copy-assist only; Rewisp never fills or submits.
+- [x] Performance: tick's two window-list queries merged into one
+      (frontmost_info) (2026-07-09)
 - [ ] SUCCESS TESTS (definition of done): <5% CPU, <300 MB RAM all day; kill list zero rows; memory learned 1 fact; export human-readable ✓; $0 beyond Pro
 
 ---

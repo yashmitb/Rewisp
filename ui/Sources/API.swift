@@ -75,6 +75,13 @@ struct RewispAPI {
         var path: String
     }
 
+    struct FormField: Decodable {
+        var role: String
+        var label: String?
+        var app: String?
+    }
+    struct FormContext: Decodable { var field: FormField? }
+
     struct EngineAvail: Decodable {
         var claude: Bool
         var codex: Bool
