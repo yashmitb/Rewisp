@@ -49,9 +49,16 @@ struct RewispAPI {
         var error: String?
     }
 
+    struct VaultFact: Decodable {
+        var answer: String
+        var source: String?
+        var copy_text: String?
+    }
+
     struct ContextResult: Decodable {
         var prompt: String
         var n_captures: Int
+        var fact: VaultFact?
     }
 
     struct ChatMessage: Decodable, Identifiable, Hashable {

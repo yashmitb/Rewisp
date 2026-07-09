@@ -212,7 +212,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"error": "empty question"}, 400)
                 from . import ask
                 prompt, meta = ask.build_prompt(question, compact=bool(body.get("compact", True)))
-                self._json({"prompt": prompt, "n_captures": meta.get("n_captures", 0)})
+                self._json({"prompt": prompt, "n_captures": meta.get("n_captures", 0),
+                            "fact": meta.get("fact")})
             elif self.path == "/chat-log":
                 q = (body.get("question") or "").strip()
                 a = (body.get("answer") or "").strip()

@@ -43,7 +43,7 @@ def extract_text(path: Path) -> str | None:
     suffix = path.suffix.lower()
     if suffix in (".md", ".txt"):
         return path.read_text(errors="replace")
-    if suffix == ".docx":
+    if suffix in (".docx", ".doc", ".rtf", ".rtfd", ".odt", ".html"):
         out = subprocess.run(["textutil", "-convert", "txt", "-stdout", str(path)],
                              capture_output=True, text=True, timeout=30)
         return out.stdout if out.returncode == 0 else None

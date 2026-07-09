@@ -19,6 +19,17 @@ enum AskEngine {
         if onDeviceAvailable, #available(macOS 26.0, *) {
             do {
                 let ctx = try await RewispAPI.context(question)
+                // Personal fact found deterministically in the Vault — exact
+                // value, no model involved at all.
+                if let f = ctx.fact {
+                    var r = RewispAPI.AskResult()
+                    r.answer = f.answer
+                    r.source = f.source
+                    r.copy_text = f.copy_text
+                    r.model = "Vault"
+                    await RewispAPI.logChat(question: question, answer: f.answer)
+                    return r
+                }
                 let session = LanguageModelSession()
                 // Low temperature + token cap: factual lookup, and the small
                 // model tends to ramble past its first answer otherwise.

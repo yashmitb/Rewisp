@@ -48,6 +48,101 @@ def _local_offset() -> str:
     return f"UTC{sign}{abs(total) // 60:02d}:{abs(total) % 60:02d}"
 
 
+# Personal facts answered straight from the Vault — no model in the loop.
+# Small on-device models are unreliable at needle-extraction; a phone number
+# in a trusted file shouldn't depend on one.
+FACT_VALUE_PATTERNS = {
+    "phone": re.compile(r"(?:\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]\d{3}[\s\-.]?\d{4}"),
+    "email": re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"),
+    "address": None,  # line-based
+    "birthday": re.compile(r"(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* \d{1,2},? \d{4})", re.I),
+}
+FACT_KEYWORDS = {
+    "phone": ("phone", "number", "cell", "mobile"),
+    "email": ("email", "e-mail", "mail"),
+    "address": ("address", "street", "live"),
+    "birthday": ("birthday", "birth", "born", "dob"),
+}
+
+
+def vault_fact(conn, question: str) -> dict | None:
+    """Deterministic lookup: 'what is my phone number' -> value from a Vault
+    file. Returns {answer, source, copy_text} or None (then the model runs)."""
+    q = question.lower()
+    if "my" not in q:
+        return None
+    from . import vault
+    conn.executescript(vault.VAULT_SCHEMA)
+    rows = conn.execute("SELECT path, content FROM vault_files").fetchall()
+    kind = next((k for k, words in FACT_KEYWORDS.items()
+                 if any(w in q for w in words)), None)
+    if kind is None:
+        return _generic_vault_fact(rows, q)
+    pattern = FACT_VALUE_PATTERNS[kind]
+    q_terms = [t for t in re.findall(r"[a-z0-9]+", q)
+               if t not in STOPWORDS and len(t) > 1]
+    best = None  # (score, answer, path) — most question terms on the line wins
+    for path, content in rows:
+        for line in content.splitlines():
+            low = line.lower()
+            if not any(w in low for w in FACT_KEYWORDS[kind]):
+                continue
+            value = None
+            if pattern:
+                m = pattern.search(line)
+                if m:
+                    value = m.group(0).strip()
+            elif ":" in line:  # "Address: 123 Foo St"
+                value = line.split(":", 1)[1].strip() or None
+            if value:
+                score = sum(1 for t in q_terms if t in low)
+                if best is None or score > best[0]:
+                    best = (score, value, path)
+    if best:
+        return {"answer": best[1], "source": f"Vault · {best[2]}",
+                "copy_text": best[1]}
+    # keyword may sit on the line above the value (label on its own line)
+    if pattern:
+        for path, content in rows:
+            lines = content.splitlines()
+            for i, line in enumerate(lines[:-1]):
+                if any(w in line.lower() for w in FACT_KEYWORDS[kind]):
+                    m = pattern.search(lines[i + 1])
+                    if m:
+                        return {"answer": m.group(0).strip(),
+                                "source": f"Vault · {path}",
+                                "copy_text": m.group(0).strip()}
+    return None
+
+
+def _generic_vault_fact(rows, question: str) -> dict | None:
+    """'what is my <anything>' -> best 'Label: value' vault line whose label
+    contains the asked terms. Handles PID, license, insurance, wifi name…"""
+    m = re.search(r"\bmy\s+(.{2,50}?)(?:\?|$)", question.lower())
+    if not m:
+        return None
+    terms = [t for t in re.findall(r"[a-z0-9]+", m.group(1))
+             if t not in STOPWORDS and len(t) > 1]
+    if not terms:
+        return None
+    best = None
+    for path, content in rows:
+        for line in content.splitlines():
+            if ":" not in line:
+                continue
+            label, _, value = line.partition(":")
+            value = value.strip()
+            if not value or len(value) > 120:
+                continue
+            hits = sum(1 for t in terms if t in label.lower())
+            if hits and (best is None or hits > best[0]):
+                best = (hits, value, path)
+    if best and best[0] >= max(1, len(terms) - 1):
+        return {"answer": best[1], "source": f"Vault · {best[2]}",
+                "copy_text": best[1]}
+    return None
+
+
 def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict]:
     """compact=True shrinks everything to fit the on-device model's small
     context window (~4k tokens total including the answer)."""
@@ -76,6 +171,15 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
         (2 if compact else 7,)).fetchall()
 
     parts = []
+    # Small models weight early tokens heavily — in compact mode the trusted
+    # Vault leads the context so it beats noisy screen text.
+    from . import memory, vault
+    vrows = vault.search(conn, fts, limit=3 if compact else 5)
+    if compact and vrows:
+        parts.append("## Vault (user-provided files — trusted truth; if Vault and "
+                     "screen data conflict, Vault wins)")
+        for v in vrows:
+            parts.append(f"[vault:{v['path']}]\n{v['snippet']}")
     # Always lead with what's on screen right now — most questions are about it.
     recent = db.recent_captures(conn, limit=2 if compact else 3,
                                 max_chars=800 if compact else 1500)
@@ -97,9 +201,7 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
         parts.append("## Daily summaries")
         for d, s, t in sums:
             parts.append(f"[summary {d}]\n{s or ''}\nThreads: {t or ''}")
-    from . import memory, vault
-    vrows = vault.search(conn, fts, limit=2 if compact else 5)
-    if vrows:
+    if vrows and not compact:
         parts.append("## Vault (user-provided files — trusted truth; if Vault and "
                      "screen data conflict, Vault wins)")
         for v in vrows:
@@ -120,7 +222,11 @@ def build_prompt(question: str, compact: bool = False) -> tuple[str, dict]:
     the Apple on-device model — retrieval stays here, generation happens there."""
     conn = db.connect()
     try:
+        # Deterministic personal-fact hit: skip the model entirely.
+        fact = vault_fact(conn, question)
         context, meta = build_context(conn, question, compact=compact)
+        if fact:
+            meta["fact"] = fact
         now_local = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %A")
         prompt = (f"{SYSTEM_RULES}\n\nUser's local time now: {now_local} ({_local_offset()})\n\n"
                   f"# Context\n{context}\n\n# Question\n{question}")
@@ -238,6 +344,16 @@ def parse_answer(raw: str) -> dict:
 
 def ask(question: str, save: bool = True) -> tuple[str, dict]:
     conn = db.connect()
+    fact = vault_fact(conn, question)
+    if fact:
+        meta = {"answer": fact["answer"], "source": fact["source"],
+                "copy_text": fact["copy_text"], "model": "Vault", "n_captures": 0}
+        if save:
+            ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            conn.execute("INSERT INTO chats (ts, role, content) VALUES (?, 'user', ?)", (ts, question))
+            conn.execute("INSERT INTO chats (ts, role, content) VALUES (?, 'assistant', ?)", (ts, fact["answer"]))
+            conn.commit()
+        return fact["answer"], meta
     context, meta = build_context(conn, question)
     if not context.strip():
         return "Not found in your memory. (No matching captures.)", meta
