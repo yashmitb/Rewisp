@@ -2,7 +2,32 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 // The main app window: everything the popover is too small for.
-// Chat (full history), Vault (drag-drop files), Memory review, Settings.
+// Programmatic NSWindow (not a Window scene) so it can be opened from the
+// AppDelegate reopen handler — Spotlight-launching an already-running
+// LSUIElement app only fires applicationShouldHandleReopen.
+@MainActor
+final class MainWindowController {
+    static let shared = MainWindowController()
+    private var window: NSWindow?
+
+    func show(_ tab: MainTab? = nil) {
+        if let tab { MainWindowState.shared.tab = tab }
+        if window == nil {
+            let w = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 820, height: 560),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered, defer: false)
+            w.title = "Rewisp"
+            w.isReleasedWhenClosed = false
+            w.center()
+            w.contentView = NSHostingView(rootView: MainWindowView())
+            window = w
+        }
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
 struct MainWindowView: View {
     @ObservedObject var state = MainWindowState.shared
 
@@ -23,7 +48,6 @@ struct MainWindowView: View {
             }
         }
         .frame(minWidth: 720, minHeight: 480)
-        .navigationTitle("Rewisp")
     }
 }
 

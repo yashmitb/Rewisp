@@ -13,9 +13,7 @@ struct DashboardView: View {
     @State private var recap: RewispAPI.Recap?
     @State private var threads: RewispAPI.Threads?
     @State private var daemonUp = true
-    @State private var confirmQuit = false
     @FocusState private var searchFocused: Bool
-    @Environment(\.openWindow) private var openWindow
 
     private let spring = Animation.spring(response: 0.35, dampingFraction: 0.8)
 
@@ -71,10 +69,8 @@ struct DashboardView: View {
     }
 
     private func openMain(_ tab: MainTab) {
-        MainWindowState.shared.tab = tab
         NSApp.keyWindow?.close()
-        openWindow(id: "main")
-        NSApp.activate(ignoringOtherApps: true)
+        MainWindowController.shared.show(tab)
     }
 
     // MARK: sections
@@ -317,19 +313,13 @@ struct DashboardView: View {
             }
 
             Button {
-                confirmQuit = true
+                AppDelegate.requestQuit()
             } label: {
                 Image(systemName: "power").font(.caption)
             }
             .buttonStyle(.plain)
             .foregroundStyle(.tertiary)
             .help("Quit Rewisp")
-            .confirmationDialog("Quit Rewisp?", isPresented: $confirmQuit) {
-                Button("Quit", role: .destructive) { NSApp.terminate(nil) }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("The menu bar app and hotkey go away until you reopen it. Capture keeps running in the background.")
-            }
         }
     }
 
