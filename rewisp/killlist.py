@@ -27,7 +27,12 @@ class KillList:
             self.reload()
 
     def blocks_app(self, app_name: str) -> bool:
-        return app_name.lower() in self.apps
+        # Defense in depth: screen._clean_app_name() already strips invisible
+        # Unicode at the source (a leading U+200E on "WhatsApp" once let 56
+        # captures through an exact-match check) — normalize again here so
+        # this comparison can never silently miss regardless of caller.
+        from . import screen
+        return screen._clean_app_name(app_name).lower() in self.apps
 
     def blocks_url(self, url: str | None) -> bool:
         if not url:

@@ -168,27 +168,72 @@ struct SearchPanelView: View {
     // Form detector: the panel is non-activating, so the app behind keeps
     // focus — if a text field is focused there, offer to look it up.
     @State private var fieldLabel: String?
+    @State private var suggestions: [String] = []
     @AppStorage("rewisp.formassist") private var formAssist = true
     @FocusState private var focused: Bool
 
     private let spring = Animation.spring(response: 0.35, dampingFraction: 0.8)
+    private let starters = [
+        "What was I working on yesterday?",
+        "What's due this week?",
+        "That article from this morning?",
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Image(systemName: "sparkles")
-                    .font(.title3)
-                    .foregroundStyle(asking ? AnyShapeStyle(Theme.wisp) : AnyShapeStyle(.secondary))
-                    .symbolRenderingMode(.hierarchical)
-                    .symbolEffect(.pulse, options: .repeating, isActive: asking)
+                ZStack {
+                    if asking {
+                        WispMark()
+                            .frame(width: 22, height: 22)
+                    } else {
+                        Image(systemName: "sparkles")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                            .symbolRenderingMode(.hierarchical)
+                    }
+                }
+                .frame(width: 22, height: 22)
                 TextField("Ask your memory anything", text: $query)
                     .textFieldStyle(.plain)
                     .font(.title3)
                     .focused($focused)
                     .onSubmit { ask() }
+                if query.isEmpty && result == nil && !asking {
+                    Text("esc to close")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(.quaternary.opacity(0.5), in: Capsule())
+                        .transition(.opacity)
+                }
             }
             .padding(.horizontal, 18)
             .frame(height: 56)
+
+            if query.isEmpty, result == nil, !asking, fieldLabel == nil, !suggestions.isEmpty {
+                Divider().opacity(0.4)
+                HStack(spacing: 8) {
+                    ForEach(suggestions, id: \.self) { s in
+                        Button {
+                            query = s
+                            ask()
+                        } label: {
+                            Text(s)
+                                .font(.caption)
+                                .lineLimit(1)
+                                .padding(.horizontal, 11).padding(.vertical, 6)
+                                .background(.quaternary.opacity(0.4), in: Capsule())
+                                .overlay(Capsule().strokeBorder(.white.opacity(0.06)))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+                .transition(.opacity.combined(with: .offset(y: -6)))
+            }
 
             if let label = fieldLabel, result == nil, !asking, query.isEmpty {
                 Divider().opacity(0.4)
@@ -232,6 +277,15 @@ struct SearchPanelView: View {
             }
         }
         .frame(width: 640)
+        .background {
+            // Ambient glow that breathes while a question is in flight —
+            // the panel visibly "thinking" instead of a static spinner.
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .fill(Theme.wisp)
+                .blur(radius: 30)
+                .opacity(asking ? 0.28 : 0)
+                .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: asking)
+        }
         .glassBackground()
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
             SearchPanelController.shared.resize(toContentHeight: h)
@@ -240,10 +294,12 @@ struct SearchPanelView: View {
             focused = true
             reset()
             SearchPanelState.shared.escape = { escapePressed() }
+            loadSuggestions()
         }
         .onReceive(NotificationCenter.default.publisher(for: .rewispPanelShown)) { _ in
             reset()
             DispatchQueue.main.async { focused = true }
+            loadSuggestions()
             if formAssist {
                 Task { @MainActor in
                     let ctx = try? await RewispAPI.get("form-context", as: RewispAPI.FormContext.self)
@@ -336,6 +392,24 @@ struct SearchPanelView: View {
         asking = false
         answerHeight = 0
         fieldLabel = nil
+    }
+
+    // Prior questions when there's history to draw on; canned starters on a
+    // fresh install so the empty state never looks broken.
+    private func loadSuggestions() {
+        Task { @MainActor in
+            if let chats = try? await RewispAPI.get("chats", as: RewispAPI.Chats.self) {
+                let recent = chats.chats.filter { $0.role == "user" }
+                    .suffix(6).map(\.content).reversed()
+                var seen = Set<String>()
+                let unique = recent.filter { seen.insert($0.lowercased()).inserted }
+                if unique.count >= 2 {
+                    suggestions = Array(unique.prefix(3))
+                    return
+                }
+            }
+            suggestions = starters
+        }
     }
 
     private func ask() {

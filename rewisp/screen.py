@@ -7,6 +7,22 @@ from AppKit import NSRunningApplication
 from . import config
 
 
+def _clean_app_name(name) -> str:
+    """Strip invisible Unicode formatting chars (LRM/RLM/BOM/zero-width) from
+    an app name before it's used anywhere, especially kill-list matching.
+
+    Found live 2026-07-09: macOS reports WhatsApp's window owner name as
+    '\\u200eWhatsApp' (leading LEFT-TO-RIGHT MARK). The kill list does an
+    exact string match against "WhatsApp", so the invisible prefix made every
+    check silently miss — 56 WhatsApp screens were captured and OCR'd despite
+    WhatsApp being in the default kill list from day one. Never trust a raw
+    OS-provided app name for a privacy-critical comparison again."""
+    if not name:
+        return ""
+    return "".join(c for c in str(name)
+                   if not (0x200B <= ord(c) <= 0x200F or c == "﻿"))
+
+
 def frontmost_app() -> tuple[str, int]:
     """(app name, pid) of the frontmost application, via the window server.
 
@@ -25,7 +41,7 @@ def frontmost_app() -> tuple[str, int]:
             if not name and pid > 0:
                 app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
                 name = app.localizedName() if app else None
-            return (str(name) if name else "", pid)
+            return (_clean_app_name(name), pid)
     return "", -1
 
 
@@ -45,7 +61,7 @@ def frontmost_info() -> tuple[str, int, str | None]:
                 app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
                 name = app.localizedName() if app else None
             title = w.get("kCGWindowName")
-            return (str(name) if name else "", pid, str(title) if title else None)
+            return (_clean_app_name(name), pid, str(title) if title else None)
     return "", -1, None
 
 

@@ -12,3 +12,6 @@ __pycache__/
 # local scratch (scratchpad test screenshots only — not site/ or docs/img/)
 /panel*.png
 *.log
+
+#local todos
+todo.md

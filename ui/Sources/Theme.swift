@@ -25,19 +25,23 @@ struct Card<Content: View>: View {
     }
 }
 
-// Section label with a gradient tinted symbol.
+// Section label with a tinted icon chip.
 struct CardHeader: View {
     let title: String
     let symbol: String
+    var trailing: String? = nil
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: symbol)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Theme.wisp)
-                .symbolRenderingMode(.hierarchical)
+        HStack(spacing: 10) {
+            IconChip(symbol: symbol, size: 26)
             Text(title)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.secondary)
+            Spacer()
+            if let trailing {
+                Text(trailing)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
         }
     }
 }
@@ -83,6 +87,43 @@ struct TimeBar: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 56, alignment: .trailing)
         }
+    }
+}
+
+// Landing-page-style icon chip: tinted rounded square with a gradient glyph.
+struct IconChip: View {
+    let symbol: String
+    var size: CGFloat = 34
+    var body: some View {
+        RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
+            .fill(Theme.accent.opacity(0.10))
+            .overlay(RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
+                .strokeBorder(Theme.accent.opacity(0.22)))
+            .frame(width: size, height: size)
+            .overlay(
+                Image(systemName: symbol)
+                    .font(.system(size: size * 0.46, weight: .semibold))
+                    .foregroundStyle(Theme.wisp)
+                    .symbolRenderingMode(.hierarchical)
+            )
+    }
+}
+
+// Big number + label, used in the Today hero strip.
+struct StatTile: View {
+    let value: String
+    let label: String
+    var accent: Bool = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value)
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .foregroundStyle(accent ? AnyShapeStyle(Theme.wisp) : AnyShapeStyle(.primary))
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

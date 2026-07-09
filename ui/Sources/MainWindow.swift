@@ -201,12 +201,40 @@ struct TodayTab: View {
     @State private var recap: RewispAPI.Recap?
     @State private var threads: RewispAPI.Threads?
     @State private var report: RewispAPI.Report?
+    @ObservedObject var status = StatusModel.shared
+    @State private var appeared = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                TabHeader(title: greeting, subtitle: Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day()))
-                    .padding(.bottom, 6)
+                HStack(alignment: .top) {
+                    TabHeader(title: greeting, subtitle: Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day()))
+                    Spacer()
+                    WispMark()
+                        .frame(width: 40, height: 40)
+                        .shadow(color: Theme.accent.opacity(0.3), radius: 12)
+                        .rotationEffect(.degrees(appeared ? 0 : -8))
+                        .scaleEffect(appeared ? 1 : 0.7)
+                        .opacity(appeared ? 1 : 0)
+                }
+                .padding(.bottom, 2)
+
+                // Hero stat strip — the numbers that make "it's remembering" tangible.
+                Card {
+                    HStack(spacing: 0) {
+                        StatTile(value: "\(status.status?.captures_today ?? 0)",
+                                 label: "moments today", accent: true)
+                        Divider().frame(height: 30).opacity(0.3)
+                        StatTile(value: topAppToday, label: "most time")
+                            .padding(.leading, 16)
+                        Divider().frame(height: 30).opacity(0.3)
+                        StatTile(value: status.status?.paused == true ? "Paused" : "Active",
+                                 label: "capture")
+                            .padding(.leading, 16)
+                    }
+                }
+                .opacity(appeared ? 1 : 0)
+                .offset(y: appeared ? 0 : 8)
 
                 if let r = recap {
                     Card {
@@ -260,11 +288,14 @@ struct TodayTab: View {
                 }
             }
             .padding(28)
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 10)
         }
         .task {
             recap = try? await RewispAPI.get("recap", as: RewispAPI.Recap.self)
             threads = try? await RewispAPI.get("threads", as: RewispAPI.Threads.self)
             report = try? await RewispAPI.get("report", as: RewispAPI.Report.self)
+            withAnimation(Theme.spring.delay(0.05)) { appeared = true }
         }
     }
 
@@ -275,6 +306,12 @@ struct TodayTab: View {
         case 17..<22: "Good evening"
         default: "Up late"
         }
+    }
+
+    private var topAppToday: String {
+        guard let tr = recap?.time_report,
+              let best = tr.max(by: { $0.value < $1.value }) else { return "—" }
+        return best.key
     }
 }
 
