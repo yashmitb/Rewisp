@@ -4,6 +4,16 @@
 
 > "What was due on July 12th?" · "What was that video I watched last night?" · "What's my advisor's email?"
 
+<p align="center">
+  <img src="docs/img/panel.png" width="640" alt="⌘⇧Space search panel answering from screen history with the Apple on-device model">
+</p>
+
+Answers come from Apple's on-device model in a few seconds — the badge shows which engine replied. Personal facts (your email, IDs, addresses) come straight out of the Vault, deterministically, with a Copy button.
+
+<p align="center">
+  <img src="docs/img/settings.png" width="720" alt="Main window: engine chain, digest schedule, notifications">
+</p>
+
 ## How it works
 
 ```

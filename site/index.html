@@ -126,6 +126,13 @@
   .card h3 { margin-top: 14px; font-size: 17px; font-weight: 600; }
   .card p { margin-top: 8px; font-size: 14.5px; color: var(--muted); }
 
+  /* product shots */
+  .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 44px; align-items: start; }
+  @media (max-width: 800px) { .shots { grid-template-columns: 1fr; } }
+  .shot { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+  .shot img { width: 100%; height: auto; display: block; border-radius: 10px; }
+  .shot p { margin-top: 10px; font-size: 13.5px; color: var(--muted); text-align: center; }
+
   /* privacy strip */
   .strip {
     background: var(--bg-2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
@@ -203,6 +210,23 @@
     </div>
   </div>
 </header>
+
+<section>
+  <div class="wrap">
+    <div class="kicker">The real thing</div>
+    <h2>Not a mockup.</h2>
+    <div class="shots">
+      <div class="shot">
+        <img src="panel.png" alt="Search panel answering a question from screen history, on-device" loading="lazy">
+        <p>⌘⇧Space — answered on-device in seconds, with source and time.</p>
+      </div>
+      <div class="shot">
+        <img src="settings.png" alt="Main window settings: engine chain, digest schedule" loading="lazy">
+        <p>Pick your engine: Claude Pro, ChatGPT Plus, or free local — never an API key.</p>
+      </div>
+    </div>
+  </div>
+</section>
 
 <section id="privacy" class="strip">
   <div class="wrap">
