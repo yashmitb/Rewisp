@@ -52,6 +52,7 @@ struct MainWindowView: View {
                 case .chat: ChatTab()
                 case .vault: VaultTab()
                 case .memory: MemoryTab()
+                case .help: HelpTab()
                 case .settings: SettingsTab()
                 }
             }
@@ -214,7 +215,7 @@ struct TodayTab: View {
                         if r.source == "digest", let text = r.recap {
                             // stored digest uses "### Subtext" headers; Text()
                             // only renders inline markdown, so downgrade to bold
-                            Text(.init(text.replacingOccurrences(of: "### Subtext", with: "**Subtext**")))
+                            mdText(text.replacingOccurrences(of: "### Subtext", with: "**Subtext**"))
                                 .font(.callout)
                                 .lineSpacing(3)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -233,7 +234,7 @@ struct TodayTab: View {
                 if let t = threads, !t.threads.isEmpty, t.threads != "None." {
                     Card {
                         CardHeader(title: "Loose threads", symbol: "point.topleft.down.curvedto.point.bottomright.up")
-                        Text(.init(t.threads))
+                        mdText(t.threads)
                             .font(.callout)
                             .lineSpacing(3)
                             .fixedSize(horizontal: false, vertical: true)
@@ -387,7 +388,7 @@ struct ChatTab: View {
         HStack(alignment: .bottom, spacing: 10) {
             if m.role == "user" {
                 Spacer(minLength: 80)
-                Text(.init(m.content))
+                mdText(m.content)
                     .font(.callout)
                     .textSelection(.enabled)
                     .padding(.horizontal, 14).padding(.vertical, 9)
@@ -395,7 +396,7 @@ struct ChatTab: View {
                                 in: RoundedRectangle(cornerRadius: 15, style: .continuous))
             } else {
                 WispMark().frame(width: 22, height: 22)
-                Text(.init(m.content))
+                mdText(m.content)
                     .font(.callout)
                     .lineSpacing(2)
                     .textSelection(.enabled)
@@ -703,6 +704,7 @@ struct SettingsTab: View {
     @State private var digestInterval = 1
     @State private var digestRunning = false
     @State private var digestError: String?
+    @State private var showReport = false
     @AppStorage("rewisp.notify") private var notifyMode = "silent"
     @AppStorage("rewisp.ondevice") private var onDeviceFirst = true
     @AppStorage("rewisp.formassist") private var formAssist = true
@@ -814,14 +816,11 @@ struct SettingsTab: View {
                 Card {
                     CardHeader(title: "Help & feedback", symbol: "ladybug.fill")
                     HStack(spacing: 10) {
-                        Button("Report a bug") { reportBug() }
-                        Button("Open the manual") {
-                            NSWorkspace.shared.open(URL(string:
-                                "https://github.com/yashmitb/Rewisp/blob/main/docs/MANUAL.md")!)
-                        }
+                        Button("Report a bug") { showReport = true }
+                        Button("Open the manual") { MainWindowState.shared.tab = .help }
                         Spacer()
                     }
-                    Text("Bug reports open a prefilled GitHub issue — your screen history never leaves this Mac; only what you type in the issue is shared.")
+                    Text("Both stay on this Mac — the manual is bundled in the app, and bug reports are yours to copy or email, never sent anywhere automatically.")
                         .font(.caption).foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -912,6 +911,7 @@ struct SettingsTab: View {
             .padding(28)
         }
         .task { await reload() }
+        .sheet(isPresented: $showReport) { BugReportSheet() }
     }
 
     private func row(_ label: String, _ value: String) -> some View {
@@ -985,25 +985,6 @@ struct SettingsTab: View {
         Task { @MainActor in
             _ = try? await RewispAPI.post("settings", body: updates)
         }
-    }
-
-    private func reportBug() {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
-        let os = ProcessInfo.processInfo.operatingSystemVersionString
-        let body = """
-        **What happened**
-
-
-        **What I expected**
-
-
-        ---
-        Rewisp \(version) · macOS \(os) · engine: \(engine) · on-device: \(AskEngine.onDeviceAvailable ? "available" : "unavailable")
-        """
-        var comps = URLComponents(string: "https://github.com/yashmitb/Rewisp/issues/new")!
-        comps.queryItems = [.init(name: "title", value: "[bug] "),
-                            .init(name: "body", value: body)]
-        if let url = comps.url { NSWorkspace.shared.open(url) }
     }
 
     private func runDigestNow() {

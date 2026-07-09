@@ -278,14 +278,14 @@ struct SearchPanelView: View {
     private func answerContent(_ r: RewispAPI.AskResult) -> some View {
             VStack(alignment: .leading, spacing: 10) {
                 // Hierarchy: answer loudest, detail quieter, source small, time smallest.
-                Text(.init(r.answer ?? ""))
+                mdText(r.answer ?? "")
                     .font(.title3.weight(.medium))
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 if let d = r.detail, !d.isEmpty {
-                    Text(.init(d))
+                    mdText(d)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)

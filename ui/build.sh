@@ -20,6 +20,7 @@ if [[ ! -f Rewisp.icns ]]; then
     python3 icon/make_icon.py
 fi
 cp Rewisp.icns "$APP/Contents/Resources/"
+cp ../docs/MANUAL.md "$APP/Contents/Resources/MANUAL.md"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

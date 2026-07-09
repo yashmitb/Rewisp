@@ -46,6 +46,7 @@ enum MainTab: String, CaseIterable, Identifiable {
     case chat = "Chat"
     case vault = "Vault"
     case memory = "Memory"
+    case help = "Help"
     case settings = "Settings"
     var id: String { rawValue }
     var symbol: String {
@@ -54,6 +55,7 @@ enum MainTab: String, CaseIterable, Identifiable {
         case .chat: "bubble.left.and.text.bubble.right"
         case .vault: "lock.rectangle.stack"
         case .memory: "brain"
+        case .help: "questionmark.circle"
         case .settings: "gearshape"
         }
     }

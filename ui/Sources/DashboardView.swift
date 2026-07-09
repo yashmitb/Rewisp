@@ -111,12 +111,12 @@ struct DashboardView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else if let r = result {
-                Text(.init(r.answer ?? ""))
+                mdText(r.answer ?? "")
                     .font(.callout.weight(.medium))
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 if let d = r.detail, !d.isEmpty {
-                    Text(.init(d))
+                    mdText(d)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
@@ -161,7 +161,7 @@ struct DashboardView: View {
             sectionHeader("Today so far", symbol: "clock")
             if let r = recap {
                 if r.source == "digest", let text = r.recap {
-                    Text(.init(text)).font(.callout).foregroundStyle(.primary)
+                    mdText(text).font(.callout).foregroundStyle(.primary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     if let report = r.time_report, !report.isEmpty {
@@ -214,7 +214,7 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader("Loose threads", symbol: "point.topleft.down.curvedto.point.bottomright.up")
             if let t = threads, !t.threads.isEmpty, t.threads != "None." {
-                Text(.init(t.threads))
+                mdText(t.threads)
                     .font(.callout)
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
