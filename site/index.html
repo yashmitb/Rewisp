@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rewisp — an ambient memory for your Mac</title>
+<meta name="description" content="Rewisp remembers the text of everything you see on your Mac, so you can ask about it later. Private by construction — screenshots never touch disk.">
+<style>
+  :root {
+    --bg: #0b0d16;
+    --bg-2: #11141f;
+    --card: #161a28;
+    --line: rgba(255,255,255,.07);
+    --text: #eef0f6;
+    --muted: #9aa1b5;
+    --dim: #6b7288;
+    --accent: #8ea2ff;
+    --radius: 18px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", Inter, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.55;
+    overflow-x: hidden;
+  }
+  a { color: inherit; text-decoration: none; }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 24px; }
+
+  /* nav */
+  nav {
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: blur(18px);
+    background: rgba(11,13,22,.7);
+    border-bottom: 1px solid var(--line);
+  }
+  .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: .01em; }
+  .brand svg { display: block; }
+  .nav-links { display: flex; gap: 28px; font-size: 14px; color: var(--muted); }
+  .nav-links a:hover { color: var(--text); }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--text); color: #0b0d16;
+    font-weight: 600; font-size: 15px;
+    padding: 12px 22px; border-radius: 999px;
+    transition: transform .15s ease, box-shadow .15s ease;
+  }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 8px 30px rgba(142,162,255,.25); }
+  .btn.small { padding: 8px 16px; font-size: 13px; }
+  .btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+  .btn.ghost:hover { color: var(--text); box-shadow: none; }
+
+  /* hero */
+  header { position: relative; padding: 110px 0 70px; text-align: center; }
+  .glow {
+    position: absolute; inset: -200px 0 auto 0; height: 600px; pointer-events: none;
+    background: radial-gradient(600px 300px at 50% 10%, rgba(142,162,255,.16), transparent 70%);
+  }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--muted);
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 14px; margin-bottom: 28px;
+    background: rgba(255,255,255,.02);
+  }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: #7dd87d; }
+  h1 {
+    font-size: clamp(42px, 7vw, 76px);
+    line-height: 1.05; font-weight: 700; letter-spacing: -.03em;
+  }
+  h1 .soft { color: var(--dim); }
+  .sub {
+    margin: 24px auto 0; max-width: 560px;
+    font-size: 19px; color: var(--muted);
+  }
+  .cta-row { margin-top: 38px; display: flex; gap: 14px; justify-content: center; align-items: center; }
+  .hint { margin-top: 14px; font-size: 13px; color: var(--dim); }
+  .hint code { font-family: ui-monospace, "SF Mono", monospace; background: var(--card); padding: 2px 7px; border-radius: 6px; border: 1px solid var(--line); }
+
+  /* demo bar */
+  .demo {
+    margin: 70px auto 0; max-width: 640px; text-align: left;
+    background: linear-gradient(180deg, #1a1e2e, #141827);
+    border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: 0 40px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.03) inset;
+    overflow: hidden;
+  }
+  .demo .bar { display: flex; align-items: center; gap: 12px; padding: 18px 20px; font-size: 17px; }
+  .demo .bar .spark { color: var(--accent); }
+  .demo .q { border-right: 2px solid var(--accent); padding-right: 2px; white-space: nowrap; overflow: hidden; }
+  .demo .answer { border-top: 1px solid var(--line); padding: 18px 20px 16px; display: none; }
+  .demo .answer.show { display: block; animation: rise .35s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; } }
+  .demo .a-main { font-size: 16px; font-weight: 600; }
+  .demo .a-detail { margin-top: 6px; font-size: 14px; color: var(--muted); }
+  .demo .a-meta { margin-top: 12px; display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--dim); }
+  .demo .badge { border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; background: rgba(255,255,255,.03); }
+
+  /* sections */
+  section { padding: 90px 0; }
+  .kicker { font-size: 13px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+  h2 { font-size: clamp(28px, 4vw, 42px); font-weight: 700; letter-spacing: -.02em; margin-top: 10px; }
+  .lead { margin-top: 14px; color: var(--muted); max-width: 620px; font-size: 17px; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 44px; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 26px;
+    transition: border-color .2s ease, transform .2s ease;
+  }
+  .card:hover { border-color: rgba(142,162,255,.3); transform: translateY(-2px); }
+  .card .ic { font-size: 22px; }
+  .card h3 { margin-top: 14px; font-size: 17px; font-weight: 600; }
+  .card p { margin-top: 8px; font-size: 14.5px; color: var(--muted); }
+
+  /* privacy strip */
+  .strip {
+    background: var(--bg-2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  }
+  .checks { margin-top: 36px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px 40px; max-width: 760px; }
+  @media (max-width: 700px) { .checks { grid-template-columns: 1fr; } }
+  .checks li { list-style: none; display: flex; gap: 12px; font-size: 15.5px; color: var(--muted); }
+  .checks li b { color: var(--text); font-weight: 600; }
+  .checks .tick { color: #7dd87d; flex-shrink: 0; }
+
+  /* how */
+  .steps { margin-top: 44px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; counter-reset: step; }
+  @media (max-width: 800px) { .steps { grid-template-columns: 1fr; } }
+  .step { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 26px; }
+  .step::before {
+    counter-increment: step; content: "0" counter(step);
+    font-family: ui-monospace, "SF Mono", monospace; font-size: 13px; color: var(--dim);
+  }
+  .step h3 { margin-top: 10px; font-size: 17px; }
+  .step p { margin-top: 8px; font-size: 14.5px; color: var(--muted); }
+
+  /* footer cta */
+  .final { text-align: center; padding: 110px 0 90px; }
+  footer {
+    border-top: 1px solid var(--line); padding: 28px 0; font-size: 13px; color: var(--dim);
+  }
+  .foot-inner { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+  footer a:hover { color: var(--text); }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav-inner">
+    <a class="brand" href="#">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <rect width="24" height="24" rx="6" fill="#181c2c"/>
+        <path d="M5 13c2.5-5 5.5-5 7 0s4 4.5 6-1" stroke="#fff" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+        <circle cx="18.2" cy="11.2" r="1.5" fill="#fff"/>
+      </svg>
+      Rewisp
+    </a>
+    <div class="nav-links">
+      <a href="#privacy">Privacy</a>
+      <a href="#how">How it works</a>
+      <a href="https://github.com/yashmitb/Rewisp">GitHub</a>
+    </div>
+    <a class="btn small" href="https://github.com/yashmitb/Rewisp/releases/latest">Download</a>
+  </div>
+</nav>
+
+<header>
+  <div class="glow"></div>
+  <div class="wrap">
+    <div class="pill"><span class="dot"></span> Free · open source · on-device AI</div>
+    <h1>Your Mac,<br><span class="soft">with a memory.</span></h1>
+    <p class="sub">Rewisp remembers the text of everything you see, so you can ask about it later. Like Spotlight — for your past.</p>
+    <div class="cta-row">
+      <a class="btn" href="https://github.com/yashmitb/Rewisp/releases/latest">Download for Mac</a>
+      <a class="btn ghost" href="https://github.com/yashmitb/Rewisp">View source</a>
+    </div>
+    <p class="hint">macOS 15+ · Apple Silicon · summon anywhere with <code>⌘⇧Space</code></p>
+
+    <div class="demo">
+      <div class="bar"><span class="spark">✦</span> <span class="q" id="q"></span></div>
+      <div class="answer" id="answer">
+        <div class="a-main" id="a-main"></div>
+        <div class="a-detail" id="a-detail"></div>
+        <div class="a-meta">
+          <span id="a-src"></span>
+          <span class="badge">Apple on-device</span>
+          <span style="margin-left:auto">⌘C Copy</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section id="privacy" class="strip">
+  <div class="wrap">
+    <div class="kicker">Private by construction</div>
+    <h2>It remembers everything.<br>It shares nothing.</h2>
+    <p class="lead">Most "memory" apps record your screen to the cloud. Rewisp was built the opposite way — the pixels are gone before anything is saved.</p>
+    <ul class="checks">
+      <li><span class="tick">✓</span><span><b>Screenshots never touch disk.</b> Text is extracted in memory; the image is discarded instantly.</span></li>
+      <li><span class="tick">✓</span><span><b>Everything stays local.</b> One SQLite file in your home folder, readable only by you.</span></li>
+      <li><span class="tick">✓</span><span><b>Answers on-device.</b> Questions run on Apple's built-in model — no cloud round-trip.</span></li>
+      <li><span class="tick">✓</span><span><b>Kill list is absolute.</b> Messages, password managers, banking, private windows: capture fully pauses.</span></li>
+      <li><span class="tick">✓</span><span><b>Credentials refused.</b> Anything that looks like a password or card number is rejected at the door.</span></li>
+      <li><span class="tick">✓</span><span><b>Forget button.</b> Delete the last 10 minutes with one click. Everything expires after 6 months.</span></li>
+    </ul>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <div class="kicker">How it works</div>
+    <h2>Three quiet steps.</h2>
+    <div class="steps">
+      <div class="step">
+        <h3>It notices</h3>
+        <p>Smart triggers — switching apps, opening a page, settling after a scroll — capture the moment. No constant recording.</p>
+      </div>
+      <div class="step">
+        <h3>It reads</h3>
+        <p>Apple's Vision framework turns the screen into text on-device. The screenshot is never saved — only what it said.</p>
+      </div>
+      <div class="step">
+        <h3>It answers</h3>
+        <p>Hit ⌘⇧Space and ask in plain English. Full-text search finds the moment; an on-device model writes the answer with source and time.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="kicker">Everything else</div>
+    <h2>Small app. Long memory.</h2>
+    <div class="grid">
+      <div class="card"><div class="ic">🌙</div><h3>Nightly digest</h3><p>At 9 PM, one summary of your day: what happened, what's unfinished, what it learned about you — every fact needs your approval.</p></div>
+      <div class="card"><div class="ic">🗂️</div><h3>The Vault</h3><p>Drop in your resume, addresses, standard answers. Rewisp treats them as trusted truth and can fill them back to you instantly.</p></div>
+      <div class="card"><div class="ic">⏱️</div><h3>Time, honestly</h3><p>See where the day actually went — time per app, computed locally from what you looked at.</p></div>
+      <div class="card"><div class="ic">🧠</div><h3>Memory you control</h3><p>A plain markdown file of what it knows. Approve, edit, or delete any line. It never confirms anything on its own.</p></div>
+      <div class="card"><div class="ic">⌨️</div><h3>Native, everywhere</h3><p>SwiftUI menu bar app, global hotkeys, a Spotlight-style panel that grows with the answer. No Electron.</p></div>
+      <div class="card"><div class="ic">🔄</div><h3>Stays fresh</h3><p>Updates arrive through GitHub Releases — the app checks daily and offers them with one click.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="final">
+  <div class="wrap">
+    <h2>Stop trying to remember.<br><span style="color:var(--dim)">Start asking.</span></h2>
+    <div class="cta-row">
+      <a class="btn" href="https://github.com/yashmitb/Rewisp/releases/latest">Download Rewisp</a>
+    </div>
+    <p class="hint">Free and open source · MIT</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-inner">
+    <span>© 2026 Yashmit Bhaverisetti</span>
+    <span>
+      <a href="https://github.com/yashmitb/Rewisp">GitHub</a> ·
+      <a href="https://github.com/yashmitb/Rewisp/blob/main/docs/SECURITY.md">Security</a> ·
+      <a href="https://github.com/yashmitb/Rewisp/blob/main/docs/MANUAL.md">Manual</a>
+    </span>
+  </div>
+</footer>
+
+<script>
+  // Typed demo loop in the hero search bar.
+  const demos = [
+    { q: "what was due on july 12?",
+      a: "Quiz 3.2 — due July 12 at 11:59 PM",
+      d: "11-point homework quiz on Canvas, seen this afternoon.",
+      s: "Canvas · Today 4:31 PM" },
+    { q: "that video from last night?",
+      a: "3 Days Stove Hut Camping in Heavy Snowfall",
+      d: "Watched on YouTube around 1 AM.",
+      s: "YouTube · Yesterday 1:02 AM" },
+    { q: "what's my student ID?",
+      a: "A18…4291",
+      d: "From personal_info in your Vault.",
+      s: "Vault · trusted" },
+  ];
+  const qEl = document.getElementById("q"), ans = document.getElementById("answer");
+  let di = 0;
+  async function type(text) {
+    qEl.textContent = "";
+    for (const ch of text) { qEl.textContent += ch; await sleep(45 + Math.random()*40); }
+  }
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  async function loop() {
+    for (;;) {
+      const d = demos[di % demos.length]; di++;
+      ans.classList.remove("show");
+      await type(d.q);
+      await sleep(500);
+      document.getElementById("a-main").textContent = d.a;
+      document.getElementById("a-detail").textContent = d.d;
+      document.getElementById("a-src").textContent = d.s;
+      ans.classList.add("show");
+      await sleep(3800);
+      qEl.textContent = ""; await sleep(400);
+    }
+  }
+  loop();
+</script>
+</body>
+</html>

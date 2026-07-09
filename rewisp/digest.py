@@ -1,0 +1,190 @@
+"""Digest: THE one automated Claude call per day. Runs at 9 PM via launchd; the daemon
+also runs a catch-up check (local, free) in case the Mac slept through 9 PM.
+
+Input assembled locally: day's captures (deduped, grouped by hour+app), day's chats,
+yesterday's open threads. Output: daily summary, loose threads, subtext notes,
+memory proposals (Pending only), plus a locally computed time report."""
+
+import json
+import logging
+import re
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+
+from . import config, db, memory
+from .ask import call_claude
+
+log = logging.getLogger("rewisp")
+
+DIGEST_STATE = config.DATA_DIR / "digest_state.json"
+DIGEST_LOG = config.DATA_DIR / "digest_log.jsonl"
+MAX_INPUT_CHARS = 60_000  # truncate locally rather than making multiple calls
+
+PROMPT_RULES = """You are Rewisp's nightly digest. Analyze the user's day from his own screen
+history below. Answer ONLY from the provided context; do not invent events.
+Return EXACTLY these four markdown sections:
+
+## Summary
+What the user worked on, read, and decided today. Short paragraphs, concrete.
+
+## Threads
+Loose/unfinished things: emails opened but not replied to, applications started but not
+finished, tasks/tabs abandoned. Carry over any still-unresolved threads from yesterday's
+list. One bullet each. If none, write "None."
+
+## Subtext
+For important emails/messages seen on screen today, one short tone/meaning note each
+(e.g. "this rejection leaves the door open"). If none, write "None."
+
+## Memory proposals
+Durable facts or preferences about the user learned from today (especially his chat
+questions). Only things worth remembering for months. One bullet each, no speculation.
+If none, write "None."
+"""
+
+
+def _local_day_bounds(day: datetime) -> tuple[str, str]:
+    start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1)
+    fmt = "%Y-%m-%d %H:%M:%S"
+    return (start.astimezone(timezone.utc).strftime(fmt),
+            end.astimezone(timezone.utc).strftime(fmt))
+
+
+def compress_captures(rows: list) -> str:
+    """Group by (hour, app); dedupe lines seen earlier in the day. Local, free."""
+    by_bucket: dict = defaultdict(list)
+    seen_lines: set = set()
+    for ts, app, title, url, text in rows:
+        hour = ts[11:13]
+        fresh = []
+        for line in text.splitlines():
+            key = line.strip().lower()
+            if len(key) < 4 or key in seen_lines:
+                continue
+            seen_lines.add(key)
+            fresh.append(line.strip())
+        head = url or title or ""
+        if fresh or head:
+            by_bucket[(hour, app)].append((head, fresh))
+    parts = []
+    for (hour, app), items in sorted(by_bucket.items()):
+        parts.append(f"### {hour}:00 UTC — {app}")
+        for head, lines in items:
+            if head:
+                parts.append(f"[{head}]")
+            parts.extend(lines[:40])
+    return "\n".join(parts)
+
+
+def build_input(conn, day: datetime) -> str:
+    since, until = _local_day_bounds(day)
+    caps = conn.execute(
+        "SELECT ts, app, window_title, url, ocr_text FROM captures "
+        "WHERE ts >= ? AND ts < ? ORDER BY ts", (since, until)).fetchall()
+    chats = conn.execute(
+        "SELECT ts, role, content FROM chats WHERE ts >= ? AND ts < ? ORDER BY ts",
+        (since, until)).fetchall()
+    prev = conn.execute(
+        "SELECT date, threads_md FROM summaries WHERE date < ? ORDER BY date DESC LIMIT 1",
+        (day.strftime("%Y-%m-%d"),)).fetchone()
+
+    parts = [f"# Screen history for {day.strftime('%Y-%m-%d %A')} (times UTC, user is "
+             f"{datetime.now().astimezone().tzname()})",
+             compress_captures(caps) or "(no captures today)"]
+    if chats:
+        parts.append("# Today's Ask conversations")
+        parts.extend(f"[{r}] {c[:500]}" for _, r, c in chats)
+    if prev and prev[1]:
+        parts.append(f"# Open threads from {prev[0]}\n{prev[1]}")
+    text = "\n\n".join(parts)
+    if len(text) > MAX_INPUT_CHARS:
+        text = text[:MAX_INPUT_CHARS] + "\n\n[truncated locally to stay within one call]"
+    return text
+
+
+def compute_time_report(conn, day: datetime) -> dict:
+    """App time breakdown from capture timestamps. Gap between consecutive captures
+    attributed to the earlier capture's app, capped at 5 min. Local, no AI."""
+    since, until = _local_day_bounds(day)
+    rows = conn.execute("SELECT ts, app FROM captures WHERE ts >= ? AND ts < ? ORDER BY ts",
+                        (since, until)).fetchall()
+    seconds: dict = defaultdict(float)
+    fmt = "%Y-%m-%d %H:%M:%S"
+    for (ts1, app), (ts2, _) in zip(rows, rows[1:]):
+        gap = (datetime.strptime(ts2, fmt) - datetime.strptime(ts1, fmt)).total_seconds()
+        seconds[app] += min(gap, 300)
+    return {app: round(s / 60) for app, s in
+            sorted(seconds.items(), key=lambda kv: -kv[1])}
+
+
+def parse_sections(answer: str) -> dict:
+    out = {}
+    for name in ("Summary", "Threads", "Subtext", "Memory proposals"):
+        m = re.search(rf"## {name}\s*\n(.*?)(?=\n## |\Z)", answer, re.DOTALL)
+        out[name] = m.group(1).strip() if m else ""
+    return out
+
+
+def already_ran(date_str: str) -> bool:
+    if DIGEST_STATE.exists():
+        try:
+            return json.loads(DIGEST_STATE.read_text()).get("last_run_date") == date_str
+        except (json.JSONDecodeError, OSError):
+            pass
+    return False
+
+
+def run(day: datetime | None = None, force: bool = False) -> dict | None:
+    """Run the digest for `day` (default: today, local). One Claude call."""
+    day = day or datetime.now().astimezone()
+    date_str = day.strftime("%Y-%m-%d")
+    if already_ran(date_str) and not force:
+        log.info("digest: already ran for %s, skipping", date_str)
+        return None
+
+    conn = db.connect()
+    text = build_input(conn, day)
+    prompt = f"{PROMPT_RULES}\n\n{text}"
+    log.info("digest: calling Claude for %s (%d chars input)", date_str, len(prompt))
+    answer = call_claude(prompt)
+    sections = parse_sections(answer)
+    time_report = compute_time_report(conn, day)
+
+    conn.execute(
+        "INSERT INTO summaries (date, summary_md, threads_md, time_report_json) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(date) DO UPDATE SET summary_md=excluded.summary_md, "
+        "threads_md=excluded.threads_md, time_report_json=excluded.time_report_json",
+        (date_str,
+         sections["Summary"] + ("\n\n### Subtext\n" + sections["Subtext"]
+                                if sections["Subtext"] not in ("", "None.") else ""),
+         sections["Threads"],
+         json.dumps(time_report)))
+    conn.commit()
+
+    proposals = [ln[2:].strip() for ln in sections["Memory proposals"].splitlines()
+                 if ln.startswith("- ") and ln[2:].strip().lower() != "none."]
+    n_added = memory.add_pending(proposals)
+
+    DIGEST_STATE.write_text(json.dumps({"last_run_date": date_str}))
+    with DIGEST_LOG.open("a") as f:
+        f.write(json.dumps({"date": date_str, "ts": db.utcnow(),
+                            "input_chars": len(prompt), "output_chars": len(answer),
+                            "memory_proposals": n_added}) + "\n")
+    log.info("digest: done for %s (%d memory proposals)", date_str, n_added)
+    return {"date": date_str, "sections": sections, "time_report": time_report,
+            "memory_proposals": n_added}
+
+
+def catchup_due() -> bool:
+    """True if it's past 9 PM local and today's digest hasn't run. Local check, free."""
+    now = datetime.now().astimezone()
+    return now.hour >= 21 and not already_ran(now.strftime("%Y-%m-%d"))
+
+
+def calls_this_month() -> int:
+    if not DIGEST_LOG.exists():
+        return 0
+    month = datetime.now().strftime("%Y-%m")
+    return sum(1 for line in DIGEST_LOG.read_text().splitlines()
+               if json.loads(line).get("date", "").startswith(month))

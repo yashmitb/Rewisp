@@ -1,0 +1,14 @@
+# build products
+ui/Rewisp.app/
+dist/
+
+# python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# local scratch
+*.log
+panel*.png

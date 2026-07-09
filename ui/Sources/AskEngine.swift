@@ -1,0 +1,69 @@
+import Foundation
+import FoundationModels
+
+// Routing for questions:
+//   1. Apple's on-device model (free, private, instant) — retrieval still happens
+//      in the daemon (/context builds the prompt from FTS + vault + memory).
+//   2. Claude via the daemon (/ask) when the on-device model is unavailable,
+//      errors, or can't find the answer in context.
+// The Digest is untouched by this — it always uses Claude (one call per day).
+enum AskEngine {
+
+    static var onDeviceAvailable: Bool {
+        guard #available(macOS 26.0, *) else { return false }
+        if case .available = SystemLanguageModel.default.availability { return true }
+        return false
+    }
+
+    static func ask(_ question: String) async throws -> RewispAPI.AskResult {
+        if onDeviceAvailable, #available(macOS 26.0, *) {
+            do {
+                let ctx = try await RewispAPI.context(question)
+                let session = LanguageModelSession()
+                // Low temperature + token cap: factual lookup, and the small
+                // model tends to ramble past its first answer otherwise.
+                let opts = GenerationOptions(temperature: 0.1, maximumResponseTokens: 250)
+                let resp = try await session.respond(to: ctx.prompt, options: opts)
+                var r = parseStructured(resp.content)
+                r.model = "Apple on-device"
+                // Small model whiffed -> escalate to Claude rather than shrug.
+                if let a = r.answer, !a.localizedCaseInsensitiveContains("not found") {
+                    await RewispAPI.logChat(question: question, answer: a)
+                    return r
+                }
+            } catch {
+                // context overflow / guardrails / model busy — Claude picks it up
+            }
+        }
+        return try await RewispAPI.ask(question)
+    }
+
+    // Mirror of rewisp/ask.py parse_answer(): split ANSWER/DETAIL/SOURCE/TIME/COPY.
+    static func parseStructured(_ raw: String) -> RewispAPI.AskResult {
+        var fields: [String: String] = [:]
+        var current: String?
+        let keys = ["ANSWER", "DETAIL", "SOURCE", "TIME", "COPY"]
+        for line in raw.split(separator: "\n", omittingEmptySubsequences: false) {
+            let s = String(line)
+            if let key = keys.first(where: { s.hasPrefix($0 + ":") }) {
+                // The small on-device model sometimes keeps generating extra
+                // Q&A blocks — a repeated key means the first answer is done.
+                if fields[key] != nil { break }
+                current = key
+                fields[key] = String(s.dropFirst(key.count + 1))
+                    .trimmingCharacters(in: .whitespaces)
+            } else if let c = current, !s.trimmingCharacters(in: .whitespaces).isEmpty {
+                // A new "question-looking" line after ANSWER also means rambling.
+                if fields.count >= 1 && s.hasSuffix("?") && !s.contains(":") { break }
+                fields[c] = (fields[c] ?? "") + "\n" + s
+            }
+        }
+        var r = RewispAPI.AskResult()
+        r.answer = fields["ANSWER"] ?? raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        r.detail = fields["DETAIL"]
+        r.source = fields["SOURCE"]
+        r.time = fields["TIME"]
+        r.copy_text = fields["COPY"]
+        return r
+    }
+}
