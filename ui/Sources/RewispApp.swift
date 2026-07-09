@@ -49,6 +49,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SearchPanelController.shared.toggle()
         }
         DigestNotifier.shared.start()
+        // Esc closes the menu bar popover. SwiftUI's onExitCommand never fires
+        // there (the focused TextField's field editor eats cancelOperation), so
+        // catch the key one level down. Our own panels handle Esc themselves.
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == 53,  // Esc
+               let w = event.window,
+               !(w is KeyablePanel),
+               w.className.contains("MenuBarExtra") || w.level == .popUpMenu {
+                w.close()
+                return nil
+            }
+            return event
+        }
         if OnboardingController.shared.needed {
             OnboardingController.shared.show()
         }

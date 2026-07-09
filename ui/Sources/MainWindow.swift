@@ -697,6 +697,12 @@ struct SettingsTab: View {
     @State private var newApp = ""
     @State private var newPattern = ""
     @State private var exportResult: String?
+    @State private var settings: RewispAPI.Settings?
+    @State private var engine = "auto"
+    @State private var digestHour = 21
+    @State private var digestInterval = 1
+    @State private var digestRunning = false
+    @State private var digestError: String?
     @AppStorage("rewisp.notify") private var notifyMode = "silent"
     @ObservedObject var status = StatusModel.shared
 
@@ -706,13 +712,70 @@ struct SettingsTab: View {
                 TabHeader(title: "Settings", subtitle: "Engines, privacy, and your data.")
 
                 Card {
-                    CardHeader(title: "Answering engine", symbol: "cpu.fill")
+                    CardHeader(title: "AI engine", symbol: "cpu.fill")
                     row("Quick answers", AskEngine.onDeviceAvailable
-                        ? "Apple on-device model · Claude fallback"
-                        : "Claude (on-device model unavailable)")
-                    row("Nightly digest", "Claude — one call per day, 9 PM")
+                        ? "Apple on-device model, engine below as fallback"
+                        : "Engine below (on-device model unavailable)")
+                    Picker("", selection: $engine) {
+                        Text("Auto — best available (recommended)").tag("auto")
+                        Text("Claude Pro" + availTag(settings?.available?.claude)).tag("claude")
+                        Text("ChatGPT Plus (Codex CLI)" + availTag(settings?.available?.codex)).tag("codex")
+                        Text("Free — Ollama, local" + availTag(settings?.available?.ollama)).tag("ollama")
+                    }
+                    .pickerStyle(.radioGroup)
+                    .labelsHidden()
+                    .onChange(of: engine) { saveSettings(["engine": engine]) }
+                    Text(engineNote)
+                        .font(.caption)
+                        .foregroundStyle(engine == "ollama" ? AnyShapeStyle(.orange) : AnyShapeStyle(.tertiary))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Card {
+                    CardHeader(title: "Digest", symbol: "moon.stars.fill")
+                    HStack {
+                        Text("Runs at").font(.callout)
+                        Picker("", selection: $digestHour) {
+                            ForEach(Array(stride(from: 6, to: 24, by: 1)), id: \.self) { h in
+                                Text(hourLabel(h)).tag(h)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 110)
+                        .onChange(of: digestHour) { saveSettings(["digest_hour": digestHour]) }
+                        Picker("", selection: $digestInterval) {
+                            Text("every day").tag(1)
+                            Text("every 2 days").tag(2)
+                            Text("every 3 days").tag(3)
+                            Text("weekly").tag(7)
+                        }
+                        .labelsHidden()
+                        .frame(width: 130)
+                        .onChange(of: digestInterval) { saveSettings(["digest_interval_days": digestInterval]) }
+                        Spacer()
+                    }
                     if let s = status.status {
                         row("Digest calls this month", "\(s.digest_calls_this_month)")
+                    }
+                    HStack(spacing: 10) {
+                        Button {
+                            runDigestNow()
+                        } label: {
+                            if digestRunning {
+                                HStack(spacing: 6) {
+                                    ProgressView().controlSize(.small)
+                                    Text("Digesting…")
+                                }
+                            } else {
+                                Text("Run digest now")
+                            }
+                        }
+                        .disabled(digestRunning)
+                        Text("Not needed — it runs automatically. This re-digests today and uses one AI call.")
+                            .font(.caption).foregroundStyle(.tertiary)
+                    }
+                    if let e = digestError {
+                        Text(e).font(.caption).foregroundStyle(.orange)
                     }
                 }
 
@@ -850,5 +913,58 @@ struct SettingsTab: View {
 
     @MainActor private func reload() async {
         kill = try? await RewispAPI.get("killlist", as: RewispAPI.KillList.self)
+        if let s = try? await RewispAPI.get("settings", as: RewispAPI.Settings.self) {
+            settings = s
+            engine = s.engine
+            digestHour = s.digest_hour
+            digestInterval = s.digest_interval_days
+        }
+        if let d = try? await RewispAPI.get("digest/status", as: RewispAPI.DigestStatus.self) {
+            digestRunning = d.running
+            digestError = d.error
+        }
+    }
+
+    private func availTag(_ ok: Bool?) -> String {
+        ok == true ? "" : "  — not installed"
+    }
+
+    private var engineNote: String {
+        switch engine {
+        case "claude": "Best quality. Uses your Claude Pro subscription ($0 extra, never an API key)."
+        case "codex": "Good quality. Uses your ChatGPT Plus subscription via the Codex CLI ($0 extra, never an API key)."
+        case "ollama": "⚠️ Noticeably weaker answers than Claude or ChatGPT — but fully free, unlimited, and never leaves this Mac. Install from ollama.com, then run: ollama pull llama3.1:8b"
+        default: "Tries Claude Pro first, then ChatGPT Plus, then free local Ollama — whichever is available and working."
+        }
+    }
+
+    private func hourLabel(_ h: Int) -> String {
+        let ampm = h < 12 ? "AM" : "PM"
+        let display = h % 12 == 0 ? 12 : h % 12
+        return "\(display) \(ampm)"
+    }
+
+    private func saveSettings(_ updates: [String: Any]) {
+        Task { @MainActor in
+            _ = try? await RewispAPI.post("settings", body: updates)
+        }
+    }
+
+    private func runDigestNow() {
+        digestRunning = true
+        digestError = nil
+        Task { @MainActor in
+            _ = try? await RewispAPI.post("digest", body: ["force": true])
+            // poll until the worker finishes
+            while true {
+                try? await Task.sleep(for: .seconds(3))
+                guard let d = try? await RewispAPI.get("digest/status", as: RewispAPI.DigestStatus.self) else { break }
+                if !d.running {
+                    digestRunning = false
+                    digestError = d.error
+                    break
+                }
+            }
+        }
     }
 }

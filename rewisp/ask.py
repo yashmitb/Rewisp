@@ -129,7 +129,7 @@ def build_prompt(question: str, compact: bool = False) -> tuple[str, dict]:
         conn.close()
 
 
-def call_claude(prompt: str) -> str:
+def _call_claude(prompt: str) -> str:
     """One call through Claude Code (Pro subscription). Refuses to run with an API key set."""
     if os.environ.get("ANTHROPIC_API_KEY"):
         raise RuntimeError(
@@ -147,6 +147,73 @@ def call_claude(prompt: str) -> str:
             raise RuntimeError("Claude Code is signed out. Run `claude` in a terminal and sign in.")
         raise RuntimeError(f"claude call failed: {err[:400]}")
     return out.stdout.strip()
+
+
+def _call_codex(prompt: str) -> str:
+    """ChatGPT Plus path: OpenAI's Codex CLI, billed to the ChatGPT subscription.
+    Same rule as Claude — refuse to silently bill an API key."""
+    if os.environ.get("OPENAI_API_KEY"):
+        raise RuntimeError(
+            "OPENAI_API_KEY is set — this would bill the OpenAI API instead of your "
+            "ChatGPT subscription. Unset it and retry.")
+    if not shutil.which("codex"):
+        raise RuntimeError("Codex CLI not found. `npm i -g @openai/codex`, then `codex` once to sign in.")
+    out = subprocess.run(
+        ["codex", "exec", "--skip-git-repo-check", "-"],
+        input=prompt, capture_output=True, text=True, timeout=180,
+    )
+    if out.returncode != 0:
+        raise RuntimeError(f"codex call failed: {(out.stderr or out.stdout).strip()[:400]}")
+    # codex exec prints session preamble lines before the answer; the answer is
+    # the text after the final "codex" marker line, when present.
+    text = out.stdout.strip()
+    if "\ncodex\n" in text:
+        text = text.rsplit("\ncodex\n", 1)[1]
+    return text.strip()
+
+
+def _call_ollama(prompt: str) -> str:
+    """Free path: local Ollama server. Fully free and unlimited, but a small
+    local model — noticeably weaker than Claude/ChatGPT."""
+    import json as _json
+    import urllib.error
+    import urllib.request
+    model = config.load_settings().get("ollama_model", "llama3.1:8b")
+    req = urllib.request.Request(
+        "http://127.0.0.1:11434/api/generate",
+        data=_json.dumps({"model": model, "prompt": prompt,
+                          "stream": False, "options": {"temperature": 0.2}}).encode(),
+        headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=600) as resp:
+            return _json.loads(resp.read())["response"].strip()
+    except urllib.error.URLError as e:
+        raise RuntimeError(
+            f"Ollama not reachable ({e.reason}). Install from ollama.com, then "
+            f"`ollama pull {model}`.") from e
+
+
+ENGINES = {"claude": _call_claude, "codex": _call_codex, "ollama": _call_ollama}
+AUTO_ORDER = ["claude", "codex", "ollama"]  # best quality first
+
+
+def call_claude(prompt: str) -> str:
+    """Kept name for existing callers; routes through the configured engine."""
+    return call_llm(prompt)[0]
+
+
+def call_llm(prompt: str) -> tuple[str, str]:
+    """(answer, engine_used). engine setting: auto | claude | codex | ollama.
+    auto = try Claude (best), then ChatGPT Plus via Codex, then free local Ollama."""
+    engine = config.load_settings().get("engine", "auto")
+    order = AUTO_ORDER if engine == "auto" else [engine]
+    errors = []
+    for name in order:
+        try:
+            return ENGINES[name](prompt), name
+        except Exception as e:  # noqa: BLE001 — each engine failure falls through
+            errors.append(f"{name}: {e}")
+    raise RuntimeError("All engines failed — " + " | ".join(errors))
 
 
 def parse_answer(raw: str) -> dict:
@@ -177,10 +244,11 @@ def ask(question: str, save: bool = True) -> tuple[str, dict]:
     now_local = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %A")
     prompt = (f"{SYSTEM_RULES}\n\nUser's local time now: {now_local} ({_local_offset()})\n\n"
               f"# Context\n{context}\n\n# Question\n{question}")
-    raw = call_claude(prompt)
+    raw, engine = call_llm(prompt)
     fields = parse_answer(raw)
     meta.update(fields)
-    meta["model"] = "Claude"
+    meta["model"] = {"claude": "Claude", "codex": "ChatGPT",
+                     "ollama": "Ollama (local)"}.get(engine, engine)
     answer = fields["answer"]
     if save:
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")

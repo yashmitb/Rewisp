@@ -28,8 +28,19 @@ yesterday morning"*, *"what did I read 3 days ago"*.
 | Question type | Engine | Cost |
 |---|---|---|
 | Hot search / chat | Apple on-device model (macOS 26) | $0, fully local |
-| On-device unavailable or can't find it | Claude (Pro subscription) | $0 extra |
-| Nightly Digest, 9 PM | Claude — the only automated call, once/day | $0 extra |
+| On-device unavailable or can't find it | Engine chain below | $0 extra |
+| Digest (9 PM default, frequency configurable) | Engine chain below — the only automated call | $0 extra |
+
+**Engine chain** (Settings → AI engine): Auto tries **Claude Pro** (best), then
+**ChatGPT Plus** via the Codex CLI (`npm i -g @openai/codex`, sign in once), then
+**free local Ollama** (install from ollama.com, `ollama pull llama3.1:8b`).
+The free option is unlimited and never leaves your Mac, but noticeably weaker.
+Subscriptions only — Rewisp refuses to run if ANTHROPIC_API_KEY or OPENAI_API_KEY
+is set, so you can never be silently billed per-token.
+
+**Digest schedule**: Settings → Digest — pick the hour and frequency (daily /
+every 2–3 days / weekly). "Run digest now" re-digests today manually (not
+needed; it costs one AI call).
 
 ### Pause capture
 - **Cmd+Option+P** — global pause/resume toggle (works anywhere)

@@ -22,17 +22,25 @@ final class SearchPanelController: NSObject, NSWindowDelegate {
         if panel == nil { build() }
         guard let panel else { return }
         let target = savedOrigin() ?? defaultOrigin()
-        // enter: start slightly higher and transparent, settle down into place
-        panel.setFrameOrigin(NSPoint(x: target.x, y: target.y + 14))
+        // enter: start higher + transparent, overshoot 2px past target, settle.
+        // Two chained ease curves read as a spring without fighting SwiftUI.
+        panel.setFrameOrigin(NSPoint(x: target.x, y: target.y + 20))
         panel.alphaValue = 0
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate()
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.22
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.20
+            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1.0)
             panel.animator().alphaValue = 1
-            panel.animator().setFrameOrigin(target)
-        }
+            panel.animator().setFrameOrigin(NSPoint(x: target.x, y: target.y - 2))
+        }, completionHandler: { [weak self] in
+            guard let panel = self?.panel, panel.isVisible else { return }
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.14
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().setFrameOrigin(target)
+            }
+        })
         // Every summon starts a fresh session with a focused field —
         // onAppear only fires on the first show, so signal explicitly.
         NotificationCenter.default.post(name: .rewispPanelShown, object: nil)
@@ -166,8 +174,9 @@ struct SearchPanelView: View {
             HStack(spacing: 12) {
                 Image(systemName: "sparkles")
                     .font(.title3)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(asking ? AnyShapeStyle(Theme.wisp) : AnyShapeStyle(.secondary))
                     .symbolRenderingMode(.hierarchical)
+                    .symbolEffect(.pulse, options: .repeating, isActive: asking)
                 TextField("Ask your memory anything", text: $query)
                     .textFieldStyle(.plain)
                     .font(.title3)
@@ -188,13 +197,13 @@ struct SearchPanelView: View {
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
-                .transition(.opacity)
+                .transition(.opacity.combined(with: .offset(y: -6)))
             }
 
             if let r = result {
                 Divider().opacity(0.4)
                 answerView(r)
-                    .transition(.opacity)
+                    .transition(.opacity.combined(with: .offset(y: 8)))
             }
         }
         .frame(width: 640)

@@ -52,7 +52,9 @@ struct DashboardView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         todayCard
+                            .transition(.opacity.combined(with: .offset(y: 8)))
                         threadsCard
+                            .transition(.opacity.combined(with: .offset(y: 12)))
                     }
                 }
                 .scrollIndicators(.never)
@@ -77,8 +79,10 @@ struct DashboardView: View {
 
     private var searchBar: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
+            Image(systemName: asking ? "sparkles" : "magnifyingglass")
+                .foregroundStyle(asking ? AnyShapeStyle(Theme.wisp) : AnyShapeStyle(.secondary))
+                .symbolEffect(.pulse, options: .repeating, isActive: asking)
+                .contentTransition(.symbolEffect(.replace))
             TextField("Ask your memory anything", text: $query)
                 .textFieldStyle(.plain)
                 .focused($searchFocused)
@@ -336,9 +340,12 @@ struct DashboardView: View {
     private func refresh() async {
         daemonUp = await RewispAPI.daemonRunning()
         guard daemonUp else { return }
-        status = try? await RewispAPI.get("status", as: RewispAPI.Status.self)
-        recap = try? await RewispAPI.get("recap", as: RewispAPI.Recap.self)
-        threads = try? await RewispAPI.get("threads", as: RewispAPI.Threads.self)
+        let s = try? await RewispAPI.get("status", as: RewispAPI.Status.self)
+        let r = try? await RewispAPI.get("recap", as: RewispAPI.Recap.self)
+        let t = try? await RewispAPI.get("threads", as: RewispAPI.Threads.self)
+        withAnimation(spring) {
+            status = s; recap = r; threads = t
+        }
     }
 
     @MainActor

@@ -12,6 +12,15 @@ PAUSE_FLAG = DATA_DIR / "paused"
 KILL_LIST_PATH = DATA_DIR / "killlist.json"
 LOG_PATH = DATA_DIR / "daemon.log"
 TOKEN_PATH = DATA_DIR / ".api_token"  # shared secret for the localhost API
+SETTINGS_PATH = DATA_DIR / "settings.json"
+
+# engine: "auto" tries claude -> codex (ChatGPT Plus) -> ollama (free, local)
+DEFAULT_SETTINGS = {
+    "engine": "auto",
+    "ollama_model": "llama3.1:8b",   # digest needs a long context window
+    "digest_hour": 21,               # local hour the digest becomes due
+    "digest_interval_days": 1,       # 1 = nightly, 2 = every other day, 7 = weekly
+}
 
 BROWSER_APP = "Dia"
 
@@ -86,6 +95,24 @@ def load_kill_list() -> dict:
     apps = set(DEFAULT_KILL_APPS) | set(user["apps"])
     patterns = set(DEFAULT_KILL_URL_PATTERNS) | set(user["url_patterns"])
     return {"apps": apps, "url_patterns": patterns}
+
+
+def load_settings() -> dict:
+    s = dict(DEFAULT_SETTINGS)
+    if SETTINGS_PATH.exists():
+        try:
+            s.update(json.loads(SETTINGS_PATH.read_text()))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return s
+
+
+def save_settings(updates: dict) -> dict:
+    ensure_dirs()
+    s = load_settings()
+    s.update({k: v for k, v in updates.items() if k in DEFAULT_SETTINGS})
+    SETTINGS_PATH.write_text(json.dumps(s, indent=2))
+    return s
 
 
 def api_token() -> str:

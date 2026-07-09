@@ -75,6 +75,26 @@ struct RewispAPI {
         var path: String
     }
 
+    struct EngineAvail: Decodable {
+        var claude: Bool
+        var codex: Bool
+        var ollama: Bool
+    }
+
+    struct Settings: Decodable {
+        var engine: String
+        var ollama_model: String
+        var digest_hour: Int
+        var digest_interval_days: Int
+        var available: EngineAvail?
+    }
+
+    struct DigestStatus: Decodable {
+        var running: Bool
+        var error: String?
+        var last_run: String?
+    }
+
     struct Report: Decodable {
         var days: [String: [String: Int]]
         var totals: [String: Int]

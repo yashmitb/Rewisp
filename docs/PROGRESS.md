@@ -112,6 +112,18 @@
 - [x] Main window redesign: custom sidebar (wordmark, matchedGeometry selection,
       live capture pill), Today tab (greeting, digest card, loose threads, weekly
       bars), chat bubbles + suggestion chips, styled vault/memory/settings cards (2026-07-09)
+- [x] Engine fallback chain (2026-07-09): auto = Claude Pro → ChatGPT Plus
+      (Codex CLI, subscription only — refuses OPENAI_API_KEY) → free local
+      Ollama (unlimited, weaker; warned in UI). Settings picker shows install
+      state per engine; answers badge which engine replied.
+- [x] Digest controls (2026-07-09): run hour + frequency (daily/2/3/weekly)
+      settings honored by scheduler; "Run digest now" button with
+      "not needed" warning, runs in a worker thread with live status.
+- [x] Esc closes the menu bar popover — local keyDown monitor; SwiftUI's
+      onExitCommand never fired there (field editor eats cancelOperation) (2026-07-09)
+- [x] Animation pass on popover + search panel: overshoot-settle entrance,
+      pulsing sparkles while searching, offset+fade content transitions (2026-07-09)
+- [x] Landing page: wisp SVG favicon + stroke-icon cards (emojis out) (2026-07-09)
 - [ ] Form detector + info panel from Vault (deferred — the Ask panel already
       answers "what's my X" from the Vault with a Copy button)
 - [ ] SUCCESS TESTS (definition of done): <5% CPU, <300 MB RAM all day; kill list zero rows; memory learned 1 fact; export human-readable ✓; $0 beyond Pro

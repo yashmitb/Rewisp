@@ -126,21 +126,36 @@ def parse_sections(answer: str) -> dict:
     return out
 
 
-def already_ran(date_str: str) -> bool:
+def last_run_date() -> str | None:
     if DIGEST_STATE.exists():
         try:
-            return json.loads(DIGEST_STATE.read_text()).get("last_run_date") == date_str
+            return json.loads(DIGEST_STATE.read_text()).get("last_run_date")
         except (json.JSONDecodeError, OSError):
             pass
-    return False
+    return None
+
+
+def already_ran(date_str: str) -> bool:
+    return last_run_date() == date_str
+
+
+def _interval_elapsed(now: datetime) -> bool:
+    """Respect the user's digest frequency (Settings): nightly / every N days."""
+    last = last_run_date()
+    if last is None:
+        return True
+    days = (now.date() - datetime.strptime(last, "%Y-%m-%d").date()).days
+    return days >= int(config.load_settings().get("digest_interval_days", 1))
 
 
 def run(day: datetime | None = None, force: bool = False) -> dict | None:
     """Run the digest for `day` (default: today, local). One Claude call."""
     day = day or datetime.now().astimezone()
     date_str = day.strftime("%Y-%m-%d")
-    if already_ran(date_str) and not force:
-        log.info("digest: already ran for %s, skipping", date_str)
+    if not force and (already_ran(date_str) or not _interval_elapsed(day)):
+        log.info("digest: not due for %s (ran %s, every %s day(s)), skipping",
+                 date_str, last_run_date(),
+                 config.load_settings().get("digest_interval_days", 1))
         return None
 
     conn = db.connect()
@@ -177,9 +192,12 @@ def run(day: datetime | None = None, force: bool = False) -> dict | None:
 
 
 def catchup_due() -> bool:
-    """True if it's past 9 PM local and today's digest hasn't run. Local check, free."""
+    """True if it's past the configured digest hour and one is due (frequency-aware).
+    Local check, free."""
     now = datetime.now().astimezone()
-    return now.hour >= 21 and not already_ran(now.strftime("%Y-%m-%d"))
+    hour = int(config.load_settings().get("digest_hour", 21))
+    return (now.hour >= hour and not already_ran(now.strftime("%Y-%m-%d"))
+            and _interval_elapsed(now))
 
 
 def calls_this_month() -> int:

@@ -36,6 +36,23 @@ log = logging.getLogger("rewisp")
 
 PORT = 43117
 
+# manual digest runs in a worker thread; UI polls /digest/status
+_digest = {"running": False, "error": None}
+
+
+def _engine_availability() -> dict:
+    import shutil as _sh
+    import urllib.request
+    ollama = False
+    try:
+        urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=1)
+        ollama = True
+    except OSError:
+        pass
+    return {"claude": bool(_sh.which("claude")),
+            "codex": bool(_sh.which("codex")),
+            "ollama": ollama}
+
 
 def _today_utc_bounds() -> tuple[str, str]:
     now = datetime.now().astimezone()
@@ -132,6 +149,13 @@ class Handler(BaseHTTPRequestHandler):
                         files.append({"name": p.name, "size": st.st_size,
                                       "mtime": int(st.st_mtime)})
                 self._json({"files": files, "path": str(config.VAULT_DIR)})
+            elif self.path == "/settings":
+                self._json({**config.load_settings(),
+                            "available": _engine_availability()})
+            elif self.path == "/digest/status":
+                self._json({"running": _digest["running"],
+                            "error": _digest["error"],
+                            "last_run": digest.last_run_date()})
             elif self.path == "/report":
                 from . import export
                 self._json(export.weekly_report(conn))
@@ -205,6 +229,24 @@ class Handler(BaseHTTPRequestHandler):
                 self._memory_move(body.get("line", ""), approve=True)
             elif self.path == "/memory/delete":
                 self._memory_move(body.get("line", ""), approve=False)
+            elif self.path == "/settings":
+                self._json(config.save_settings(body))
+            elif self.path == "/digest":
+                if _digest["running"]:
+                    return self._json({"started": False, "error": "already running"}, 409)
+                _digest.update(running=True, error=None)
+
+                def _work():
+                    try:
+                        digest.run(force=bool(body.get("force", True)))
+                    except Exception as e:  # noqa: BLE001
+                        _digest["error"] = str(e)
+                        log.exception("manual digest failed")
+                    finally:
+                        _digest["running"] = False
+
+                threading.Thread(target=_work, name="rewisp-digest", daemon=True).start()
+                self._json({"started": True})
             elif self.path == "/export":
                 from . import export
                 self._json(export.run(conn))
