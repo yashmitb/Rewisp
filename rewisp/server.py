@@ -132,6 +132,9 @@ class Handler(BaseHTTPRequestHandler):
                         files.append({"name": p.name, "size": st.st_size,
                                       "mtime": int(st.st_mtime)})
                 self._json({"files": files, "path": str(config.VAULT_DIR)})
+            elif self.path == "/report":
+                from . import export
+                self._json(export.weekly_report(conn))
             elif self.path == "/killlist":
                 user = config.load_user_kill_list()
                 self._json({
@@ -202,6 +205,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._memory_move(body.get("line", ""), approve=True)
             elif self.path == "/memory/delete":
                 self._memory_move(body.get("line", ""), approve=False)
+            elif self.path == "/export":
+                from . import export
+                self._json(export.run(conn))
             elif self.path == "/vault/reindex":
                 from . import vault
                 res = vault.reindex(conn)

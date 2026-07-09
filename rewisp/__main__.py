@@ -1,4 +1,4 @@
-"""CLI: python3 -m rewisp [daemon|once|pause|resume|status|search <q>|ask <q>|digest [--force]|vault|memory]"""
+"""CLI: python3 -m rewisp [daemon|once|pause|resume|status|search <q>|ask <q>|digest [--force]|vault|memory|export|report]"""
 
 import sys
 
@@ -106,6 +106,18 @@ def main():
         for path, reason in r["refused"]:
             print(f"  REFUSED {path}: looks like it contains a {reason} — "
                   "never store credentials in the Vault")
+    elif cmd == "export":
+        from . import export
+        r = export.run()
+        print(f"exported to {r['path']}: {r.get('summaries', 0)} summaries, "
+              f"{r.get('chats', 0)} chat lines, {r.get('captures', 0)} captures")
+    elif cmd == "report":
+        from . import export
+        r = export.weekly_report()
+        print("last 7 days, minutes per app:")
+        for app, m in list(r["totals"].items())[:12]:
+            if m > 0:
+                print(f"  {app:<24} {m:>5}  {'█' * min(m // 15, 40)}")
     elif cmd == "memory":
         from . import memory
         confirmed, pending = memory.read_sections()

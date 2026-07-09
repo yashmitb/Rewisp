@@ -57,8 +57,12 @@
 - [x] launchd job at 9 PM local — com.rewisp.digest loaded (2026-07-08)
 - [x] Wake catch-up + once/day guard (2026-07-08)
 - [x] Local input compression (line dedupe, group by hour+app, 60k char cap) (2026-07-08)
-- [ ] One Claude call → summary, threads, subtext, memory proposals (code done; first live run tonight 9 PM)
-- [ ] Write summaries.summary_md + threads_md (verified after first live run)
+- [x] One Claude call → summary, threads, subtext, memory proposals — first live
+      digest ran 2026-07-08 (5 memory proposals; 9 PM launchd fired but hit the
+      Claude session limit; completed after 11:30 PM reset). Fixed the real bug:
+      daemon catch-up used time.monotonic(), which PAUSES during Mac sleep, so
+      the 15-min retry throttle stretched to hours — now wall-clock. (2026-07-09)
+- [x] Write summaries.summary_md + threads_md — verified, shown in Today tab (2026-07-09)
 - [x] Memory file Pending/Confirmed flow + UI review tab (2026-07-08)
 - [x] Vault ingest (.md .txt .docx .pdf) + FTS index + credential refusal (2026-07-08)
 - [x] Vault UI: drag-drop in, delete, add note — main window Vault tab (2026-07-08)
@@ -98,8 +102,19 @@
       "Install Rewisp.command" (launchd setup, pyobjc check). dist/Rewisp-0.1.0.dmg built. (2026-07-08)
 - [x] Landing page live at https://yashmitb.github.io/Rewisp/ (site/, GitHub
       Pages via Actions, typed-demo hero, privacy + how-it-works sections) (2026-07-08)
-- [ ] Weekly time report, export everything, form detector, notification settings
-- [ ] SUCCESS TESTS (definition of done): <5% CPU, <300 MB RAM all day; kill list zero rows; memory learned 1 fact; export human-readable; $0 beyond Pro
+- [x] Export everything: `rewisp export` / Settings button → ~/Rewisp/export/
+      (summaries.md, chats.md, captures.csv, memory.md). Verified: 577 captures,
+      62 chat lines exported human-readable. (2026-07-09)
+- [x] Weekly time report: /report endpoint + `rewisp report` CLI + "This week"
+      card in the Today tab (stored digests + live compute) (2026-07-09)
+- [x] Daily local backup of summaries + memory (daemon daily tick, keeps 14) (2026-07-09)
+- [x] Notification setting: Silent / digest-ready ping (Settings → Notifications) (2026-07-09)
+- [x] Main window redesign: custom sidebar (wordmark, matchedGeometry selection,
+      live capture pill), Today tab (greeting, digest card, loose threads, weekly
+      bars), chat bubbles + suggestion chips, styled vault/memory/settings cards (2026-07-09)
+- [ ] Form detector + info panel from Vault (deferred — the Ask panel already
+      answers "what's my X" from the Vault with a Copy button)
+- [ ] SUCCESS TESTS (definition of done): <5% CPU, <300 MB RAM all day; kill list zero rows; memory learned 1 fact; export human-readable ✓; $0 beyond Pro
 
 ---
 

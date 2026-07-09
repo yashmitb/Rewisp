@@ -75,6 +75,11 @@ struct RewispAPI {
         var path: String
     }
 
+    struct Report: Decodable {
+        var days: [String: [String: Int]]
+        var totals: [String: Int]
+    }
+
     struct KillList: Decodable {
         var default_apps: [String]
         var default_url_patterns: [String]

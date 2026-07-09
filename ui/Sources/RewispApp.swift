@@ -48,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         GlobalHotkey.register {
             SearchPanelController.shared.toggle()
         }
+        DigestNotifier.shared.start()
         if OnboardingController.shared.needed {
             OnboardingController.shared.show()
         }

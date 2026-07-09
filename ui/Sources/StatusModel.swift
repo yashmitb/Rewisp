@@ -38,10 +38,11 @@ final class StatusModel: ObservableObject {
 @MainActor
 final class MainWindowState: ObservableObject {
     static let shared = MainWindowState()
-    @Published var tab: MainTab = .chat
+    @Published var tab: MainTab = .today
 }
 
 enum MainTab: String, CaseIterable, Identifiable {
+    case today = "Today"
     case chat = "Chat"
     case vault = "Vault"
     case memory = "Memory"
@@ -49,6 +50,7 @@ enum MainTab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var symbol: String {
         switch self {
+        case .today: "sun.horizon"
         case .chat: "bubble.left.and.text.bubble.right"
         case .vault: "lock.rectangle.stack"
         case .memory: "brain"

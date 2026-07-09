@@ -162,15 +162,23 @@ class Daemon:
             while not screen.has_screen_recording_permission():
                 time.sleep(30)
             log.info("screen recording permission granted, starting capture")
+        # Wall clock, not monotonic: mach monotonic time PAUSES while the Mac
+        # sleeps, so a monotonic 15-min throttle can defer the digest catch-up
+        # for hours of real time after wake (observed 2026-07-08).
         last_retention = 0.0
         last_catchup = 0.0
         while True:
             self.tick()
-            now = time.monotonic()
+            now = time.time()
             if now - last_retention > 86_400:
                 last_retention = now
                 deleted = db.run_retention(self.conn)
                 log.info("retention: deleted %d captures, %d chats", *deleted)
+                from . import export
+                try:
+                    export.backup(self.conn)
+                except Exception:
+                    log.exception("daily backup failed")
             # Digest catch-up: Mac slept through 9 PM -> run on next check.
             # Local check is free; digest.run() itself is guarded to once/day.
             if now - last_catchup > 900:
