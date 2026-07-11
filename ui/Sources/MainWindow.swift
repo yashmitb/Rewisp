@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import LocalAuthentication
 
 // The main app window: everything the popover is too small for.
 // Programmatic NSWindow (not a Window scene) so it can be opened from the
@@ -133,7 +134,7 @@ private struct Sidebar: View {
         guard status.daemonUp, let s = status.status else { return "Daemon offline" }
         if s.paused { return "Paused" }
         if s.capture_state == "killlist" { return "Kill list active" }
-        return "Remembering · \(s.captures_today) today"
+        return "Remembering · \(s.captures_today) wisps today"
     }
 }
 
@@ -232,7 +233,7 @@ struct TodayTab: View {
                 Card {
                     HStack(spacing: 0) {
                         StatTile(value: "\(status.status?.captures_today ?? 0)",
-                                 label: "moments today", accent: true)
+                                 label: "wisps today", accent: true)
                         Divider().frame(height: 30).opacity(0.3)
                         StatTile(value: topAppToday, label: "most time")
                             .padding(.leading, 16)
@@ -262,7 +263,7 @@ struct TodayTab: View {
                                 TimeBar(label: app, minutes: m, maxMinutes: top.first?.value ?? 1)
                             }
                         } else {
-                            Text("Nothing captured yet — go live your day.")
+                            Text("No wisps yet — go live your day.")
                                 .font(.callout).foregroundStyle(.secondary)
                         }
                     }
@@ -562,6 +563,22 @@ struct ChatTab: View {
 
 // MARK: - Vault
 
+// Touch ID (or device password fallback) gate for the Vault. When no biometric
+// or password is enrolled, `available` is false and the Vault opens normally —
+// we never lock a user out of their own data.
+enum VaultLock {
+    static var available: Bool {
+        LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
+    }
+
+    static func authenticate() async throws {
+        let ctx = LAContext()
+        ctx.localizedFallbackTitle = "Use password"
+        try await ctx.evaluatePolicy(.deviceOwnerAuthentication,
+                                     localizedReason: "Unlock your Rewisp Vault")
+    }
+}
+
 struct VaultTab: View {
     @State private var vault: RewispAPI.Vault?
     @State private var dropHover = false
@@ -569,8 +586,53 @@ struct VaultTab: View {
     @State private var noteTitle = ""
     @State private var noteText = ""
     @State private var toast: String?
+    // The Vault holds your most sensitive facts — gate it behind Touch ID.
+    @State private var unlocked = !VaultLock.available
+    @State private var authError: String?
 
     var body: some View {
+        Group {
+            if unlocked { vaultBody } else { lockScreen }
+        }
+        .task { if !unlocked { await authenticate() } }
+    }
+
+    private var lockScreen: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 40))
+                .foregroundStyle(Theme.wisp)
+            Text("Vault locked")
+                .font(.title2.weight(.semibold))
+            Text("Your trusted facts are behind Touch ID.")
+                .font(.callout).foregroundStyle(.secondary)
+            if let e = authError {
+                Text(e).font(.caption).foregroundStyle(.orange)
+            }
+            Button {
+                Task { await authenticate() }
+            } label: {
+                Label("Unlock with Touch ID", systemImage: "touchid")
+            }
+            .controlSize(.large)
+            .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(40)
+    }
+
+    @MainActor
+    private func authenticate() async {
+        authError = nil
+        do {
+            try await VaultLock.authenticate()
+            withAnimation(.spring(response: 0.3)) { unlocked = true }
+        } catch {
+            authError = "Authentication failed. Try again."
+        }
+    }
+
+    private var vaultBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top) {
@@ -816,13 +878,63 @@ struct MemoryTab: View {
 
 // MARK: - Settings
 
+enum SettingsSection: String, CaseIterable, Identifiable {
+    case answers, local, cloud, digest, alerts, privacy, data, help
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .answers: "Answers"
+        case .local: "Local model"
+        case .cloud: "Cloud & keys"
+        case .digest: "Digest"
+        case .alerts: "Notifications"
+        case .privacy: "Privacy"
+        case .data: "Your data"
+        case .help: "Help"
+        }
+    }
+    var subtitle: String {
+        switch self {
+        case .answers: "Choose how Rewisp answers your questions."
+        case .local: "A private model that runs on your Mac."
+        case .cloud: "Free Gemini or your own paid API key."
+        case .digest: "The nightly recap of your day."
+        case .alerts: "Notifications and search-panel behavior."
+        case .privacy: "What Rewisp never captures."
+        case .data: "Everything stays in ~/Rewisp on this Mac."
+        case .help: "Manual, bug reports, and shortcuts."
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .answers: "cpu.fill"
+        case .local: "desktopcomputer"
+        case .cloud: "key.fill"
+        case .digest: "moon.stars.fill"
+        case .alerts: "bell.badge.fill"
+        case .privacy: "hand.raised.fill"
+        case .data: "internaldrive.fill"
+        case .help: "questionmark.circle.fill"
+        }
+    }
+}
+
 struct SettingsTab: View {
+    @State private var section: SettingsSection = .answers
     @State private var kill: RewispAPI.KillList?
     @State private var newApp = ""
     @State private var newPattern = ""
     @State private var exportResult: String?
     @State private var settings: RewispAPI.Settings?
     @State private var engine = "auto"
+    @State private var geminiKey = ""
+    @State private var geminiSaving = false
+    @State private var geminiStatus: String?
+    @State private var customLabel = ""
+    @State private var customBase = ""
+    @State private var customKey = ""
+    @State private var customModel = ""
+    @State private var disabledEngines: Set<String> = []
     @State private var digestHour = 21
     @State private var digestInterval = 1
     @State private var digestRunning = false
@@ -834,207 +946,358 @@ struct SettingsTab: View {
     @ObservedObject var status = StatusModel.shared
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                TabHeader(title: "Settings", subtitle: "Engines, privacy, and your data.")
-
-                Card {
-                    CardHeader(title: "AI engine", symbol: "cpu.fill")
-                    if AskEngine.onDeviceAvailable {
-                        Picker("", selection: $onDeviceFirst) {
-                            Text("Apple on-device first — free, private, saves your subscription usage").tag(true)
-                            Text("Always use the engine below — best quality on every question").tag(false)
-                        }
-                        .pickerStyle(.radioGroup)
-                        .labelsHidden()
-                    } else {
-                        row("Quick answers", "Engine below (on-device model unavailable)")
-                    }
-                    Divider().opacity(0.35)
-                    Picker("", selection: $engine) {
-                        Text("Auto — best available (recommended)").tag("auto")
-                        Text("Claude Pro" + availTag(settings?.available?.claude)).tag("claude")
-                        Text("ChatGPT Plus (Codex CLI)" + availTag(settings?.available?.codex)).tag("codex")
-                        Text("Free — Ollama, local" + availTag(settings?.available?.ollama)).tag("ollama")
-                    }
-                    .pickerStyle(.radioGroup)
-                    .labelsHidden()
-                    .onChange(of: engine) { saveSettings(["engine": engine]) }
-                    Text(engineNote)
-                        .font(.caption)
-                        .foregroundStyle(engine == "ollama" ? AnyShapeStyle(.orange) : AnyShapeStyle(.tertiary))
-                        .fixedSize(horizontal: false, vertical: true)
+        HStack(spacing: 0) {
+            settingsSidebar
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(section.title).font(.title.weight(.semibold))
+                    Text(section.subtitle).font(.callout).foregroundStyle(.secondary)
+                        .padding(.bottom, 4)
+                    sectionContent
                 }
-
-                Card {
-                    CardHeader(title: "Digest", symbol: "moon.stars.fill")
-                    HStack {
-                        Text("Runs at").font(.callout)
-                        Picker("", selection: $digestHour) {
-                            ForEach(Array(stride(from: 6, to: 24, by: 1)), id: \.self) { h in
-                                Text(hourLabel(h)).tag(h)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 110)
-                        .onChange(of: digestHour) { saveSettings(["digest_hour": digestHour]) }
-                        Picker("", selection: $digestInterval) {
-                            Text("every day").tag(1)
-                            Text("every 2 days").tag(2)
-                            Text("every 3 days").tag(3)
-                            Text("weekly").tag(7)
-                        }
-                        .labelsHidden()
-                        .frame(width: 130)
-                        .onChange(of: digestInterval) { saveSettings(["digest_interval_days": digestInterval]) }
-                        Spacer()
-                    }
-                    if let s = status.status {
-                        row("Digest calls this month", "\(s.digest_calls_this_month)")
-                    }
-                    HStack(spacing: 10) {
-                        Button {
-                            runDigestNow()
-                        } label: {
-                            if digestRunning {
-                                HStack(spacing: 6) {
-                                    ProgressView().controlSize(.small)
-                                    Text("Digesting…")
-                                }
-                            } else {
-                                Text("Run digest now")
-                            }
-                        }
-                        .disabled(digestRunning)
-                        Text("Not needed — it runs automatically. This re-digests today and uses one AI call.")
-                            .font(.caption).foregroundStyle(.tertiary)
-                    }
-                    if let e = digestError {
-                        Text(e).font(.caption).foregroundStyle(.orange)
-                    }
-                }
-
-                Card {
-                    CardHeader(title: "Notifications", symbol: "bell.badge.fill")
-                    Picker("", selection: $notifyMode) {
-                        Text("Silent").tag("silent")
-                        Text("Ping me when the digest is ready").tag("digest")
-                    }
-                    .pickerStyle(.radioGroup)
-                    .labelsHidden()
-                }
-
-                Card {
-                    CardHeader(title: "Search panel", symbol: "sparkles.rectangle.stack.fill")
-                    Toggle(isOn: $formAssist) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Form field detection").font(.callout)
-                            Text("When you summon ⌘⇧Space while in a text field, offer to look that field up in your Vault.")
-                                .font(.caption).foregroundStyle(.tertiary)
-                        }
-                    }
-                    .toggleStyle(.switch)
-                }
-
-                Card {
-                    CardHeader(title: "Help & feedback", symbol: "ladybug.fill")
-                    HStack(spacing: 10) {
-                        Button("Report a bug") { showReport = true }
-                        Button("Open the manual") { MainWindowState.shared.tab = .help }
-                        Spacer()
-                    }
-                    Text("Both stay on this Mac — the manual is bundled in the app, and bug reports are yours to copy or email, never sent anywhere automatically.")
-                        .font(.caption).foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Card {
-                    CardHeader(title: "Kill list — capture fully pauses", symbol: "hand.raised.fill")
-                    Text("\(kill?.default_apps.count ?? 0) apps + \(kill?.default_url_patterns.count ?? 0) banking/finance domains are built in and can't be removed.")
-                        .font(.caption).foregroundStyle(.tertiary)
-                    ForEach(kill?.default_apps ?? [], id: \.self) { app in
-                        HStack {
-                            Text(app).font(.callout)
-                            Spacer()
-                            Image(systemName: "lock.fill").font(.caption).foregroundStyle(.tertiary)
-                        }
-                    }
-                    ForEach(kill?.apps ?? [], id: \.self) { app in
-                        HStack {
-                            Text(app).font(.callout)
-                            Spacer()
-                            Button { removeApp(app) } label: {
-                                Image(systemName: "minus.circle").foregroundStyle(.secondary)
-                            }.buttonStyle(HoverButton())
-                        }
-                    }
-                    HStack {
-                        TextField("Add app (e.g. Signal)", text: $newApp)
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit { addApp() }
-                        Button("Add", action: addApp)
-                            .disabled(newApp.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                    Divider().opacity(0.35)
-                    CardHeader(title: "Blocked sites (URL contains)", symbol: "globe.badge.chevron.backward")
-                    ForEach(kill?.url_patterns ?? [], id: \.self) { p in
-                        HStack {
-                            Text(p).font(.callout.monospaced())
-                            Spacer()
-                            Button { removePattern(p) } label: {
-                                Image(systemName: "minus.circle").foregroundStyle(.secondary)
-                            }.buttonStyle(HoverButton())
-                        }
-                    }
-                    HStack {
-                        TextField("Add domain (e.g. myhealthportal.com)", text: $newPattern)
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit { addPattern() }
-                        Button("Add", action: addPattern)
-                            .disabled(newPattern.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                }
-
-                Card {
-                    CardHeader(title: "Your data", symbol: "internaldrive.fill")
-                    if let s = status.status {
-                        row("Captures", "\(s.captures_total) total · \(String(format: "%.1f", s.db_mb)) MB")
-                    }
-                    row("Retention", "Captures ~6 months · summaries forever")
-                    row("Location", "~/Rewisp — text only, this Mac only")
-                    HStack(spacing: 10) {
-                        Button("Export everything") {
-                            Task { @MainActor in
-                                if let data = try? await RewispAPI.post("export"),
-                                   let res = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                                    exportResult = "Exported \(res["captures"] ?? 0) captures, \(res["summaries"] ?? 0) summaries"
-                                    NSWorkspace.shared.open(URL(fileURLWithPath: res["path"] as? String ?? NSHomeDirectory() + "/Rewisp/export"))
-                                }
-                            }
-                        }
-                        Button("Open data folder") {
-                            NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory() + "/Rewisp"))
-                        }
-                    }
-                    if let e = exportResult {
-                        Text(e).font(.caption).foregroundStyle(.green)
-                    }
-                }
-
-                Card {
-                    CardHeader(title: "Shortcuts", symbol: "keyboard.fill")
-                    row("Search anywhere", "⌘⇧Space")
-                    row("Pause / resume capture", "⌘⌥P")
-                }
-
-                Text("Rewisp \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") · open source · MIT")
-                    .font(.caption2).foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                .frame(maxWidth: 640, alignment: .leading)
+                .padding(28)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .id(section)   // reset scroll position when switching sections
             }
-            .padding(28)
         }
         .task { await reload() }
         .sheet(isPresented: $showReport) { BugReportSheet() }
+    }
+
+    // MARK: nav rail
+
+    private var settingsSidebar: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Settings")
+                .font(.title2.weight(.bold))
+                .padding(.horizontal, 12).padding(.top, 22).padding(.bottom, 12)
+            ForEach(SettingsSection.allCases) { s in
+                Button { withAnimation(.easeOut(duration: 0.12)) { section = s } } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: s.symbol)
+                            .frame(width: 18)
+                            .foregroundStyle(section == s ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
+                        Text(s.title)
+                            .font(.callout.weight(section == s ? .semibold : .regular))
+                        Spacer()
+                    }
+                    .padding(.vertical, 6).padding(.horizontal, 10)
+                    .background(section == s ? Theme.accent.opacity(0.14) : .clear,
+                                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+            Text("Rewisp \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") · MIT")
+                .font(.caption2).foregroundStyle(.tertiary)
+                .padding(.horizontal, 12).padding(.bottom, 14)
+        }
+        .frame(width: 200)
+        .padding(.horizontal, 8)
+        .background(.quaternary.opacity(0.12))
+    }
+
+    @ViewBuilder
+    private var sectionContent: some View {
+        switch section {
+        case .answers: answersSection
+        case .local: localSection
+        case .cloud: cloudSection
+        case .digest: digestSection
+        case .alerts: alertsSection
+        case .privacy: privacySection
+        case .data: dataSection
+        case .help: helpSection
+        }
+    }
+
+    // MARK: - sections
+
+    private var answersSection: some View {
+        Card {
+            CardHeader(title: "How Rewisp answers", symbol: "cpu.fill")
+            if AskEngine.onDeviceAvailable {
+                Picker("", selection: $onDeviceFirst) {
+                    Text("Apple on-device first — free, private, saves your subscription usage").tag(true)
+                    Text("Always use my chosen engine — best quality on every question").tag(false)
+                }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+                Divider().opacity(0.35)
+            }
+            Text("Engine").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Picker("", selection: $engine) {
+                Text("Auto — best available (recommended)").tag("auto")
+                Text("Claude Pro" + availTag(settings?.available?.claude)).tag("claude")
+                Text("ChatGPT Plus (Codex CLI)" + availTag(settings?.available?.codex)).tag("codex")
+                Text("Local model, offline" + availTag(settings?.available?.local)).tag("local")
+                Text("Gemini, free cloud" + availTag(settings?.available?.gemini)).tag("gemini")
+                Text("My own paid API key" + availTag(settings?.available?.custom)).tag("custom")
+                Text("Ollama, local" + availTag(settings?.available?.ollama)).tag("ollama")
+            }
+            .pickerStyle(.radioGroup)
+            .labelsHidden()
+            .onChange(of: engine) { saveSettings(["engine": engine]) }
+            Text(engineNote)
+                .font(.caption)
+                .foregroundStyle(engine == "ollama" ? AnyShapeStyle(.orange) : AnyShapeStyle(.tertiary))
+                .fixedSize(horizontal: false, vertical: true)
+
+            if engine == "auto" {
+                Divider().opacity(0.35)
+                Text("Auto tries these in order — untick any to ignore it:")
+                    .font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                ForEach(autoChain, id: \.0) { id, label in
+                    Toggle(isOn: chainBinding(id)) { Text(label).font(.caption) }
+                        .toggleStyle(.checkbox)
+                }
+            }
+            Divider().opacity(0.35)
+            Text("Set up a local model in **Local model**, or add keys in **Cloud & keys** →")
+                .font(.caption).foregroundStyle(.tertiary)
+        }
+    }
+
+    private var localSection: some View {
+        Card {
+            CardHeader(title: "Local AI model", symbol: "desktopcomputer")
+            Text("Free, unlimited, offline, private — a model that runs on your Mac. Much stronger than Apple on-device when you have the RAM. Download, delete, or switch anytime — nothing is locked in.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            LocalModelSetup()
+        }
+    }
+
+    private var cloudSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Card {
+                CardHeader(title: "Gemini (free cloud)", symbol: "sparkle")
+                HStack(spacing: 8) {
+                    Image(systemName: settings?.available?.gemini == true ? "checkmark.seal.fill" : "key.fill")
+                        .font(.caption)
+                        .foregroundStyle(settings?.available?.gemini == true ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
+                    SecureField("Gemini API key (free)", text: $geminiKey)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { saveGeminiKey() }
+                    Button {
+                        saveGeminiKey()
+                    } label: {
+                        if geminiSaving { ProgressView().controlSize(.small) } else { Text("Save") }
+                    }
+                    .controlSize(.small)
+                    .disabled(geminiKey.isEmpty || geminiSaving)
+                }
+                if let s = geminiStatus {
+                    Label(s, systemImage: s.hasPrefix("Saved") ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(s.hasPrefix("Saved") ? .green : .orange)
+                        .transition(.opacity)
+                } else if settings?.available?.gemini == true {
+                    Label("Key saved — Gemini is ready", systemImage: "checkmark.circle.fill")
+                        .font(.caption).foregroundStyle(.green)
+                }
+                Text("Free key from aistudio.google.com/apikey. Your memory text is sent to Google only when Gemini is the engine that answers.")
+                    .font(.caption).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Card {
+                CardHeader(title: "Your own paid API", symbol: "key.horizontal.fill")
+                Text("Already pay for OpenAI, DeepSeek, Groq, OpenRouter, or Mistral? Use it. Any OpenAI-compatible endpoint works.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                TextField("Name (e.g. OpenAI, DeepSeek)", text: $customLabel)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Base URL (e.g. https://api.openai.com/v1)", text: $customBase)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Model (e.g. gpt-4o-mini, deepseek-chat)", text: $customModel)
+                    .textFieldStyle(.roundedBorder)
+                HStack(spacing: 8) {
+                    SecureField("API key", text: $customKey)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Save") { saveCustomAPI() }
+                        .controlSize(.small)
+                        .disabled(customBase.isEmpty || customKey.isEmpty || customModel.isEmpty)
+                }
+                if settings?.available?.custom == true {
+                    Label("Custom API configured", systemImage: "checkmark.circle.fill")
+                        .font(.caption).foregroundStyle(.green)
+                }
+                Text("Your key stays on this Mac; text goes to that provider only when it answers.")
+                    .font(.caption).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var digestSection: some View {
+        Card {
+            CardHeader(title: "Digest", symbol: "moon.stars.fill")
+            HStack {
+                Text("Runs at").font(.callout)
+                Picker("", selection: $digestHour) {
+                    ForEach(Array(stride(from: 6, to: 24, by: 1)), id: \.self) { h in
+                        Text(hourLabel(h)).tag(h)
+                    }
+                }
+                .labelsHidden().frame(width: 110)
+                .onChange(of: digestHour) { saveSettings(["digest_hour": digestHour]) }
+                Picker("", selection: $digestInterval) {
+                    Text("every day").tag(1)
+                    Text("every 2 days").tag(2)
+                    Text("every 3 days").tag(3)
+                    Text("weekly").tag(7)
+                }
+                .labelsHidden().frame(width: 130)
+                .onChange(of: digestInterval) { saveSettings(["digest_interval_days": digestInterval]) }
+                Spacer()
+            }
+            if let s = status.status {
+                row("Digest calls this month", "\(s.digest_calls_this_month)")
+            }
+            HStack(spacing: 10) {
+                Button {
+                    runDigestNow()
+                } label: {
+                    if digestRunning {
+                        HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Digesting…") }
+                    } else {
+                        Text("Run digest now")
+                    }
+                }
+                .disabled(digestRunning)
+                Text("Not needed — runs automatically. This re-digests today and uses one AI call.")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+            if let e = digestError {
+                Text(e).font(.caption).foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private var alertsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Card {
+                CardHeader(title: "Notifications", symbol: "bell.badge.fill")
+                Picker("", selection: $notifyMode) {
+                    Text("Silent").tag("silent")
+                    Text("Ping me when the digest is ready").tag("digest")
+                }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+            }
+            Card {
+                CardHeader(title: "Search panel", symbol: "sparkles.rectangle.stack.fill")
+                Toggle(isOn: $formAssist) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Form field detection").font(.callout)
+                        Text("When you summon ⌘⇧Space in a text field, offer to look that field up in your Vault.")
+                            .font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
+                .toggleStyle(.switch)
+            }
+        }
+    }
+
+    private var privacySection: some View {
+        Card {
+            CardHeader(title: "Kill list — capture fully pauses", symbol: "hand.raised.fill")
+            Text("\(kill?.default_apps.count ?? 0) apps + \(kill?.default_url_patterns.count ?? 0) banking/finance domains are built in and can't be removed.")
+                .font(.caption).foregroundStyle(.tertiary)
+            ForEach(kill?.default_apps ?? [], id: \.self) { app in
+                HStack {
+                    Text(app).font(.callout)
+                    Spacer()
+                    Image(systemName: "lock.fill").font(.caption).foregroundStyle(.tertiary)
+                }
+            }
+            ForEach(kill?.apps ?? [], id: \.self) { app in
+                HStack {
+                    Text(app).font(.callout)
+                    Spacer()
+                    Button { removeApp(app) } label: {
+                        Image(systemName: "minus.circle").foregroundStyle(.secondary)
+                    }.buttonStyle(HoverButton())
+                }
+            }
+            HStack {
+                TextField("Add app (e.g. Signal)", text: $newApp)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { addApp() }
+                Button("Add", action: addApp)
+                    .disabled(newApp.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            Divider().opacity(0.35)
+            CardHeader(title: "Blocked sites (URL contains)", symbol: "globe.badge.chevron.backward")
+            ForEach(kill?.url_patterns ?? [], id: \.self) { p in
+                HStack {
+                    Text(p).font(.callout.monospaced())
+                    Spacer()
+                    Button { removePattern(p) } label: {
+                        Image(systemName: "minus.circle").foregroundStyle(.secondary)
+                    }.buttonStyle(HoverButton())
+                }
+            }
+            HStack {
+                TextField("Add domain (e.g. myhealthportal.com)", text: $newPattern)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { addPattern() }
+                Button("Add", action: addPattern)
+                    .disabled(newPattern.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+    }
+
+    private var dataSection: some View {
+        Card {
+            CardHeader(title: "Your data", symbol: "internaldrive.fill")
+            if let s = status.status {
+                row("Wisps", "\(s.captures_total) total · \(String(format: "%.1f", s.db_mb)) MB")
+            }
+            row("Retention", "Wisps ~6 months · summaries forever")
+            row("Location", "~/Rewisp — text only, this Mac only")
+            HStack(spacing: 10) {
+                Button("Export everything") {
+                    Task { @MainActor in
+                        if let data = try? await RewispAPI.post("export"),
+                           let res = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                            exportResult = "Exported \(res["captures"] ?? 0) wisps, \(res["summaries"] ?? 0) summaries"
+                            NSWorkspace.shared.open(URL(fileURLWithPath: res["path"] as? String ?? NSHomeDirectory() + "/Rewisp/export"))
+                        }
+                    }
+                }
+                Button("Open data folder") {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory() + "/Rewisp"))
+                }
+            }
+            if let e = exportResult {
+                Text(e).font(.caption).foregroundStyle(.green)
+            }
+        }
+    }
+
+    private var helpSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Card {
+                CardHeader(title: "Help & feedback", symbol: "ladybug.fill")
+                HStack(spacing: 10) {
+                    Button("Report a bug") { showReport = true }
+                    Button("Open the manual") { MainWindowState.shared.tab = .help }
+                    Spacer()
+                }
+                Text("Both stay on this Mac — the manual is bundled in the app, and bug reports are yours to copy or email, never sent anywhere automatically.")
+                    .font(.caption).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Card {
+                CardHeader(title: "Shortcuts", symbol: "keyboard.fill")
+                row("Search anywhere", "⌘⇧Space")
+                row("Pause / resume capture", "⌘⌥P")
+            }
+        }
     }
 
     private func row(_ label: String, _ value: String) -> some View {
@@ -1076,6 +1339,12 @@ struct SettingsTab: View {
         if let s = try? await RewispAPI.get("settings", as: RewispAPI.Settings.self) {
             settings = s
             engine = s.engine
+            geminiKey = s.gemini_api_key ?? ""
+            disabledEngines = Set(s.disabled_engines ?? [])
+            if let c = s.custom_api {
+                customLabel = c.label; customBase = c.base_url
+                customKey = c.api_key; customModel = c.model
+            }
             digestHour = s.digest_hour
             digestInterval = s.digest_interval_days
         }
@@ -1093,8 +1362,11 @@ struct SettingsTab: View {
         switch engine {
         case "claude": "Best quality. Uses your Claude Pro subscription ($0 extra, never an API key)."
         case "codex": "Good quality. Uses your ChatGPT Plus subscription via the Codex CLI ($0 extra, never an API key)."
+        case "gemini": "Strong answers, fully free — no paid API, no local install. Uses your free Google key. Sends your memory text to Google to answer."
+        case "local": "Free, unlimited, offline, private — a real model running on your Mac. Much stronger than Apple on-device. Set it up in the Local AI card below."
+        case "custom": "Use any paid API you already have (OpenAI, DeepSeek, Groq, OpenRouter, Mistral). Configure it below. Your key stays on this Mac."
         case "ollama": "⚠️ Noticeably weaker answers than Claude or ChatGPT — but fully free, unlimited, and never leaves this Mac. Install from ollama.com, then run: ollama pull llama3.1:8b"
-        default: "Tries Claude Pro first, then ChatGPT Plus, then free local Ollama — whichever is available and working."
+        default: "Tries Claude Pro, ChatGPT, your paid API, a local model, free Gemini, then Ollama — whichever you've set up. Untick any below to ignore it."
         }
     }
 
@@ -1107,6 +1379,62 @@ struct SettingsTab: View {
     private func saveSettings(_ updates: [String: Any]) {
         Task { @MainActor in
             _ = try? await RewispAPI.post("settings", body: updates)
+        }
+    }
+
+    // The auto chain, in priority order, with the labels shown as checkboxes.
+    private var autoChain: [(String, String)] {
+        [("claude", "Claude Pro"), ("codex", "ChatGPT (Codex)"),
+         ("custom", "Your paid API"), ("local", "Local model"),
+         ("gemini", "Gemini (free)"), ("ollama", "Ollama")]
+    }
+
+    private func chainBinding(_ id: String) -> Binding<Bool> {
+        Binding(
+            get: { !disabledEngines.contains(id) },
+            set: { on in
+                if on { disabledEngines.remove(id) } else { disabledEngines.insert(id) }
+                saveSettings(["disabled_engines": Array(disabledEngines)])
+            })
+    }
+
+    private func saveCustomAPI() {
+        let body: [String: Any] = ["custom_api": [
+            "base_url": customBase.trimmingCharacters(in: .whitespaces),
+            "api_key": customKey.trimmingCharacters(in: .whitespaces),
+            "model": customModel.trimmingCharacters(in: .whitespaces),
+            "label": customLabel.trimmingCharacters(in: .whitespaces)]]
+        Task { @MainActor in
+            _ = try? await RewispAPI.post("settings", body: body)
+            settings = try? await RewispAPI.get("settings", as: RewispAPI.Settings.self)
+        }
+    }
+
+    // Save the Gemini key and confirm it round-tripped — the daemon only keeps
+    // known settings, so we re-fetch and check `available.gemini` actually flipped.
+    private func saveGeminiKey() {
+        let key = geminiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        geminiSaving = true
+        geminiStatus = nil
+        Task { @MainActor in
+            _ = try? await RewispAPI.post("settings", body: ["gemini_api_key": key])
+            settings = try? await RewispAPI.get("settings", as: RewispAPI.Settings.self)
+            // Real call, not just "key is non-empty" — confirms Gemini actually answers.
+            var test: RewispAPI.GeminiTest?
+            if let data = try? await RewispAPI.post("gemini-test", body: [:]) {
+                test = try? JSONDecoder().decode(RewispAPI.GeminiTest.self, from: data)
+            }
+            geminiSaving = false
+            withAnimation(.spring(response: 0.3)) {
+                if test?.ok == true {
+                    geminiStatus = "Saved — tested, Gemini answered ✓"
+                } else {
+                    geminiStatus = "Key saved but the test failed: \(test?.error ?? "no response")"
+                }
+            }
+            try? await Task.sleep(for: .seconds(8))
+            if geminiStatus?.hasPrefix("Saved") == true { geminiStatus = nil }
         }
     }
 

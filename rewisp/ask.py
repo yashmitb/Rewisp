@@ -19,11 +19,17 @@ STOPWORDS = {
 }
 
 SYSTEM_RULES = """You are Rewisp, answering questions about the user's own screen history.
-Answer ONLY from the context below. If the answer is not in the context, put
-"Not found in your memory." in ANSWER — never guess or use outside knowledge.
-Timestamps in context are UTC; the user's local timezone offset is given. Convert times to local.
 
-Respond in EXACTLY this format (omit a line entirely if not applicable):
+Rules, in order of importance:
+1. Answer ONLY from the context below. Never use outside knowledge, never guess.
+2. If the answer is not clearly present, put EXACTLY "Not found in your memory."
+   in ANSWER and stop. A wrong answer is far worse than admitting you don't know.
+3. When several captures could answer, prefer the MOST RECENT one (highest #id / latest TIME).
+4. Quote exact values (names, numbers, links, IDs) verbatim from the context — do not paraphrase them.
+5. Timestamps in context are UTC; the user's local offset is given. Convert every TIME you output to local.
+6. Vault entries are user-provided truth — if Vault and screen text conflict, Vault wins.
+
+Respond in EXACTLY this format (omit a line entirely if it does not apply):
 ANSWER: <the direct answer, 1-2 sentences, no citations here>
 DETAIL: <supporting explanation or extra findings, brief>
 SOURCE: <where it was seen: app / site / file, human-readable>
@@ -32,13 +38,48 @@ COPY: <if the question asked for a specific fact/value (name, ID, address, email
 link, number): the exact bare value alone, nothing else>"""
 
 
+# Small on-device models (~3B) follow short, blunt, example-led instructions far
+# better than long rule lists. This is tuned for Apple Foundation Models.
+COMPACT_SYSTEM_RULES = """You search the user's own screen history and answer from it.
+
+Use ONLY the CONTEXT below. Do not use outside knowledge. Do not invent anything.
+If the answer is not clearly in the context, reply exactly: ANSWER: Not found in your memory.
+If several captures fit, use the most recent one.
+Copy exact values (numbers, emails, links, names) letter-for-letter.
+
+Reply in this format and nothing else:
+ANSWER: <one short sentence>
+SOURCE: <app or site it came from>
+TIME: <when, in the user's local time>
+COPY: <only if a specific value was asked for: just the value>
+
+Example:
+CONTEXT: [#42 Mail 2026-07-08 22:10 UTC] From: Dana Lee <dana@acme.com> Subject: Invoice #7781 due Friday
+QUESTION: who emailed me about an invoice?
+ANSWER: Dana Lee emailed you about Invoice #7781, due Friday.
+SOURCE: Mail
+TIME: Jul 8, 3:10 PM
+COPY: dana@acme.com"""
+
+
 def _fts_query(question: str) -> str:
     words = re.findall(r"[a-zA-Z0-9_.-]+", question.lower())
-    keep = [w for w in words if w not in STOPWORDS and len(w) > 1]
-    if not keep:
-        keep = words
-    # OR of quoted terms: broad recall, rank sorts by relevance
-    return " OR ".join(f'"{w}"' for w in keep)
+    content = [w for w in words if w not in STOPWORDS and len(w) > 1]
+    if not content:
+        content = [w for w in words if len(w) > 1] or words
+    terms = [f'"{w}"' for w in content]
+    # Adjacent word pairs from the original text (real adjacency) as phrases:
+    # captures containing the exact phrase score higher under bm25 rank.
+    for a, b in zip(words, words[1:]):
+        if len(a) > 1 and len(b) > 1 and (a in content or b in content):
+            terms.append(f'"{a} {b}"')
+    seen: set[str] = set()
+    out = []
+    for t in terms:  # de-dupe, preserve order
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return " OR ".join(out)
 
 
 def _local_offset() -> str:
@@ -197,6 +238,17 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
             parts.append(f"{hdr}{loc}\n{r['ocr_text']}")
     recent_ids = {r["id"] for r in recent}
     rows = [r for r in rows if r["id"] not in recent_ids]
+    # The 48-token FTS snippet often clips the actual answer a sentence away from
+    # the matched keyword. Give the top matches fuller text around the hit.
+    top_ids = [r["id"] for r in rows[: (3 if compact else 6)]]
+    if top_ids:
+        span = 600 if compact else 900
+        full = {i: t for i, t in conn.execute(
+            f"SELECT id, substr(ocr_text,1,{span}) FROM captures "
+            f"WHERE id IN ({','.join('?' * len(top_ids))})", top_ids)}
+        for r in rows:
+            if r["id"] in full and full[r["id"]]:
+                r["snippet"] = full[r["id"]]
     if rows:
         parts.append("## Screen captures (matched)")
         for r in rows:
@@ -234,8 +286,9 @@ def build_prompt(question: str, compact: bool = False) -> tuple[str, dict]:
         if fact:
             meta["fact"] = fact
         now_local = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %A")
-        prompt = (f"{SYSTEM_RULES}\n\nUser's local time now: {now_local} ({_local_offset()})\n\n"
-                  f"# Context\n{context}\n\n# Question\n{question}")
+        rules = COMPACT_SYSTEM_RULES if compact else SYSTEM_RULES
+        prompt = (f"{rules}\n\nUser's local time now: {now_local} ({_local_offset()})\n\n"
+                  f"# CONTEXT\n{context}\n\n# QUESTION\n{question}")
         return prompt, meta
     finally:
         conn.close()
@@ -284,6 +337,151 @@ def _call_codex(prompt: str) -> str:
     return text.strip()
 
 
+def _ssl_context():
+    """python.org Python ships without system CA certs, so plain HTTPS to Google
+    fails cert verification. Prefer certifi's bundle; fall back to system default."""
+    import ssl
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:  # noqa: BLE001
+        return ssl.create_default_context()
+
+
+def _call_gemini(prompt: str) -> str:
+    """Free cloud path: Google Gemini free tier. Strong answers, no local install,
+    no paid API — uses the user's own free key from aistudio.google.com. Requires
+    a network call, so it only runs when a key is set in settings."""
+    import json as _json
+    import urllib.error
+    import urllib.request
+    s = config.load_settings()
+    key = (s.get("gemini_api_key") or "").strip()
+    if not key:
+        raise RuntimeError(
+            "No Gemini key. Get a free one at aistudio.google.com/apikey and paste "
+            "it in Settings to enable the free cloud engine.")
+    import re as _re
+    import time as _time
+    model = s.get("gemini_model", "gemini-2.5-flash")
+    payload = _json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 400},
+    }).encode()
+
+    def _post(api: str) -> tuple[int, str]:
+        url = (f"https://generativelanguage.googleapis.com/{api}/models/"
+               f"{model}:generateContent?key={key}")
+        req = urllib.request.Request(url, data=payload,
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=60, context=_ssl_context()) as resp:
+                return 200, resp.read().decode()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode(errors="replace")
+
+    # Newer models (2.5+) live on v1; older ones answer on v1beta. Try v1 first,
+    # fall back to v1beta on a 404 so any model the user picks works.
+    try:
+        code, body = _post("v1")
+        if code == 404:
+            code, body = _post("v1beta")
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"Gemini not reachable ({e.reason}).") from e
+
+    # One retry on 429, honoring the server's suggested "retry in Ns" (capped).
+    if code == 429 and "limit: 0" not in body:
+        m = _re.search(r"retry in ([\d.]+)s", body)
+        _time.sleep(min(float(m.group(1)) + 1, 20) if m else 5)
+        code, body = _post("v1")
+        if code == 404:
+            code, body = _post("v1beta")
+
+    if code == 429 and "limit: 0" in body:
+        raise RuntimeError(
+            "This Google account has no Gemini free tier (limit 0). Workspace / "
+            "school accounts (e.g. .edu) block it — create the key from a personal "
+            "Google account at aistudio.google.com/apikey.")
+    if code == 429:
+        raise RuntimeError("Gemini free-tier daily/rate limit reached — try later.")
+    if code != 200:
+        raise RuntimeError(f"Gemini call failed ({code}): {body[:200]}")
+    try:
+        return _json.loads(body)["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except (KeyError, IndexError, ValueError) as e:
+        raise RuntimeError(f"Gemini returned no answer: {body[:200]}") from e
+
+
+def gemini_selftest() -> tuple[bool, str | None]:
+    """Actually call Gemini once so the UI can confirm the key WORKS, not just
+    that it's non-empty — catches disabled free tier, bad keys, and network gaps."""
+    try:
+        _call_gemini("Reply with the single word: ok")
+        return True, None
+    except Exception as e:  # noqa: BLE001
+        return False, str(e)
+
+
+def _call_local(prompt: str) -> str:
+    """Free, unlimited, offline, private: a local MLX model on Apple Silicon.
+    Nothing leaves the Mac. Starts the model server on demand."""
+    import json as _json
+    import urllib.request
+    from . import localmodel
+    model_id = localmodel.active_model()
+    if not model_id:
+        raise RuntimeError("No local model downloaded yet — set one up in Settings "
+                           "(or Onboarding) to use the free offline engine.")
+    ok, err = localmodel.ensure_server(model_id)
+    if not ok:
+        raise RuntimeError(err or "local model server unavailable")
+    # Disable "thinking": these 2026 models reason into a separate field by
+    # default and would burn the whole token budget before writing the answer.
+    # enable_thinking=false makes them answer directly — faster and cleaner.
+    payload = {"model": localmodel._repo_for(model_id),
+               "messages": [{"role": "user", "content": prompt}],
+               "temperature": 0.2, "max_tokens": 512,
+               "chat_template_kwargs": {"enable_thinking": False}}
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{localmodel.PORT}/v1/chat/completions",
+        data=_json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=240) as resp:
+        data = _json.loads(resp.read())
+    msg = data["choices"][0].get("message", {})
+    text = (msg.get("content") or "").strip()
+    if not text:  # model exhausted tokens on reasoning — use that as a fallback
+        text = (msg.get("reasoning") or "").strip()
+    # Strip any <think>…</think> block some reasoning models inline into content.
+    text = re.sub(r"(?is)<think>.*?</think>", "", text).strip()
+    return text
+
+
+def _call_custom(prompt: str) -> str:
+    """Any paid OpenAI-compatible API the user already pays for (OpenAI, DeepSeek,
+    Groq, OpenRouter, Mistral…). They opt in and provide their own key/URL."""
+    import json as _json
+    import urllib.error
+    import urllib.request
+    c = config.load_settings().get("custom_api") or {}
+    base = (c.get("base_url") or "").strip().rstrip("/")
+    key = (c.get("api_key") or "").strip()
+    model = (c.get("model") or "").strip()
+    if not (base and key and model):
+        raise RuntimeError("Custom API not set up — add base URL, key, and model in Settings.")
+    payload = {"model": model, "messages": [{"role": "user", "content": prompt}],
+               "temperature": 0.2, "max_tokens": 400}
+    req = urllib.request.Request(
+        base + "/chat/completions", data=_json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=120, context=_ssl_context()) as resp:
+            data = _json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"Custom API failed ({e.code}): "
+                           f"{e.read().decode(errors='replace')[:150]}") from e
+    return data["choices"][0]["message"]["content"].strip()
+
+
 def _call_ollama(prompt: str) -> str:
     """Free path: local Ollama server. Fully free and unlimited, but a small
     local model — noticeably weaker than Claude/ChatGPT."""
@@ -305,8 +503,25 @@ def _call_ollama(prompt: str) -> str:
             f"`ollama pull {model}`.") from e
 
 
-ENGINES = {"claude": _call_claude, "codex": _call_codex, "ollama": _call_ollama}
-AUTO_ORDER = ["claude", "codex", "ollama"]  # best quality first
+ENGINES = {"claude": _call_claude, "codex": _call_codex, "custom": _call_custom,
+           "local": _call_local, "gemini": _call_gemini, "ollama": _call_ollama}
+# Auto order, best-first: Claude Pro -> ChatGPT (Codex) -> user's paid custom API ->
+# local MLX (free, private, offline) -> Gemini free cloud -> Ollama. Local sits ahead
+# of cloud Gemini because it's private and unlimited; each engine self-skips when it
+# isn't set up, so the chain falls through to whatever the user actually has.
+AUTO_ORDER = ["claude", "codex", "custom", "local", "gemini", "ollama"]
+
+
+def _engine_label(engine: str) -> str:
+    if engine == "local":
+        from . import localmodel
+        mid = localmodel.active_model()
+        return f"Local · {localmodel.MODELS[mid]['label']}" if mid else "Local"
+    if engine == "custom":
+        c = config.load_settings().get("custom_api") or {}
+        return c.get("label") or "Custom API"
+    return {"claude": "Claude", "codex": "ChatGPT", "gemini": "Gemini (free)",
+            "ollama": "Ollama (local)"}.get(engine, engine)
 
 
 def call_claude(prompt: str) -> str:
@@ -315,10 +530,16 @@ def call_claude(prompt: str) -> str:
 
 
 def call_llm(prompt: str) -> tuple[str, str]:
-    """(answer, engine_used). engine setting: auto | claude | codex | ollama.
-    auto = try Claude (best), then ChatGPT Plus via Codex, then free local Ollama."""
-    engine = config.load_settings().get("engine", "auto")
-    order = AUTO_ORDER if engine == "auto" else [engine]
+    """(answer, engine_used). engine setting: auto | claude | codex | custom | local |
+    gemini | ollama. auto walks AUTO_ORDER, skipping any in disabled_engines, and
+    falls through to whatever the user actually has configured."""
+    s = config.load_settings()
+    engine = s.get("engine", "auto")
+    if engine == "auto":
+        disabled = set(s.get("disabled_engines") or [])
+        order = [e for e in AUTO_ORDER if e not in disabled]
+    else:
+        order = [engine]
     errors = []
     for name in order:
         try:
@@ -369,8 +590,7 @@ def ask(question: str, save: bool = True) -> tuple[str, dict]:
     raw, engine = call_llm(prompt)
     fields = parse_answer(raw)
     meta.update(fields)
-    meta["model"] = {"claude": "Claude", "codex": "ChatGPT",
-                     "ollama": "Ollama (local)"}.get(engine, engine)
+    meta["model"] = _engine_label(engine)
     answer = fields["answer"]
     if save:
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")

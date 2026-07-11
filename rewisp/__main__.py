@@ -1,4 +1,4 @@
-"""CLI: python3 -m rewisp [daemon|once|pause|resume|status|search <q>|ask <q>|digest [--force]|vault|memory|export|report]"""
+"""CLI: python3 -m rewisp [daemon|once|pause|resume|status|search <q>|ask <q>|bench [q...]|digest [--force]|vault|memory|export|report]"""
 
 import sys
 
@@ -118,6 +118,9 @@ def main():
         for app, m in list(r["totals"].items())[:12]:
             if m > 0:
                 print(f"  {app:<24} {m:>5}  {'█' * min(m // 15, 40)}")
+    elif cmd == "bench":
+        from . import bench
+        bench.main(args[1:])
     elif cmd == "memory":
         from . import memory
         confirmed, pending = memory.read_sections()

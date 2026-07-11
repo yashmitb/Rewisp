@@ -1,9 +1,10 @@
 # Rewisp — User Manual
 
-Your Mac remembers everything you see. Rewisp watches your screen, stores only text,
-and answers questions about your own digital life. Quick answers run on Apple's
-on-device model ($0, nothing leaves the Mac); hard questions and the nightly digest
-use Claude on your Pro subscription ($0 extra).
+Your Mac remembers everything you see. Every glimpse of your screen becomes a
+**wisp** — text only, stored on this Mac. Ask anything later and Rewisp *revisits*
+those wisps to answer. Quick answers run on Apple's on-device model ($0, nothing
+leaves the Mac); hard questions and the nightly digest use a stronger engine
+(Claude / ChatGPT / free Gemini / Ollama — whichever you've set up, $0 extra).
 
 ---
 
@@ -33,10 +34,16 @@ yesterday morning"*, *"what did I read 3 days ago"*.
 
 **Engine chain** (Settings → AI engine): Auto tries **Claude Pro** (best), then
 **ChatGPT Plus** via the Codex CLI (`npm i -g @openai/codex`, sign in once), then
-**free local Ollama** (install from ollama.com, `ollama pull llama3.1:8b`).
-The free option is unlimited and never leaves your Mac, but noticeably weaker.
-Subscriptions only — Rewisp refuses to run if ANTHROPIC_API_KEY or OPENAI_API_KEY
-is set, so you can never be silently billed per-token.
+**free Gemini** (paste a free key from aistudio.google.com/apikey into Settings —
+strong answers, no install, no paid API), then **free local Ollama** (install from
+ollama.com, `ollama pull llama3.1:8b`). Ollama is unlimited and never leaves your
+Mac but is weaker; Gemini sends your memory text to Google only when it answers.
+Subscriptions/free keys only — Rewisp refuses to run if ANTHROPIC_API_KEY or
+OPENAI_API_KEY is set, so you can never be silently billed per-token.
+
+**Benchmark your engines**: `python3 -m rewisp bench` runs a set of questions
+against your real memory through every engine you've set up and prints them
+side by side with an agreement score, so you can see who answers best on your data.
 
 **Digest schedule**: Settings → Digest — pick the hour and frequency (daily /
 every 2–3 days / weekly). "Run digest now" re-digests today manually (not
@@ -66,6 +73,10 @@ refuses files that look like they contain credentials and tells you why.
 `rewisp-vault` in a terminal still opens the folder directly.
 
 Vault beats screen history: if they conflict, the Vault answer wins.
+
+The Vault tab is **locked behind Touch ID** (or your login password) — it holds
+your most sensitive facts, so opening it prompts for authentication each visit.
+If your Mac has no biometric or password enrolled, the Vault opens normally.
 
 ### Memory (what Rewisp learns about you)
 Main window → **Memory** tab: approve ✓ or delete ✕ pending facts the digest

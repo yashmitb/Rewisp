@@ -16,8 +16,17 @@ SETTINGS_PATH = DATA_DIR / "settings.json"
 
 # engine: "auto" tries claude -> codex (ChatGPT Plus) -> ollama (free, local)
 DEFAULT_SETTINGS = {
-    "engine": "auto",
+    "engine": "auto",                # auto | claude | codex | gemini | custom | local | ollama
+    "disabled_engines": [],          # engines to skip in "auto" (e.g. ["claude"] to ignore Claude)
     "ollama_model": "llama3.1:8b",   # digest needs a long context window
+    "gemini_api_key": "",            # free key from aistudio.google.com/apikey
+    "gemini_model": "gemini-2.5-flash",
+    # Any paid OpenAI-compatible API the user already has (OpenAI, DeepSeek, Groq,
+    # OpenRouter, Mistral…). Never billed unless the user explicitly configures it.
+    "custom_api": {"base_url": "", "api_key": "", "model": "", "label": ""},
+    # Local MLX model: chosen id from localmodel.MODELS; repo overrides the default.
+    "local_model": "",
+    "local_model_repo": "",
     "digest_hour": 21,               # local hour the digest becomes due
     "digest_interval_days": 1,       # 1 = nightly, 2 = every other day, 7 = weekly
 }

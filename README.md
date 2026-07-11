@@ -1,6 +1,8 @@
 # Rewisp
 
-**An ambient memory for your Mac.** Rewisp quietly watches what's on your screen, remembers the text (never the pixels), and answers questions about anything you've seen — instantly, from the menu bar or a Spotlight-style hotkey.
+**An ambient memory for your Mac.** Every glimpse of your screen becomes a **wisp** — its text remembered, never the pixels. Ask anything later and Rewisp *revisits* those wisps to answer — instantly, from the menu bar or a Spotlight-style hotkey.
+
+[**⬇ Download for Mac**](https://github.com/yashmitb/Rewisp/releases/latest/download/Rewisp.dmg) · macOS 15+ · Apple Silicon
 
 > "What was due on July 12th?" · "What was that video I watched last night?" · "What's my advisor's email?"
 
@@ -8,7 +10,7 @@
   <img src="docs/img/panel.png" width="640" alt="⌘⇧Space search panel answering from screen history with the Apple on-device model">
 </p>
 
-Answers come from Apple's on-device model in a few seconds — the badge shows which engine replied. Personal facts (your email, IDs, addresses) come straight out of the Vault, deterministically, with a Copy button.
+Answers come from Apple's on-device model in a few seconds — the badge shows which engine replied. When the on-device model isn't sure, Rewisp escalates to a stronger engine: **Claude Pro → ChatGPT Plus → free Gemini → local Ollama** (whichever you've set up; no paid API keys, ever). Personal facts (your email, IDs, addresses) come straight out of the Vault, deterministically, with a Copy button — and the Vault is gated behind Touch ID.
 
 <p align="center">
   <img src="docs/img/settings.png" width="720" alt="Main window: engine chain, digest schedule, notifications">
@@ -23,7 +25,7 @@ Answers come from Apple's on-device model in a few seconds — the badge shows w
 └────────────────────────┘   │  only)     │   └─────────────┘
                              └────────────┘
 Ask (⌘⇧Space) → FTS retrieval → Apple on-device model (free, private)
-                                └→ Claude fallback for hard questions
+                                └→ Claude / ChatGPT / free Gemini / Ollama for hard questions
 Nightly Digest (9 PM) → one Claude call → recap · loose threads · memory
 ```
 

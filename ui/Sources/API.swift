@@ -92,15 +92,76 @@ struct RewispAPI {
     struct EngineAvail: Decodable {
         var claude: Bool
         var codex: Bool
+        var gemini: Bool
+        var custom: Bool?
+        var local: Bool?
         var ollama: Bool
+    }
+
+    struct CustomAPI: Codable {
+        var base_url: String = ""
+        var api_key: String = ""
+        var model: String = ""
+        var label: String = ""
     }
 
     struct Settings: Decodable {
         var engine: String
+        var disabled_engines: [String]?
         var ollama_model: String
+        var gemini_api_key: String?
+        var custom_api: CustomAPI?
+        var local_model: String?
         var digest_hour: Int
         var digest_interval_days: Int
         var available: EngineAvail?
+    }
+
+    // Local MLX model catalog + install/download state (GET /local/status, /hardware).
+    struct LocalModel: Decodable {
+        var repo: String
+        var label: String
+        var gb: Double
+        var min_ram_gb: Int
+        var tier: Int
+        var note: String
+    }
+
+    struct DownloadState: Decodable {
+        var running: Bool
+        var model: String?
+        var pct: Int
+        var error: String?
+        var done: Bool
+    }
+
+    struct LocalStatus: Decodable {
+        var mlx_installed: Bool
+        var installed: [String]
+        var active: String?
+        var server_running: Bool
+        var download: DownloadState
+        var models: [String: LocalModel]
+    }
+
+    struct Hardware: Decodable {
+        var ram_gb: Double
+        var chip: String
+        var chip_generation: Int
+        var apple_silicon: Bool
+        var free_disk_gb: Double
+    }
+
+    struct HardwareRec: Decodable {
+        var model: String?
+        var reason: String
+        var hardware: Hardware
+        var models: [String: LocalModel]
+    }
+
+    struct GeminiTest: Decodable {
+        var ok: Bool
+        var error: String?
     }
 
     struct DigestStatus: Decodable {

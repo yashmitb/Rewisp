@@ -49,8 +49,14 @@ def _engine_availability() -> dict:
         ollama = True
     except OSError:
         pass
+    s = config.load_settings()
+    c = s.get("custom_api") or {}
+    from . import localmodel
     return {"claude": bool(_sh.which("claude")),
             "codex": bool(_sh.which("codex")),
+            "gemini": bool((s.get("gemini_api_key") or "").strip()),
+            "custom": bool(c.get("base_url") and c.get("api_key") and c.get("model")),
+            "local": localmodel.active_model() is not None,
             "ollama": ollama}
 
 
@@ -170,6 +176,20 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/report":
                 from . import export
                 self._json(export.weekly_report(conn))
+            elif self.path == "/hardware":
+                from . import hardware, localmodel
+                rec = hardware.recommend(localmodel.MODELS)
+                self._json({**rec, "models": localmodel.MODELS})
+            elif self.path == "/local/status":
+                from . import localmodel
+                self._json({
+                    "mlx_installed": localmodel.mlx_installed(),
+                    "installed": localmodel.installed_models(),
+                    "active": localmodel.active_model(),
+                    "server_running": localmodel.server_running(),
+                    "download": localmodel.download_status(),
+                    "models": localmodel.MODELS,
+                })
             elif self.path == "/killlist":
                 user = config.load_user_kill_list()
                 self._json({
@@ -243,6 +263,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._memory_move(body.get("line", ""), approve=False)
             elif self.path == "/settings":
                 self._json(config.save_settings(body))
+            elif self.path == "/gemini-test":
+                from . import ask
+                ok, err = ask.gemini_selftest()
+                self._json({"ok": ok, "error": err})
             elif self.path == "/digest":
                 if _digest["running"]:
                     return self._json({"started": False, "error": "already running"}, 409)
@@ -259,6 +283,16 @@ class Handler(BaseHTTPRequestHandler):
 
                 threading.Thread(target=_work, name="rewisp-digest", daemon=True).start()
                 self._json({"started": True})
+            elif self.path == "/local/download":
+                from . import localmodel
+                self._json(localmodel.download_async(body.get("model", "")))
+            elif self.path == "/local/delete":
+                from . import localmodel
+                self._json(localmodel.delete_model(body.get("model", "")))
+            elif self.path == "/local/stop":
+                from . import localmodel
+                localmodel.stop_server()
+                self._json({"ok": True})
             elif self.path == "/export":
                 from . import export
                 self._json(export.run(conn))

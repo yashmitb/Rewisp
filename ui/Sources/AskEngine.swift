@@ -44,8 +44,9 @@ enum AskEngine {
                 let resp = try await session.respond(to: ctx.prompt, options: opts)
                 var r = parseStructured(resp.content)
                 r.model = "Apple on-device"
-                // Small model whiffed -> escalate to Claude rather than shrug.
-                if let a = r.answer, !a.localizedCaseInsensitiveContains("not found") {
+                // Small model whiffed -> escalate to a stronger engine rather than
+                // shrug or, worse, hand back a confident-sounding guess.
+                if let a = r.answer, !onDeviceWhiffed(a, question: question) {
                     await RewispAPI.logChat(question: question, answer: a)
                     return r
                 }
@@ -54,6 +55,21 @@ enum AskEngine {
             }
         }
         return try await RewispAPI.ask(question)
+    }
+
+    // True when the on-device answer is a non-answer we should escalate on:
+    // empty, an explicit "not found", or a hedge ("I don't/can't/no information").
+    static func onDeviceWhiffed(_ answer: String, question: String = "") -> Bool {
+        let a = answer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if a.isEmpty { return true }
+        // Echoing the question back verbatim = total failure (seen on the small model).
+        let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "?."))
+        if !q.isEmpty && (a == q || a == q + "?" || a == q + ".") { return true }
+        let markers = ["not found", "no information", "no relevant", "cannot find",
+                       "can't find", "couldn't find", "i don't have", "i do not have",
+                       "unable to", "not in your memory", "no mention"]
+        return markers.contains { a.contains($0) }
     }
 
     // Mirror of rewisp/ask.py parse_answer(): split ANSWER/DETAIL/SOURCE/TIME/COPY.

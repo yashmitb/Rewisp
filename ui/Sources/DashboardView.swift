@@ -314,7 +314,7 @@ struct DashboardView: View {
                 Text("\(s.captures_today)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
-                    .help("Captures today · \(s.captures_total) total · \(String(format: "%.1f", s.db_mb)) MB")
+                    .help("Wisps today · \(s.captures_total) total · \(String(format: "%.1f", s.db_mb)) MB")
             }
 
             Button {

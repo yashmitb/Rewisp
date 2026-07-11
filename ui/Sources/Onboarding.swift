@@ -40,7 +40,7 @@ struct OnboardingView: View {
     @AppStorage("rewisp.browser") private var preferredBrowser = ""
     @ObservedObject var status = StatusModel.shared
 
-    private let pages = 5
+    private let pages = 6
     private let browsers: [(name: String, note: String?)] = [
         ("Safari", nil), ("Google Chrome", nil), ("Arc", nil), ("Dia", nil),
         ("Microsoft Edge", nil), ("Brave Browser", nil),
@@ -54,7 +54,8 @@ struct OnboardingView: View {
                 case 0: welcome
                 case 1: privacy
                 case 2: browserPage
-                case 3: permissions
+                case 3: localAIPage
+                case 4: permissions
                 default: tutorial
                 }
             }
@@ -99,7 +100,7 @@ struct OnboardingView: View {
             }
             Text("Welcome to Rewisp")
                 .font(.largeTitle.weight(.semibold))
-            Text("An ambient memory for your Mac.\nRewisp remembers the text of everything you see,\nso you can ask about it later — like Spotlight for your past.")
+            Text("An ambient memory for your Mac.\nEvery glimpse of your screen becomes a wisp — text only, kept on this Mac.\nAsk anything later and Rewisp revisits them for you.")
                 .font(.title3)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -113,7 +114,7 @@ struct OnboardingView: View {
                 .font(.title.weight(.semibold))
                 .padding(.bottom, 4)
             bullet("eye.slash", "Screenshots never touch disk",
-                   "Each capture is read in memory, converted to text, and discarded. Only text is stored — on this Mac, nowhere else.")
+                   "Each wisp (one screen glimpse) is read in memory, converted to text, and discarded. Only text is stored — on this Mac, nowhere else.")
             bullet("hand.raised.fill", "Kill list is absolute",
                    "Messages, WhatsApp, password managers, banking sites, and private windows fully pause capture. Zero data, not filtered data.")
             bullet("cpu", "Answers are generated on-device",
@@ -175,6 +176,44 @@ struct OnboardingView: View {
         app.replacingOccurrences(of: "Google ", with: "")
            .replacingOccurrences(of: "Microsoft ", with: "")
            .replacingOccurrences(of: " Browser", with: "")
+    }
+
+    private var localAIPage: some View {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Pick your brain")
+                .font(.title.weight(.semibold))
+            Text("Rewisp answers with an AI. You choose which — and you can change it anytime in Settings. Nothing is locked in.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // The honest comparison, so the choice is informed.
+            VStack(alignment: .leading, spacing: 8) {
+                compareRow("Apple on-device", "Built in, instant, private. Weakest answers (~40/100 on our test). Nothing to download.", "bolt.fill")
+                compareRow("Local model (recommended)", "Free, unlimited, offline, private. Much better answers (~70/100). One download, sized to your Mac.", "checkmark.seal.fill")
+                compareRow("Cloud (Gemini free / your own key / Claude Pro)", "Best answers (Claude ~95). Needs a key or subscription; sends text to that provider.", "cloud.fill")
+            }
+            .padding(12)
+            .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
+
+            LocalModelSetup(compact: true)
+
+            Text("Prefer to skip? Leave it — Rewisp uses the built-in Apple model. You can download a local model or add a cloud key later in Settings. No rush.")
+                .font(.caption).foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+      }
+    }
+
+    private func compareRow(_ title: String, _ body: String, _ symbol: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: symbol).foregroundStyle(Theme.accent).frame(width: 20)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.callout.weight(.semibold))
+                Text(body).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     private var permissions: some View {

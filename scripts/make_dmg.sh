@@ -36,7 +36,13 @@ mkdir -p dist
 rm -f "$DMG"
 hdiutil create -volname "Rewisp" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
 rm -rf "$STAGE"
+# Stable-named copy so the landing page can link a permanent direct-download URL
+# (github.com/.../releases/latest/download/Rewisp.dmg) that never changes per version.
+STABLE="dist/Rewisp.dmg"
+cp -f "$DMG" "$STABLE"
 echo "✓ $DMG"
+echo "✓ $STABLE (stable name for the landing-page direct link)"
 echo ""
-echo "Ship it: gh release create v$VERSION $DMG --title \"Rewisp $VERSION\" --notes \"...\""
+echo "Ship it: gh release create v$VERSION $DMG $STABLE --title \"Rewisp $VERSION\" --notes \"...\""
+echo "(upload BOTH: Rewisp.dmg keeps the landing-page download link working)"
 echo "(installed apps check GitHub Releases daily and offer the update in the menu bar)"

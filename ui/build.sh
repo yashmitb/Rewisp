@@ -12,7 +12,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 swiftc -O -parse-as-library \
     -target arm64-apple-macosx15.0 \
     Sources/*.swift \
-    -framework SwiftUI -framework AppKit -framework Carbon \
+    -framework SwiftUI -framework AppKit -framework Carbon -framework LocalAuthentication \
     -Xlinker -weak_framework -Xlinker FoundationModels \
     -o "$APP/Contents/MacOS/Rewisp"
 
@@ -32,7 +32,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleIdentifier</key><string>com.yashmit.rewisp</string>
     <key>CFBundleExecutable</key><string>Rewisp</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.4.2</string>
+    <key>CFBundleShortVersionString</key><string>0.6.0</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>

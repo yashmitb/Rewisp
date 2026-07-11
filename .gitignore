@@ -16,3 +16,6 @@ __pycache__/
 #local todos
 todo.md
 .gstack/
+
+# headless on-device bench bridge (build artifact)
+ui/AppleAsk
