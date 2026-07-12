@@ -17,6 +17,11 @@ final class SearchPanelController: NSObject, NSWindowDelegate {
     static let shared = SearchPanelController()
     private var panel: NSPanel?
     private var snapping = false
+    // The app that was frontmost when we summoned. We never steal app-level
+    // activation (the panel is nonactivating), so this app stays active behind
+    // us — that's what lets a click land in its text field on the FIRST try.
+    // Kept only as a fallback to re-focus if activation did shift.
+    private weak var previousApp: NSRunningApplication?
 
     private static let posKey = "searchPanelOrigin"
     private static let snapThreshold: CGFloat = 28
@@ -26,34 +31,30 @@ final class SearchPanelController: NSObject, NSWindowDelegate {
     }
 
     func show() {
-        // Capture the frontmost app BEFORE we activate our panel — that's the app
-        // whose form we want to read. Doing it here dodges the daemon's tick race.
+        // Capture the frontmost app BEFORE we show — that's the app whose form we
+        // want to read, AND the app that must keep focus behind us so the user's
+        // next click lands on the first try. Doing it here dodges the daemon's tick race.
         if let front = NSWorkspace.shared.frontmostApplication, front.bundleIdentifier != Bundle.main.bundleIdentifier {
             SearchPanelState.shared.formPid = Int(front.processIdentifier)
+            previousApp = front
         }
         if panel == nil { build() }
         guard let panel else { return }
         let target = savedOrigin() ?? defaultOrigin()
-        // enter: start higher + transparent, overshoot 2px past target, settle.
-        // Two chained ease curves read as a spring without fighting SwiftUI.
-        panel.setFrameOrigin(NSPoint(x: target.x, y: target.y + 20))
+        // Enter: clean fade + a small settle from just above. One easeOut curve,
+        // no overshoot — the overshoot read as a "pop". We deliberately do NOT call
+        // NSApp.activate: the nonactivating panel can take key focus for typing while
+        // the app behind stays active, which is what fixes the click-twice bug.
+        panel.setFrameOrigin(NSPoint(x: target.x, y: target.y + 10))
         panel.alphaValue = 0
-        NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()   // show even over a fullscreen app on its Space
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.20
-            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1.0)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.26
+            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1.0, 0.36, 1.0)
             panel.animator().alphaValue = 1
-            panel.animator().setFrameOrigin(NSPoint(x: target.x, y: target.y - 2))
-        }, completionHandler: { [weak self] in
-            guard let panel = self?.panel, panel.isVisible else { return }
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.14
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                panel.animator().setFrameOrigin(target)
-            }
-        })
+            panel.animator().setFrameOrigin(target)
+        }
         // Every summon starts a fresh session with a focused field —
         // onAppear only fires on the first show, so signal explicitly.
         NotificationCenter.default.post(name: .rewispPanelShown, object: nil)
@@ -62,9 +63,16 @@ final class SearchPanelController: NSObject, NSWindowDelegate {
     func hide() {
         PanelPin.shared.pinned = false   // start each summon unpinned
         guard let panel, panel.isVisible else { return }
+        // Fallback only: if our app somehow grabbed activation (e.g. the user
+        // opened the main window), hand focus back to the app that was in front
+        // so their next keystroke/click goes where they expect. Normally a no-op
+        // because we never activated in the first place.
+        if NSApp.isActive, let prev = previousApp, !prev.isTerminated {
+            prev.activate()
+        }
         NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.13
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            ctx.duration = 0.16
+            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0.0, 1.0, 1.0)
             panel.animator().alphaValue = 0
         }, completionHandler: {
             panel.orderOut(nil)
