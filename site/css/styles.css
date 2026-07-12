@@ -167,7 +167,11 @@ h2 { font-size: clamp(28px, 4vw, 42px); font-weight: 700; letter-spacing: -.02em
 /* digest demo */
 .digest { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px; }
 .dline { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: rgba(255, 255, 255, .02); opacity: 0; transform: translateY(8px); transition: opacity .45s var(--ease), transform .45s var(--ease); }
-.dline.in { opacity: 1; transform: none; }
+/* CSS-driven off the reveal class (like the time bars) so lines assemble
+   without depending on the demo JS. */
+#digest-demo.in .dline { opacity: 1; transform: none; }
+#digest-demo.in .dline:nth-child(2) { transition-delay: .5s; }
+#digest-demo.in .dline:nth-child(3) { transition-delay: 1s; }
 .dline .dt { font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--accent); min-width: 74px; padding-top: 2px; }
 .dline .dtxt { font-size: 13.5px; color: var(--muted); }
 .dline .dtxt b { color: var(--text); font-weight: 600; }
@@ -178,6 +182,12 @@ h2 { font-size: clamp(28px, 4vw, 42px); font-weight: 700; letter-spacing: -.02em
 .trow .tn { width: 92px; color: var(--muted); flex-shrink: 0; }
 .trow .track { flex: 1; height: 10px; border-radius: 999px; background: rgba(255, 255, 255, .05); overflow: hidden; }
 .trow .fill { height: 100%; width: 0; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width 1.1s var(--ease); }
+/* Fill the bars when the panel is revealed (CSS-driven, independent of the
+   demo JS) so they never sit empty. --w is set per-bar inline in the HTML. */
+#time-demo.in .fill { width: var(--w); }
+#time-demo.in .trow:nth-child(2) .fill { transition-delay: .09s; }
+#time-demo.in .trow:nth-child(3) .fill { transition-delay: .18s; }
+#time-demo.in .trow:nth-child(4) .fill { transition-delay: .27s; }
 .trow .tm { width: 58px; text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* product shots */

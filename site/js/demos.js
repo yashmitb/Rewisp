@@ -116,29 +116,11 @@ function whenVisible(el, fn, { once = false } = {}) {
   whenVisible(el, play);
 })();
 
-/* ── nightly digest demo ── */
-(function digestDemo() {
-  const el = $("#digest-demo");
-  if (!el) return;
-  const lines = $$("#digest-demo .dline");
-  // Assemble once on scroll-in and stay assembled — no empty window to catch.
-  async function play() {
-    for (const l of lines) { l.classList.add("in"); await sleep(520); }
-  }
-  whenVisible(el, play, { once: true });
-})();
+/* nightly-digest lines assemble purely in CSS (#digest-demo.in .dline) off the
+   reveal class — same reason as the time bars. */
 
-/* ── time tracking demo ── */
-(function timeDemo() {
-  const el = $("#time-demo");
-  if (!el) return;
-  const fills = $$("#time-demo .fill");
-  // Fill once when it scrolls in and leave the bars full. The CSS width starts
-  // at 0, so just setting the target animates 0 -> target via the transition —
-  // no reset-to-empty window for a screenshot to land in.
-  function play() { fills.forEach(f => f.style.width = f.dataset.w); }
-  whenVisible(el, play, { once: true });
-})();
+/* time-tracking bars are filled purely in CSS (#time-demo.in .fill) off the
+   reveal class, so they work even if this script is cached or fails. */
 
 /* ── capture / wisp flow ── */
 (function captureViz() {
