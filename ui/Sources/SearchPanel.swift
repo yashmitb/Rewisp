@@ -41,19 +41,22 @@ final class SearchPanelController: NSObject, NSWindowDelegate {
         if panel == nil { build() }
         guard let panel else { return }
         let target = savedOrigin() ?? defaultOrigin()
-        // Enter: clean fade + a small settle from just above. One easeOut curve,
-        // no overshoot — the overshoot read as a "pop". We deliberately do NOT call
-        // NSApp.activate: the nonactivating panel can take key focus for typing while
-        // the app behind stays active, which is what fixes the click-twice bug.
-        panel.setFrameOrigin(NSPoint(x: target.x, y: target.y + 10))
+        // The actual entrance (scale + opacity) is animated in SwiftUI — see
+        // `appeared` in SearchPanelView. Here we just place the window and take
+        // it from fully transparent to opaque so there's no hard-edged rectangle
+        // for one frame before SwiftUI's animation starts. No AppKit origin slide:
+        // resize(toContentHeight:) rewrites the origin every frame, so a slide here
+        // just fought it and the content appeared to pop. We deliberately do NOT
+        // call NSApp.activate: the nonactivating panel takes key focus for typing
+        // while the app behind stays active (fixes the click-twice bug).
+        panel.setFrameOrigin(target)
         panel.alphaValue = 0
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()   // show even over a fullscreen app on its Space
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.26
-            ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1.0, 0.36, 1.0)
+            ctx.duration = 0.12
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             panel.animator().alphaValue = 1
-            panel.animator().setFrameOrigin(target)
         }
         // Every summon starts a fresh session with a focused field —
         // onAppear only fires on the first show, so signal explicitly.
@@ -207,6 +210,9 @@ struct SearchPanelView: View {
     @State private var suggestions: [String] = []
     @AppStorage("rewisp.formassist") private var formAssist = true
     @FocusState private var focused: Bool
+    // Drives the entrance animation (scale + fade from the top). Set false the
+    // instant we're summoned, then animated to true so every summon re-plays it.
+    @State private var appeared = false
 
     private let spring = Animation.spring(response: 0.35, dampingFraction: 0.8)
     private let starters = [
@@ -356,14 +362,21 @@ struct SearchPanelView: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { h in
             SearchPanelController.shared.resize(toContentHeight: h)
         }
+        // Entrance: scale up from 0.94 + fade, anchored at the top so it grows
+        // downward like the window does. Purely visual (applied after the geometry
+        // reader) so it never fights resize(toContentHeight:).
+        .scaleEffect(appeared ? 1 : 0.94, anchor: .top)
+        .opacity(appeared ? 1 : 0)
         .onAppear {
             focused = true
             reset()
+            playEntrance()
             SearchPanelState.shared.escape = { escapePressed() }
             loadSuggestions()
         }
         .onReceive(NotificationCenter.default.publisher(for: .rewispPanelShown)) { _ in
             reset()
+            playEntrance()
             DispatchQueue.main.async { focused = true }
             loadSuggestions()
             if formAssist { loadFormContext() }
@@ -448,6 +461,18 @@ struct SearchPanelView: View {
             withAnimation(spring) { reset() }
         } else {
             dismiss()
+        }
+    }
+
+    // Reset to the collapsed state, then spring into place. Deferring the
+    // withAnimation to the next runloop tick guarantees SwiftUI renders the
+    // `false` state for one frame first, so the animation actually plays.
+    private func playEntrance() {
+        appeared = false
+        DispatchQueue.main.async {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                appeared = true
+            }
         }
     }
 
