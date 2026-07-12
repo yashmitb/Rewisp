@@ -121,14 +121,11 @@ function whenVisible(el, fn, { once = false } = {}) {
   const el = $("#digest-demo");
   if (!el) return;
   const lines = $$("#digest-demo .dline");
+  // Assemble once on scroll-in and stay assembled — no empty window to catch.
   async function play() {
-    lines.forEach(l => l.classList.remove("in"));
-    await sleep(500);
     for (const l of lines) { l.classList.add("in"); await sleep(520); }
-    await sleep(3400);
-    play();
   }
-  whenVisible(el, play);
+  whenVisible(el, play, { once: true });
 })();
 
 /* ── time tracking demo ── */
@@ -136,14 +133,11 @@ function whenVisible(el, fn, { once = false } = {}) {
   const el = $("#time-demo");
   if (!el) return;
   const fills = $$("#time-demo .fill");
-  async function play() {
-    fills.forEach(f => f.style.width = "0");
-    await sleep(400);
-    fills.forEach(f => f.style.width = f.dataset.w);
-    await sleep(5000);
-    play();
-  }
-  whenVisible(el, play);
+  // Fill once when it scrolls in and leave the bars full. The CSS width starts
+  // at 0, so just setting the target animates 0 -> target via the transition —
+  // no reset-to-empty window for a screenshot to land in.
+  function play() { fills.forEach(f => f.style.width = f.dataset.w); }
+  whenVisible(el, play, { once: true });
 })();
 
 /* ── capture / wisp flow ── */
