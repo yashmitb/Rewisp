@@ -40,7 +40,15 @@ struct OnboardingView: View {
     @AppStorage("rewisp.browser") private var preferredBrowser = ""
     @ObservedObject var status = StatusModel.shared
 
-    private let pages = 6
+    // Vault setup inputs
+    @State private var vName = ""
+    @State private var vEmail = ""
+    @State private var vPhone = ""
+    @State private var vAddress = ""
+    @State private var vaultSaved = false
+    @State private var iconGlow = false
+
+    private let pages = 7
     private let browsers: [(name: String, note: String?)] = [
         ("Safari", nil), ("Google Chrome", nil), ("Arc", nil), ("Dia", nil),
         ("Microsoft Edge", nil), ("Brave Browser", nil),
@@ -55,31 +63,37 @@ struct OnboardingView: View {
                 case 1: privacy
                 case 2: browserPage
                 case 3: localAIPage
-                case 4: permissions
+                case 4: vaultPage
+                case 5: permissions
                 default: tutorial
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, 44)
             .padding(.top, 36)
+            .id(page)   // re-inserts on change so the transition plays
+            .transition(.asymmetric(
+                insertion: .move(edge: .trailing).combined(with: .opacity),
+                removal: .move(edge: .leading).combined(with: .opacity)))
 
             // dots + controls
             HStack {
-                HStack(spacing: 6) {
+                HStack(spacing: 7) {
                     ForEach(0..<pages, id: \.self) { i in
-                        Circle()
-                            .fill(i == page ? Color.primary : Color.secondary.opacity(0.3))
-                            .frame(width: 6, height: 6)
+                        Capsule()
+                            .fill(i == page ? AnyShapeStyle(Theme.wisp) : AnyShapeStyle(.secondary.opacity(0.25)))
+                            .frame(width: i == page ? 20 : 6, height: 6)
+                            .animation(.spring(response: 0.35, dampingFraction: 0.7), value: page)
                     }
                 }
                 Spacer()
                 if page > 0 {
-                    Button("Back") { withAnimation(.spring(response: 0.3)) { page -= 1 } }
+                    Button("Back") { withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { page -= 1 } }
                         .buttonStyle(.plain).foregroundStyle(.secondary)
                 }
                 Button(page == pages - 1 ? "Start using Rewisp" : "Continue") {
                     if page == pages - 1 { finish() }
-                    else { withAnimation(.spring(response: 0.3)) { page += 1 } }
+                    else { withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { page += 1 } }
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
@@ -88,6 +102,7 @@ struct OnboardingView: View {
             .padding(24)
         }
         .frame(width: 600, height: 560)
+        .background(OnboardingGlow())   // slow ambient glow behind everything
     }
 
     // MARK: pages
@@ -95,8 +110,17 @@ struct OnboardingView: View {
     private var welcome: some View {
         VStack(spacing: 18) {
             Spacer()
-            if let icon = NSApp.applicationIconImage {
-                Image(nsImage: icon).resizable().frame(width: 96, height: 96)
+            ZStack {
+                Circle().fill(Theme.wisp).frame(width: 120, height: 120)
+                    .blur(radius: 40).opacity(iconGlow ? 0.6 : 0.3)
+                if let icon = NSApp.applicationIconImage {
+                    Image(nsImage: icon).resizable().frame(width: 96, height: 96)
+                        .scaleEffect(iconGlow ? 1.03 : 0.98)
+                        .offset(y: iconGlow ? -3 : 3)
+                }
+            }
+            .onAppear {
+                withAnimation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true)) { iconGlow = true }
             }
             Text("Welcome to Rewisp")
                 .font(.largeTitle.weight(.semibold))
@@ -216,6 +240,68 @@ struct OnboardingView: View {
         }
     }
 
+    private var vaultPage: some View {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Teach Rewisp about you")
+                .font(.title.weight(.semibold))
+            Text("Add a few facts and Rewisp fills forms for you — hit ⌘⇧Space on any signup page and it writes your name, email, address, and more. Stored only in your private Vault on this Mac. Passwords and card numbers are never filled.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // The magic, shown: a form filling itself.
+            AutofillDemo()
+
+            Text("Your turn")
+                .font(.headline).padding(.top, 4)
+            vaultField("Full name", "Jane Doe", text: $vName)
+            HStack(spacing: 10) {
+                vaultField("Email", "jane@example.com", text: $vEmail)
+                vaultField("Phone", "(555) 012-3456", text: $vPhone)
+            }
+            vaultField("Address", "123 Main St, Springfield, OR 97477, USA", text: $vAddress)
+
+            HStack(spacing: 10) {
+                Button {
+                    saveVault()
+                } label: {
+                    Label(vaultSaved ? "Saved to Vault" : "Save to Vault",
+                          systemImage: vaultSaved ? "checkmark.seal.fill" : "lock.rectangle.stack")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(vaultSaved ? .green : nil)
+                .disabled(vName.isEmpty && vEmail.isEmpty && vPhone.isEmpty && vAddress.isEmpty)
+                Text("Optional — you can add or edit this anytime in the Vault tab.")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.bottom, 8)
+      }
+    }
+
+    private func vaultField(_ label: String, _ placeholder: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+            TextField(placeholder, text: text)
+                .textFieldStyle(.roundedBorder)
+                .onChange(of: text.wrappedValue) { vaultSaved = false }
+        }
+    }
+
+    private func saveVault() {
+        var lines: [String] = []
+        if !vName.isEmpty { lines.append("Name: \(vName)") }
+        if !vEmail.isEmpty { lines.append("Email: \(vEmail)") }
+        if !vPhone.isEmpty { lines.append("Phone: \(vPhone)") }
+        if !vAddress.isEmpty { lines.append("Address: \(vAddress)") }
+        guard !lines.isEmpty else { return }
+        let text = lines.joined(separator: "\n")
+        Task { @MainActor in
+            _ = try? await RewispAPI.post("vault/note", body: ["title": "My info", "text": text])
+            withAnimation(.spring) { vaultSaved = true }
+        }
+    }
+
     private var permissions: some View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Two permissions")
@@ -307,5 +393,110 @@ struct OnboardingView: View {
         }
         .padding(12)
         .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+// A mock signup form that fills itself, on a loop — the autofill feature, shown.
+struct AutofillDemo: View {
+    private let rows = [("First name", "Jane"), ("Last name", "Doe"),
+                        ("Email", "jane@example.com"), ("Phone", "(555) 012-3456")]
+    @State private var filled = 0
+    @State private var showPill = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                WispMark().frame(width: 20, height: 20)
+                Text("Rewisp").font(.callout.weight(.semibold))
+                Spacer()
+                if showPill {
+                    Label("Fill this form", systemImage: "wand.and.stars")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 9).padding(.vertical, 4)
+                        .background(Theme.accent.opacity(0.18), in: Capsule())
+                        .foregroundStyle(Theme.accent)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+            ForEach(rows.indices, id: \.self) { i in
+                demoRow(rows[i].0, rows[i].1, done: i < filled)
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.background.opacity(0.6))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Theme.accent.opacity(0.18))))
+        .shadow(color: Theme.accent.opacity(0.15), radius: 20, y: 8)
+        .task { await loop() }
+    }
+
+    private func demoRow(_ label: String, _ value: String, done: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label).font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.quaternary.opacity(0.4))
+                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(done ? Theme.accent.opacity(0.8) : .clear, lineWidth: 1.5))
+                    .frame(height: 30)
+                    .shadow(color: done ? Theme.accent.opacity(0.5) : .clear, radius: 6)
+                HStack {
+                    Text(done ? value : " ")
+                        .font(.callout)
+                        .foregroundStyle(done ? AnyShapeStyle(.primary) : AnyShapeStyle(Color.clear))
+                        .padding(.leading, 10)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                    Spacer()
+                    if done {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green).padding(.trailing, 9)
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
+            }
+        }
+    }
+
+    private func loop() async {
+        while !Task.isCancelled {
+            withAnimation(.easeOut(duration: 0.3)) { filled = 0; showPill = false }
+            try? await Task.sleep(for: .milliseconds(700))
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) { showPill = true }
+            try? await Task.sleep(for: .milliseconds(650))
+            for i in 1...rows.count {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) { filled = i }
+                try? await Task.sleep(for: .milliseconds(430))
+            }
+            try? await Task.sleep(for: .milliseconds(2400))
+        }
+    }
+}
+
+// Slow-drifting ambient glow behind the onboarding — subtle motion, no distraction.
+struct OnboardingGlow: View {
+    @State private var t: CGFloat = 0
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                Circle()
+                    .fill(Theme.wisp.opacity(0.16))
+                    .frame(width: geo.size.width * 0.9)
+                    .blur(radius: 90)
+                    .offset(x: -geo.size.width * 0.2 + 60 * t,
+                            y: -geo.size.height * 0.25 - 40 * t)
+                Circle()
+                    .fill(Theme.accent.opacity(0.12))
+                    .frame(width: geo.size.width * 0.7)
+                    .blur(radius: 90)
+                    .offset(x: geo.size.width * 0.25 - 50 * t,
+                            y: geo.size.height * 0.3 + 40 * t)
+            }
+            .onAppear {
+                withAnimation(.easeInOut(duration: 7).repeatForever(autoreverses: true)) { t = 1 }
+            }
+        }
+        .allowsHitTesting(false)
     }
 }

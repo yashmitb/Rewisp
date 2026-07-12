@@ -6,6 +6,13 @@ import AppKit
 // panel fades/slides in; grows as content arrives; click-away dismisses;
 // dragged position persists with a magnetic snap to horizontal center.
 
+// When pinned, the panel stays up after it loses focus — copy a value, switch to
+// the page and paste, then come back. Reset when the panel is dismissed.
+final class PanelPin: ObservableObject {
+    static let shared = PanelPin()
+    @Published var pinned = false
+}
+
 final class SearchPanelController: NSObject, NSWindowDelegate {
     static let shared = SearchPanelController()
     private var panel: NSPanel?
@@ -19,6 +26,11 @@ final class SearchPanelController: NSObject, NSWindowDelegate {
     }
 
     func show() {
+        // Capture the frontmost app BEFORE we activate our panel — that's the app
+        // whose form we want to read. Doing it here dodges the daemon's tick race.
+        if let front = NSWorkspace.shared.frontmostApplication, front.bundleIdentifier != Bundle.main.bundleIdentifier {
+            SearchPanelState.shared.formPid = Int(front.processIdentifier)
+        }
         if panel == nil { build() }
         guard let panel else { return }
         let target = savedOrigin() ?? defaultOrigin()
@@ -26,8 +38,9 @@ final class SearchPanelController: NSObject, NSWindowDelegate {
         // Two chained ease curves read as a spring without fighting SwiftUI.
         panel.setFrameOrigin(NSPoint(x: target.x, y: target.y + 20))
         panel.alphaValue = 0
+        NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        panel.orderFrontRegardless()   // show even over a fullscreen app on its Space
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.20
             ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1.0)
@@ -47,6 +60,7 @@ final class SearchPanelController: NSObject, NSWindowDelegate {
     }
 
     func hide() {
+        PanelPin.shared.pinned = false   // start each summon unpinned
         guard let panel, panel.isVisible else { return }
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.13
@@ -88,9 +102,10 @@ final class SearchPanelController: NSObject, NSWindowDelegate {
         UserDefaults.standard.set([origin.x, origin.y], forKey: Self.posKey)
     }
 
-    // Click outside -> dismiss (unless a question is mid-flight).
+    // Click outside -> dismiss (unless a question is mid-flight, or pinned so the
+    // user can copy a value, click into the page, and come back to the panel).
     func windowDidResignKey(_ notification: Notification) {
-        if !SearchPanelState.shared.busy {
+        if !SearchPanelState.shared.busy && !PanelPin.shared.pinned {
             hide()
         }
     }
@@ -114,12 +129,15 @@ final class SearchPanelController: NSObject, NSWindowDelegate {
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 56),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered, defer: false)
-        p.level = .floating
+        // Above normal windows and able to appear over a fullscreen app. Without
+        // .fullScreenAuxiliary the panel opens on the desktop Space instead of the
+        // current fullscreen one, so it seems to "not show up".
+        p.level = .modalPanel
         p.isOpaque = false
         p.backgroundColor = .clear
         p.hasShadow = true
         p.hidesOnDeactivate = false
-        p.collectionBehavior = [.canJoinAllSpaces, .transient]
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         p.isMovableByWindowBackground = true
         p.delegate = self
 
@@ -153,6 +171,9 @@ final class SearchPanelState {
     static let shared = SearchPanelState()
     var busy = false
     var escape: (() -> Void)?
+    // The app that was frontmost the instant ⌘⇧Space fired — captured before the
+    // panel activates, so form detection walks the right app with no tick race.
+    var formPid: Int?
 }
 
 struct SearchPanelView: View {
@@ -169,6 +190,12 @@ struct SearchPanelView: View {
     // Form detector: the panel is non-activating, so the app behind keeps
     // focus — if a text field is focused there, offer to look it up.
     @State private var fieldLabel: String?
+    @State private var formFieldCount = 0        // whole-form detection
+    @State private var formFill: [RewispAPI.ResolvedField]?
+    @State private var fillingForm = false
+    @State private var writingForm = false
+    @State private var writeResult: String?
+    @ObservedObject private var pin = PanelPin.shared
     @State private var suggestions: [String] = []
     @AppStorage("rewisp.formassist") private var formAssist = true
     @FocusState private var focused: Bool
@@ -236,7 +263,31 @@ struct SearchPanelView: View {
                 .transition(.opacity.combined(with: .offset(y: -6)))
             }
 
-            if let label = fieldLabel, result == nil, !asking, query.isEmpty {
+            // Whole-form detected -> offer to gather everything at once.
+            if formFieldCount >= 2, formFill == nil, result == nil, !asking, query.isEmpty {
+                Divider().opacity(0.4)
+                HStack(spacing: 10) {
+                    Image(systemName: "list.bullet.rectangle.portrait.fill")
+                        .foregroundStyle(Theme.wisp)
+                    Text("Form with \(formFieldCount) fields detected")
+                        .font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer()
+                    Button {
+                        fillForm()
+                    } label: {
+                        if fillingForm {
+                            HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Gathering…") }
+                        } else {
+                            Text("Fill this form")
+                        }
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(fillingForm)
+                }
+                .padding(.horizontal, 18).padding(.vertical, 10)
+                .transition(.opacity.combined(with: .offset(y: -6)))
+            } else if let label = fieldLabel, result == nil, !asking, query.isEmpty {
                 Divider().opacity(0.4)
                 HStack(spacing: 10) {
                     Image(systemName: "character.cursor.ibeam")
@@ -255,6 +306,12 @@ struct SearchPanelView: View {
                 .padding(.horizontal, 18)
                 .padding(.vertical, 10)
                 .transition(.opacity.combined(with: .offset(y: -6)))
+            }
+
+            if let ff = formFill {
+                Divider().opacity(0.4)
+                formFillView(ff)
+                    .transition(.opacity.combined(with: .offset(y: 8)))
             }
 
             if asking {
@@ -301,14 +358,7 @@ struct SearchPanelView: View {
             reset()
             DispatchQueue.main.async { focused = true }
             loadSuggestions()
-            if formAssist {
-                Task { @MainActor in
-                    let ctx = try? await RewispAPI.get("form-context", as: RewispAPI.FormContext.self)
-                    if let label = ctx?.field?.label, !label.isEmpty, label.count < 40 {
-                        withAnimation(spring) { fieldLabel = label }
-                    }
-                }
-            }
+            if formAssist { loadFormContext() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .rewispTestAsk)) { note in
             if let q = note.object as? String {
@@ -391,6 +441,138 @@ struct SearchPanelView: View {
         asking = false
         answerHeight = 0
         fieldLabel = nil
+        formFieldCount = 0
+        formFill = nil
+        fillingForm = false
+        writingForm = false
+        writeResult = nil
+    }
+
+    // M2: write the resolved values into the actual form fields on the page (AX).
+    // Fills only — never submits.
+    private func writeForm() {
+        guard !writingForm else { return }
+        writingForm = true
+        writeResult = nil
+        Task { @MainActor in
+            var body: [String: Any] = [:]
+            if let pid = SearchPanelState.shared.formPid { body["pid"] = pid }
+            let res = try? await RewispAPI.post("form-write", body: body)
+            var written = 0
+            if let res, let obj = try? JSONSerialization.jsonObject(with: res) as? [String: Any] {
+                written = obj["written"] as? Int ?? 0
+            }
+            withAnimation(spring) {
+                writeResult = written > 0 ? "Filled \(written) field\(written == 1 ? "" : "s")"
+                                          : "Couldn't fill — try copying instead"
+                writingForm = false
+            }
+        }
+    }
+
+    // Detect the form on the app that was frontmost at summon time. Retries once —
+    // Chromium builds its accessibility tree lazily, so the first walk can be empty.
+    private func loadFormContext(attempt: Int = 0) {
+        let pidQuery = SearchPanelState.shared.formPid.map { "?pid=\($0)" } ?? ""
+        Task { @MainActor in
+            let ctx = try? await RewispAPI.get("form-context\(pidQuery)", as: RewispAPI.FormContext.self)
+            let count = ctx?.form?.fields.count ?? 0
+            withAnimation(spring) {
+                if let label = ctx?.field?.label, !label.isEmpty, label.count < 40 {
+                    fieldLabel = label
+                }
+                formFieldCount = count
+            }
+            // The browser's web-AX tree can take a beat to build on first landing.
+            // Retry a few times so the first summon works without a second try.
+            if count == 0, attempt < 4 {
+                try? await Task.sleep(for: .milliseconds(500))
+                loadFormContext(attempt: attempt + 1)
+            }
+        }
+    }
+
+    // Gather every field's value from the Vault and show them in the answer area.
+    private func fillForm() {
+        guard !fillingForm else { return }
+        fillingForm = true
+        Task { @MainActor in
+            var body: [String: Any] = [:]
+            if let pid = SearchPanelState.shared.formPid { body["pid"] = pid }
+            let res = try? await RewispAPI.post("form-fill", body: body)
+            var parsed: RewispAPI.FormFill?
+            if let res { parsed = try? JSONDecoder().decode(RewispAPI.FormFill.self, from: res) }
+            withAnimation(spring) {
+                formFill = parsed?.fields
+                fillingForm = false
+            }
+        }
+    }
+
+    // The gathered form: each field with its Vault value (or "not saved").
+    // Copy each field on its own row, or fill them all into the page.
+    @ViewBuilder
+    private func formFillView(_ fields: [RewispAPI.ResolvedField]) -> some View {
+        let found = fields.filter { $0.found }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("\(found.count) of \(fields.count) filled from your Vault")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    PanelPin.shared.pinned.toggle()
+                } label: {
+                    Label(pin.pinned ? "Kept open" : "Keep open",
+                          systemImage: pin.pinned ? "pin.fill" : "pin")
+                        .font(.caption.weight(.medium))
+                }
+                .buttonStyle(.borderless)
+                .tint(pin.pinned ? Theme.accent : .secondary)
+                .help("Keep this panel on screen while you copy into the page")
+            }
+            ForEach(fields) { f in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(f.label)
+                        .font(.callout.weight(.medium))
+                        .frame(width: 150, alignment: .leading)
+                        .lineLimit(1)
+                    if let v = f.value, f.found {
+                        Text(v).font(.callout).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        CopyButton(text: v, compact: true)
+                    } else {
+                        Text("not in Vault")
+                            .font(.callout).foregroundStyle(.tertiary).italic()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+            HStack(spacing: 10) {
+                Button {
+                    writeForm()
+                } label: {
+                    if writingForm {
+                        HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Filling…") }
+                    } else {
+                        Label("Fill into fields", systemImage: "square.and.pencil")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(writingForm || found.isEmpty)
+                if !found.isEmpty {
+                    CopyButton(text: found.map { "\($0.label): \($0.value ?? "")" }
+                        .joined(separator: "\n"), label: "Copy all")
+                }
+                Spacer()
+                if let wr = writeResult {
+                    Text(wr).font(.caption).foregroundStyle(.green)
+                }
+            }
+            .padding(.top, 2)
+            Text("Fills the boxes on the page. Never submits — you review and send.")
+                .font(.caption2).foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 18).padding(.vertical, 12)
     }
 
     // Prior questions when there's history to draw on; canned starters on a

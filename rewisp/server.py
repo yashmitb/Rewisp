@@ -60,6 +60,22 @@ def _engine_availability() -> dict:
             "ollama": ollama}
 
 
+def _form_pid(body: dict) -> int | None:
+    """The target app for form ops: the panel's captured pid, else the daemon's
+    cached frontmost (must be recent and not Rewisp itself)."""
+    import time as _time
+    from . import daemon
+    if body.get("pid"):
+        try:
+            return int(body["pid"])
+        except (TypeError, ValueError):
+            pass
+    fm = daemon.STATE.get("frontmost")
+    if fm and _time.time() - fm.get("ts", 0) < 30 and fm.get("app") != "Rewisp":
+        return fm.get("pid")
+    return None
+
+
 def _today_utc_bounds() -> tuple[str, str]:
     now = datetime.now().astimezone()
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -158,17 +174,34 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/settings":
                 self._json({**config.load_settings(),
                             "available": _engine_availability()})
-            elif self.path == "/form-context":
+            elif self.path.split("?")[0] == "/form-context":
                 # Served from the daemon's tick cache — by the time the panel
                 # asks, the panel itself is key and a live AX query would see
                 # the panel's own search field instead of the user's.
                 import time as _time
-                from . import daemon
+                from . import daemon, form as form_mod
                 field = daemon.STATE.get("last_field")
+                out = {"field": None, "form": None}
                 if field and _time.time() - field.get("ts", 0) < 8:
-                    self._json({"field": {k: v for k, v in field.items() if k != "ts"}})
-                else:
-                    self._json({"field": None})
+                    out["field"] = {k: v for k, v in field.items() if k != "ts"}
+                # Walk the app the user was looking at. The panel passes ?pid= (the
+                # app frontmost when ⌘⇧Space fired) — most reliable; else fall back
+                # to the daemon's cached frontmost.
+                import urllib.parse as _up
+                q = _up.parse_qs(_up.urlparse(self.path).query)
+                pid = int(q["pid"][0]) if q.get("pid") else None
+                if pid is None:
+                    fm = daemon.STATE.get("frontmost")
+                    if fm and _time.time() - fm.get("ts", 0) < 10 and fm.get("app") != "Rewisp":
+                        pid = fm.get("pid")
+                _n = 0
+                if pid:
+                    found = form_mod.query(pid)   # runs in a crash-isolated subprocess
+                    if found and found.get("fields"):
+                        out["form"] = found
+                        _n = len(found["fields"])
+                log.info("form-context path=%r pid=%s fields=%s", self.path, pid, _n)
+                self._json(out)
             elif self.path == "/digest/status":
                 self._json({"running": _digest["running"],
                             "error": _digest["error"],
@@ -234,6 +267,24 @@ class Handler(BaseHTTPRequestHandler):
                 prompt, meta = ask.build_prompt(question, compact=bool(body.get("compact", True)))
                 self._json({"prompt": prompt, "n_captures": meta.get("n_captures", 0),
                             "fact": meta.get("fact")})
+            elif self.path == "/form-fill":
+                # Resolve every field of the cached form against the Vault. Read-only
+                # copy-assist: returns values, never writes into the page (that's a
+                # separate, explicit action).
+                from . import form
+                pid = _form_pid(body)
+                found = form.query(pid) if pid else None
+                if not found or not found.get("fields"):
+                    return self._json({"error": "no form detected"}, 404)
+                labels = [f["label"] for f in found.get("fields", [])]
+                resolved = form.resolve(conn, labels)
+                self._json({"app": found.get("app"), "fields": resolved})
+            elif self.path == "/form-write":
+                # Write resolved Vault values into the page's fields. Fills only.
+                from . import form
+                pid = _form_pid(body)
+                result = form.apply(pid) if pid else None   # crash-isolated subprocess
+                self._json(result or {"error": "no form detected", "written": 0})
             elif self.path == "/chat-log":
                 q = (body.get("question") or "").strip()
                 a = (body.get("answer") or "").strip()

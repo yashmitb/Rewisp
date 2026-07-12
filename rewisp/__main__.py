@@ -121,6 +121,12 @@ def main():
     elif cmd == "bench":
         from . import bench
         bench.main(args[1:])
+    elif cmd == "axhelper":
+        # Persistent, crash-isolated Accessibility worker. The daemon spawns and
+        # talks to this over stdin/stdout so a segfault in AX can't take it down,
+        # and it stays alive to hold a browser's web-AX tree built.
+        from . import form
+        form.helper_loop()
     elif cmd == "memory":
         from . import memory
         confirmed, pending = memory.read_sections()

@@ -93,19 +93,32 @@ class Daemon:
         self.killlist_active = False
         STATE["capture"] = "active"
 
-        # Cache the focused form field (1s cadence). The search panel can't ask
-        # live — once it becomes key, the focused element is its own text field.
+        # Remember the frontmost app + pid so the search panel can walk ITS window
+        # for a form on demand. The panel becomes key once summoned, so a live
+        # AXFocusedApplication would return the panel — we walk by pid instead.
+        STATE["frontmost"] = {"app": app, "pid": pid, "ts": time.time()}
+        # Keep a Chromium browser's web AX tree alive while it's frontmost. This is
+        # just an attribute set (safe on-main), NOT the crashy tree walk — that runs
+        # in the isolated subprocess. Chromium only exposes the tree while the client
+        # that enabled it stays alive, so the long-lived daemon must hold it.
+        if now_mono - self.last_field_check > 1:
+            try:
+                from . import form
+                if browser.is_browser(app):
+                    form.enable(pid)   # via the isolated helper — daemon never touches AX
+            except Exception:  # noqa: BLE001
+                pass
+
+        # Cache the focused form field (1s cadence) for the single-field "Find mine".
+        # Via the helper — the daemon must never call AX itself (Chromium segfaults).
         if now_mono - self.last_field_check > 1:
             self.last_field_check = now_mono
             try:
                 from . import form
-                field = form.focused_field()
-                # form.py reports the app OWNING the focused element — the
-                # window-server frontmost is wrong here: the non-activating
-                # search panel can hold AX focus while another app is frontmost.
-                if field and field.get("app") != "Rewisp":
+                field = form.focused()
+                if field and field.get("app") not in (None, "Rewisp"):
                     STATE["last_field"] = {**field, "ts": time.time()}
-            except Exception:  # AX permission missing — feature just stays off
+            except Exception:  # helper unavailable — feature just stays off
                 pass
 
         url = None

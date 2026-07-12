@@ -87,7 +87,30 @@ struct RewispAPI {
         var label: String?
         var app: String?
     }
-    struct FormContext: Decodable { var field: FormField? }
+    // Whole-form detection: every editable field in the frontmost window.
+    struct FormSummary: Decodable {
+        var app: String?
+        var fields: [FormFieldLite]
+    }
+    struct FormFieldLite: Decodable, Hashable {
+        var label: String
+        var filled: Bool
+    }
+    struct FormContext: Decodable {
+        var field: FormField?
+        var form: FormSummary?
+    }
+    // Resolved values for each field (from the Vault).
+    struct FormFill: Decodable {
+        var app: String?
+        var fields: [ResolvedField]
+    }
+    struct ResolvedField: Decodable, Hashable, Identifiable {
+        var label: String
+        var value: String?
+        var found: Bool
+        var id: String { label }
+    }
 
     struct EngineAvail: Decodable {
         var claude: Bool
@@ -183,7 +206,15 @@ struct RewispAPI {
     }
 
     private static func request(_ path: String) -> URLRequest {
-        var req = URLRequest(url: base.appendingPathComponent(path))
+        // Split off a query string — appendingPathComponent would percent-encode the
+        // "?" and the server would never see the params (e.g. form-context?pid=…).
+        let parts = path.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        var url = base.appendingPathComponent(String(parts[0]))
+        if parts.count > 1, var comps = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            comps.percentEncodedQuery = String(parts[1])
+            if let u = comps.url { url = u }
+        }
+        var req = URLRequest(url: url)
         req.setValue(token, forHTTPHeaderField: "X-Rewisp-Token")
         return req
     }
