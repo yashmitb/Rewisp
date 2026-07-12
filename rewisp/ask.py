@@ -29,37 +29,58 @@ Rules, in order of importance:
 5. Timestamps in context are UTC; the user's local offset is given. Convert every TIME you output to local.
 6. Vault entries are user-provided truth — if Vault and screen text conflict, Vault wins.
 
+Answer quality:
+- Be COMPLETE and SPECIFIC. Name the actual things — projects, files, sites, people,
+  tasks, numbers. Never vague ("you did some work") when the context has specifics.
+- For "what did I do / work on / happen" questions, cover the main threads, not just
+  one. Give as many sentences as the answer genuinely needs; don't cut it short.
+- For a specific fact (a name, number, link), give it directly and exactly.
+
 Respond in EXACTLY this format (omit a line entirely if it does not apply):
-ANSWER: <the direct answer, 1-2 sentences, no citations here>
-DETAIL: <supporting explanation or extra findings, brief>
+ANSWER: <the direct, complete answer — as long as the question needs, no citations here>
+DETAIL: <any extra supporting findings worth knowing>
 SOURCE: <where it was seen: app / site / file, human-readable>
 TIME: <when it was seen, local time, e.g. "Today 4:13 PM" or "Mon Jul 6, 9:02 PM">
 COPY: <if the question asked for a specific fact/value (name, ID, address, email,
 link, number): the exact bare value alone, nothing else>"""
 
 
-# Small on-device models (~3B) follow short, blunt, example-led instructions far
-# better than long rule lists. This is tuned for Apple Foundation Models.
-COMPACT_SYSTEM_RULES = """You search the user's own screen history and answer from it.
+# Small on-device models (~3B) follow short, blunt, rule-led instructions. NOTE:
+# a concrete worked example makes this model regurgitate the example's fake facts
+# as if they were real (it can't tell sample from data), so we describe the format
+# abstractly and lean hard on the anti-invention rule instead. Tuned for Apple
+# Foundation Models.
+COMPACT_SYSTEM_RULES = """You answer questions about the user's own screen history using ONLY the CONTEXT below.
 
-Use ONLY the CONTEXT below. Do not use outside knowledge. Do not invent anything.
-If the answer is not clearly in the context, reply exactly: ANSWER: Not found in your memory.
-If several captures fit, use the most recent one.
-Copy exact values (numbers, emails, links, names) letter-for-letter.
+RULES:
+1. Write in your OWN plain English words. Your answer must never begin with "[" or
+   with a URL. Never paste a raw context line, a capture id like [#2696], a section
+   header like [summary ...], or a full web link. Rephrase every fact as a normal
+   sentence (for a website: name the site and what was done; for a search: say what
+   was searched for).
+2. Use ONLY facts found in the CONTEXT. Never use outside knowledge and never invent
+   names, apps, files, sites, numbers, or events. Only mention a website or app if it
+   actually appears in the CONTEXT for the time asked about.
+3. If the CONTEXT does not clearly contain the answer, reply with exactly:
+   ANSWER: Not found in your memory.
+   Do not guess. Do not fill in a plausible-sounding answer.
+4. "Today" and "now" mean the MOST RECENT date in the CONTEXT. Prefer recent
+   captures; ignore older ones that don't fit the question's time.
+5. Scan the whole context. If it clearly shows several DIFFERENT activities from
+   the time asked about — e.g. work in one app and entertainment in another — name
+   each as a numbered list. But include ONLY activities that actually appear for
+   that time; do not pad with unrelated, old, or one-off captures.
+6. Be specific: name the exact apps, files, sites, people, shows, episodes,
+   versions, and numbers from the CONTEXT.
+7. For "summarize" or "what did I do" questions, write a short paragraph covering
+   the main activities of that period — don't reduce it to a single item.
+8. Never copy any wording from these instructions into your answer.
 
-Reply in this format and nothing else:
-ANSWER: <one short sentence>
-SOURCE: <app or site it came from>
-TIME: <when, in the user's local time>
-COPY: <only if a specific value was asked for: just the value>
-
-Example:
-CONTEXT: [#42 Mail 2026-07-08 22:10 UTC] From: Dana Lee <dana@acme.com> Subject: Invoice #7781 due Friday
-QUESTION: who emailed me about an invoice?
-ANSWER: Dana Lee emailed you about Invoice #7781, due Friday.
-SOURCE: Mail
-TIME: Jul 8, 3:10 PM
-COPY: dana@acme.com"""
+Reply as four labeled lines. Replace the parentheses with your real answer:
+ANSWER: (full sentences answering the question; a numbered list if several things)
+SOURCE: (the app or site it came from)
+TIME: (when it happened, in local time)
+COPY: (a single exact value, only if the question asked for one)"""
 
 
 def _fts_query(question: str) -> str:
@@ -195,7 +216,7 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
     context window (~4k tokens total including the answer)."""
     since, until, stripped_q = timeparse.parse(question)
     fts = _fts_query(stripped_q)
-    n_match = 8 if compact else 25
+    n_match = 8 if compact else 12
     rows = db.search_captures(conn, fts, limit=n_match, since=since, until=until)
     if not rows:
         # Keyword miss (e.g. "what was due?") — fall back to the most recent
@@ -212,10 +233,25 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
         params.append(6 if compact else 15)
         cols = ["id", "ts", "app", "window_title", "url", "snippet"]
         rows = [dict(zip(cols, r)) for r in conn.execute(sql, params)]
-    # summaries too (once Digest exists)
-    sums = conn.execute(
-        "SELECT date, summary_md, threads_md FROM summaries ORDER BY date DESC LIMIT ?",
-        (2 if compact else 7,)).fetchall()
+    # Daily summaries. For a time-bounded question ("today", "this morning"), only
+    # include summaries INSIDE that window — otherwise yesterday's digest bleeds in
+    # and the small model reports it as today. Untimed questions keep recent ones.
+    if since or until:
+        ssql = "SELECT date, summary_md, threads_md FROM summaries WHERE 1=1"
+        sparams: list = []
+        if since:
+            ssql += " AND date >= ?"
+            sparams.append(since[:10])
+        if until:
+            ssql += " AND date <= ?"
+            sparams.append(until[:10])
+        ssql += " ORDER BY date DESC LIMIT ?"
+        sparams.append(2 if compact else 3)
+        sums = conn.execute(ssql, sparams).fetchall()
+    else:
+        sums = conn.execute(
+            "SELECT date, summary_md, threads_md FROM summaries ORDER BY date DESC LIMIT ?",
+            (2 if compact else 3,)).fetchall()
 
     parts = []
     # Small models weight early tokens heavily — in compact mode the trusted
@@ -228,8 +264,8 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
         for v in vrows:
             parts.append(f"[vault:{v['path']}]\n{v['snippet']}")
     # Always lead with what's on screen right now — most questions are about it.
-    recent = db.recent_captures(conn, limit=2 if compact else 3,
-                                max_chars=800 if compact else 1500)
+    recent = db.recent_captures(conn, limit=2 if compact else 2,
+                                max_chars=800 if compact else 1100)
     if recent:
         parts.append("## Current / most recent screen (full text)")
         for r in recent:
@@ -240,9 +276,9 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
     rows = [r for r in rows if r["id"] not in recent_ids]
     # The 48-token FTS snippet often clips the actual answer a sentence away from
     # the matched keyword. Give the top matches fuller text around the hit.
-    top_ids = [r["id"] for r in rows[: (3 if compact else 6)]]
+    top_ids = [r["id"] for r in rows[: (3 if compact else 5)]]
     if top_ids:
-        span = 600 if compact else 900
+        span = 600 if compact else 600
         full = {i: t for i, t in conn.execute(
             f"SELECT id, substr(ocr_text,1,{span}) FROM captures "
             f"WHERE id IN ({','.join('?' * len(top_ids))})", top_ids)}
@@ -270,8 +306,9 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
 
     meta = {"since": since, "until": until, "fts": fts, "n_captures": len(rows)}
     text = "\n\n".join(parts)
-    if compact:
-        text = text[:9000]  # hard cap for the ~4k-token on-device window
+    # Hard caps: tight for the on-device window; also bound the cloud prompt so a
+    # dense day doesn't balloon it to 30k+ chars and make Claude slow to read.
+    text = text[:9000] if compact else text[:15000]
     return text, meta
 
 
@@ -302,9 +339,15 @@ def _call_claude(prompt: str) -> str:
             "Claude subscription. Unset it and retry.")
     if not shutil.which("claude"):
         raise RuntimeError("Claude Code CLI not found. Install it and run `claude` once to sign in.")
+    # Speed: skip the MCP servers, project settings, and CLAUDE.md the CLI would
+    # otherwise spawn/load on every call (that overhead is most of the latency).
+    # Run from a neutral cwd for the same reason. Keychain auth is untouched.
     out = subprocess.run(
-        ["claude", "-p", "--output-format", "text"],
+        ["claude", "-p", "--output-format", "text",
+         "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+         "--setting-sources", "user"],
         input=prompt, capture_output=True, text=True, timeout=120,
+        cwd="/tmp",
     )
     if out.returncode != 0:
         err = (out.stderr or out.stdout).strip()
@@ -366,7 +409,7 @@ def _call_gemini(prompt: str) -> str:
     model = s.get("gemini_model", "gemini-2.5-flash")
     payload = _json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 400},
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 700},
     }).encode()
 
     def _post(api: str) -> tuple[int, str]:
@@ -535,14 +578,17 @@ def call_llm(prompt: str) -> tuple[str, str]:
     falls through to whatever the user actually has configured."""
     s = config.load_settings()
     engine = s.get("engine", "auto")
+    disabled = set(s.get("disabled_engines") or [])
     if engine == "auto":
-        disabled = set(s.get("disabled_engines") or [])
         order = [e for e in AUTO_ORDER if e not in disabled]
         if not order:
             raise RuntimeError("No engines enabled. Turn one back on in "
                                "Settings → Answers → Advanced.")
     else:
-        order = [engine]
+        # Chosen engine is a preference, not a hard lock: try it first, then fall
+        # back to the rest of the chain. So "Gemini" is fast day-to-day and Claude
+        # quietly covers it when Gemini hits its free daily limit.
+        order = [engine] + [e for e in AUTO_ORDER if e != engine and e not in disabled]
     errors = []
     for name in order:
         try:

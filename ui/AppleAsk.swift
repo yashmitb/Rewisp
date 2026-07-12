@@ -20,7 +20,7 @@ struct AppleAsk {
         do {
             let session = LanguageModelSession()
             // Match the app: low temperature, capped tokens for factual lookup.
-            let opts = GenerationOptions(temperature: 0.1, maximumResponseTokens: 250)
+            let opts = GenerationOptions(temperature: 0.1, maximumResponseTokens: 500)
             let resp = try await session.respond(to: prompt, options: opts)
             print(resp.content)
         } catch {

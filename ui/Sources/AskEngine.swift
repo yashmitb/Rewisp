@@ -40,7 +40,7 @@ enum AskEngine {
                 let session = LanguageModelSession()
                 // Low temperature + token cap: factual lookup, and the small
                 // model tends to ramble past its first answer otherwise.
-                let opts = GenerationOptions(temperature: 0.1, maximumResponseTokens: 250)
+                let opts = GenerationOptions(temperature: 0.1, maximumResponseTokens: 500)
                 let resp = try await session.respond(to: ctx.prompt, options: opts)
                 var r = parseStructured(resp.content)
                 r.model = "Apple on-device"
