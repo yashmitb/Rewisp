@@ -48,7 +48,7 @@ def page_key(app: str | None, window_title: str | None, url: str | None) -> str:
     title = _TITLE_COUNTER.sub("", title)
     title = _LEADING_COUNT.sub("", title)
     title = re.sub(r"\s+", " ", title).strip().lower()
-    app = (app or "").strip()
+    app = (app or "").strip().lower()
     return f"{app}::{title}" if title else app
 
 
@@ -99,15 +99,28 @@ def diff_texts(old: str, new: str) -> dict:
             r = SequenceMatcher(None, ol.lower(), nl.lower()).ratio()
             if r > best_r:
                 best_r, best_i = r, i
+        if best_i < 0:
+            added.append(nl)
+            continue
+        ol = o[best_i]
         if best_r >= 0.9:
-            used.add(best_i)                       # unchanged
+            used.add(best_i)
+            # Near-identical text, but if the NUMBERS differ it's a real change
+            # (price 1200 -> 1450, grade, count). Textual ratio alone misses this
+            # because one changed number barely dents a long line's similarity.
+            if _numbers(ol) != _numbers(nl):
+                changed.append({"old": ol, "new": nl})
         elif best_r >= 0.6:
             used.add(best_i)
-            changed.append({"old": o[best_i], "new": nl})
+            changed.append({"old": ol, "new": nl})
         else:
             added.append(nl)
     removed = [ol for i, ol in enumerate(o) if i not in used]
     return {"added": added, "removed": removed, "changed": changed}
+
+
+def _numbers(line: str) -> list[str]:
+    return _NUM.findall(line)
 
 
 def summarize(diff: dict) -> str:
