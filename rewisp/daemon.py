@@ -58,7 +58,15 @@ class Daemon:
             del img  # image existed only in memory; released here
         if not text.strip():
             return
-        row_id = db.insert_capture(self.conn, app, title, url, text)
+        # Semantic vector for meaning-based retrieval. Best-effort: if the embedder
+        # is offline the row stores NULL and the nightly backfill fills it later.
+        emb = None
+        try:
+            from . import embed
+            emb = embed.embed(text)
+        except Exception:  # noqa: BLE001 — never let embedding break capture
+            pass
+        row_id = db.insert_capture(self.conn, app, title, url, text, embedding=emb)
         log.info("captured #%d [%s] app=%s title=%r url=%s chars=%d",
                  row_id, reason, app, (title or "")[:60], url or "-", len(text))
 
@@ -235,6 +243,15 @@ class Daemon:
                         digest.run()
                     except Exception:
                         log.exception("digest catch-up failed")
+                # Backfill embeddings for old / offline-stored rows, a chunk at a
+                # time so semantic search covers history without a big stall.
+                try:
+                    n = db.embeddings_backfill(self.conn, batch=1000)
+                    if n:
+                        log.info("embed backfill: %d rows (%d remaining)",
+                                 n, db.missing_embeddings(self.conn))
+                except Exception:
+                    log.exception("embed backfill failed")
             time.sleep(config.TICK_SECONDS)
 
 

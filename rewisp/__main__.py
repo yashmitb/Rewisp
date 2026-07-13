@@ -1,4 +1,4 @@
-"""CLI: python3 -m rewisp [daemon|once|pause|resume|status|search <q>|ask <q>|bench [q...]|digest [--force]|vault|memory|export|report]"""
+"""CLI: python3 -m rewisp [daemon|once|pause|resume|status|search <q>|ask <q>|bench [q...]|digest [--force]|vault|memory|export|report|embed-backfill]"""
 
 import sys
 
@@ -121,6 +121,22 @@ def main():
     elif cmd == "bench":
         from . import bench
         bench.main(args[1:])
+    elif cmd == "embed-backfill":
+        from . import embed
+        conn = db.connect()
+        missing = db.missing_embeddings(conn)
+        if not embed.available():
+            print("embedder unavailable (offline / model not downloaded) — skipped")
+            return
+        print(f"{missing} captures without an embedding; embedding all…")
+        total = 0
+        while True:
+            n = db.embeddings_backfill(conn, batch=500)
+            if not n:
+                break
+            total += n
+            print(f"  …{total}/{missing}")
+        print(f"done: embedded {total}, remaining {db.missing_embeddings(conn)}")
     elif cmd == "axhelper":
         # Persistent, crash-isolated Accessibility worker. The daemon spawns and
         # talks to this over stdin/stdout so a segfault in AX can't take it down,

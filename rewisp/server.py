@@ -304,8 +304,9 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/delete-recent":
                 cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)
                           ).strftime("%Y-%m-%d %H:%M:%S")
-                n = conn.execute("DELETE FROM captures WHERE ts >= ?", (cutoff,)).rowcount
-                conn.commit()
+                ids = [r[0] for r in conn.execute(
+                    "SELECT id FROM captures WHERE ts >= ?", (cutoff,))]
+                n = db.delete_captures(conn, ids)  # cascade choke point (fts + embedding)
                 log.info("deleted last-10-min captures: %d rows", n)
                 self._json({"deleted": n})
             elif self.path == "/memory/approve":

@@ -50,6 +50,12 @@ HEARTBEAT_SECONDS = 60  # periodic capture when no trigger fired; dedupe drops u
 
 RETENTION_DAYS = 183  # ~6 months for captures and chats
 
+# Semantic memory: local static-embedding model (model2vec, pure numpy, ~0.1ms).
+# Retrieval merges FTS keyword rank with vector-similarity rank via RRF.
+EMBED_MODEL = "minishlab/potion-retrieval-32M"  # 512-dim, retrieval-tuned
+RRF_K = 60          # reciprocal-rank-fusion constant (standard default)
+RRF_POOL = 40       # top-k pulled from each of FTS and vector before fusion
+
 DEFAULT_KILL_APPS = [
     "Messages",
     "WhatsApp",

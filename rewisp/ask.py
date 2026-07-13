@@ -237,10 +237,15 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
     since, until, stripped_q = timeparse.parse(question)
     fts = _fts_query(stripped_q)
     n_match = 8 if compact else 12
-    # Over-fetch, then drop near-duplicate captures (the same page/session recurs
-    # many times). Distinct facts in the window matter far more than raw count —
-    # especially for the small on-device model, which drowns in repetition.
-    rows = db.search_captures(conn, fts, limit=n_match * 3, since=since, until=until)
+    # Hybrid retrieval: FTS keyword rank fused with semantic vector rank (RRF), so
+    # "that article about burnout" matches a page that said "exhaustion". Falls
+    # back to FTS-only when the embedder is offline. Over-fetch, then drop
+    # near-duplicate captures (the same page/session recurs many times) — distinct
+    # facts matter more than raw count, especially for the small on-device model.
+    from . import embed
+    qvec = embed.embed_vec(stripped_q or question)
+    rows = db.search_captures_hybrid(conn, fts, qvec, limit=n_match * 3,
+                                     since=since, until=until)
     rows = _dedupe_captures(rows, n_match)
     if not rows:
         # Keyword miss (e.g. "what was due?") — fall back to the most recent

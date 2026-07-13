@@ -25,6 +25,13 @@ import Quartz, Vision  # noqa
 EOF
 echo "✓ python3 + pyobjc: $PY"
 
+# 2b. model2vec — local semantic-search embeddings (pure numpy, no torch).
+# Optional: if it can't install, Rewisp falls back to keyword-only search.
+"$PY" - <<'EOF' || "$PY" -m pip install --quiet model2vec
+import model2vec  # noqa
+EOF
+echo "✓ semantic search (model2vec) ready"
+
 # 3. Rewisp.app in /Applications (skipped when already there or building from source).
 if [[ ! -d /Applications/Rewisp.app && -d "$SCRIPT_DIR/../ui/Rewisp.app" ]]; then
     cp -R "$SCRIPT_DIR/../ui/Rewisp.app" /Applications/
