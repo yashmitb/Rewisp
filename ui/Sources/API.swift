@@ -73,6 +73,14 @@ struct RewispAPI {
 
     struct Chats: Decodable { var chats: [ChatMessage] }
 
+    struct Nudge: Decodable {
+        var id: Int
+        var type: String
+        var title: String
+        var body: String
+    }
+    struct Nudges: Decodable { var nudges: [Nudge] }
+
     struct VaultFile: Decodable, Identifiable, Hashable {
         var name: String
         var size: Int
@@ -140,6 +148,7 @@ struct RewispAPI {
         var local_model: String?
         var digest_hour: Int
         var digest_interval_days: Int
+        var nudges_enabled: Bool?
         var available: EngineAvail?
     }
 

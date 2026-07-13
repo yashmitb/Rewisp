@@ -976,6 +976,8 @@ struct SettingsTab: View {
     @State private var disabledEngines: Set<String> = []
     @State private var digestHour = 21
     @State private var digestInterval = 1
+    @State private var nudgesEnabled = false
+    @State private var testNudgeSent = false
     @State private var digestRunning = false
     @State private var digestError: String?
     @State private var showReport = false
@@ -1247,6 +1249,32 @@ struct SettingsTab: View {
                 }
                 .toggleStyle(.switch)
             }
+            Card {
+                CardHeader(title: "Proactive nudges", symbol: "sparkles")
+                Toggle(isOn: $nudgesEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Déjà Vu — surface related memories").font(.callout)
+                        Text("When the screen you're on relates to something you saw before, a small pill slides down to remind you. Max 3/day, fully local.")
+                            .font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
+                .toggleStyle(.switch)
+                .onChange(of: nudgesEnabled) { saveSettings(["nudges_enabled": nudgesEnabled]) }
+                HStack {
+                    Button {
+                        Task {
+                            _ = try? await RewispAPI.post("nudge/test")
+                            testNudgeSent = true
+                        }
+                    } label: { Label("Send test nudge", systemImage: "paperplane") }
+                    .controlSize(.small)
+                    if testNudgeSent {
+                        Text("sent — watch the top of the screen")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.top, 4)
+            }
         }
     }
 
@@ -1395,6 +1423,7 @@ struct SettingsTab: View {
             }
             digestHour = s.digest_hour
             digestInterval = s.digest_interval_days
+            nudgesEnabled = s.nudges_enabled ?? false
         }
         if let d = try? await RewispAPI.get("digest/status", as: RewispAPI.DigestStatus.self) {
             digestRunning = d.running

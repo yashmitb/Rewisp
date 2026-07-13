@@ -220,6 +220,8 @@ class Handler(BaseHTTPRequestHandler):
                 d = _delta.diff_texts(old["ocr_text"], new["ocr_text"])
                 self._json({"page_key": key, "have_two_versions": True,
                             "old_ts": old["ts"], "new_ts": new["ts"], **d})
+            elif self.path == "/nudges":
+                self._json({"nudges": db.pending_nudges(conn)})
             elif self.path == "/digest/status":
                 self._json({"running": _digest["running"],
                             "error": _digest["error"],
@@ -327,6 +329,25 @@ class Handler(BaseHTTPRequestHandler):
                 n = db.delete_captures(conn, ids)  # cascade choke point (fts + embedding)
                 log.info("deleted last-10-min captures: %d rows", n)
                 self._json({"deleted": n})
+            elif self.path == "/nudge/feedback":
+                nid = int(body.get("id", 0))
+                db.nudge_feedback(conn, nid, body.get("vote", ""))
+                self._json({"ok": True})
+            elif self.path == "/nudge/delivered":
+                db.mark_nudge_delivered(conn, int(body.get("id", 0)))
+                self._json({"ok": True})
+            elif self.path == "/nudge/test":
+                # Enqueue a demo nudge so the pill UI can be seen while nudges are
+                # still disabled. Points at the most recent real wisp if there is one.
+                row = conn.execute(
+                    "SELECT id, app, substr(ocr_text,1,120) FROM captures ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                src, appn, snip = (row if row else (None, "somewhere", "a page you visited"))
+                nid = db.enqueue_nudge(
+                    conn, "dejavu", "You've seen something like this",
+                    f"Test nudge — you saw this in {appn}: “{' '.join((snip or '').split())[:90]}”",
+                    source_wisp_id=src, topic_key=f"test:{datetime.now().timestamp()}")
+                self._json({"ok": True, "id": nid})
             elif self.path == "/memory/approve":
                 self._memory_move(body.get("line", ""), approve=True)
             elif self.path == "/memory/delete":

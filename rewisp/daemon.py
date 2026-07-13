@@ -69,6 +69,15 @@ class Daemon:
         row_id = db.insert_capture(self.conn, app, title, url, text, embedding=emb)
         log.info("captured #%d [%s] app=%s title=%r url=%s chars=%d",
                  row_id, reason, app, (title or "")[:60], url or "-", len(text))
+        # Proactive recall (Déjà Vu). No-op unless the user enabled nudges; reuses
+        # the embedding we just computed, so detection is nearly free.
+        if emb is not None:
+            try:
+                from . import dejavu, delta, embed
+                pkey = delta.page_key(app, title, url)
+                dejavu.maybe_nudge(self.conn, row_id, embed.to_vec(emb), app, pkey)
+            except Exception:  # noqa: BLE001 — never let a nudge break capture
+                log.debug("dejavu check failed", exc_info=True)
 
     # -- main loop ------------------------------------------------------------
 

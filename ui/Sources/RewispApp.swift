@@ -49,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SearchPanelController.shared.toggle()
         }
         DigestNotifier.shared.start()
+        NudgePillController.shared.startPolling()
         // Esc closes the menu bar popover. SwiftUI's onExitCommand never fires
         // there (the focused TextField's field editor eats cancelOperation), so
         // catch the key one level down. Our own panels handle Esc themselves.

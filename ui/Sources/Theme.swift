@@ -8,6 +8,9 @@ enum Theme {
     static let wisp = LinearGradient(colors: [accent, accent2],
                                      startPoint: .topLeading, endPoint: .bottomTrailing)
     static let spring = Animation.spring(response: 0.35, dampingFraction: 0.8)
+    // Solid graphite backing under translucent surfaces (nudge pill) so text stays
+    // legible over any backdrop — bright video, white pages, whatever.
+    static let pillBG = Color(red: 0.09, green: 0.10, blue: 0.15).opacity(0.92)
 }
 
 // Soft rounded card used across the main window.

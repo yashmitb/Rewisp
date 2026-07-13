@@ -29,6 +29,11 @@ DEFAULT_SETTINGS = {
     "local_model_repo": "",
     "digest_hour": 21,               # local hour the digest becomes due
     "digest_interval_days": 1,       # 1 = nightly, 2 = every other day, 7 = weekly
+    # Proactive nudges (Déjà Vu / Delta / Promises). Off by default — opt in, then
+    # tune. Detection is fully local (embeddings); nudges never make a cloud call.
+    "nudges_enabled": False,
+    "nudge_max_per_day": 3,
+    "nudge_similarity": 0.82,        # cosine bar for a Déjà Vu match
 }
 
 # (browser support lives in browser.BROWSERS — Chromium family, Safari, Firefox title-only)

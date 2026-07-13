@@ -51,6 +51,19 @@ CREATE TABLE IF NOT EXISTS entities (
   id INTEGER PRIMARY KEY,
   name TEXT, kind TEXT, first_seen DATETIME, last_seen DATETIME, notes TEXT
 );
+
+CREATE TABLE IF NOT EXISTS nudges (
+  id INTEGER PRIMARY KEY,
+  type TEXT,                 -- 'dejavu' | 'delta' | 'promise'
+  title TEXT,
+  body TEXT,
+  source_wisp_id INTEGER,    -- the past wisp this points back to
+  topic_key TEXT,            -- page_key/thread, for per-topic cooldown
+  created_at TEXT,
+  status TEXT DEFAULT 'pending',   -- 'pending' | 'delivered' | 'dismissed'
+  feedback TEXT              -- 'up' | 'down' | NULL
+);
+CREATE INDEX IF NOT EXISTS idx_nudges_status ON nudges(status, created_at);
 """
 
 
@@ -269,6 +282,56 @@ def delete_captures(conn: sqlite3.Connection, ids: list[int]) -> int:
     # (future: delete from promises/series/episodes WHERE wisp_id IN (...))
     conn.commit()
     return n
+
+
+# -- nudges (proactive recall / delta / promise pills) -----------------------
+
+def nudge_count_today(conn: sqlite3.Connection) -> int:
+    return conn.execute(
+        "SELECT COUNT(*) FROM nudges WHERE created_at >= datetime('now','-1 day')"
+    ).fetchone()[0]
+
+
+def nudge_topic_recent(conn: sqlite3.Connection, topic_key: str, hours: int = 48) -> bool:
+    """True if we already nudged about this topic within the cooldown — the main
+    anti-annoyance guard (don't re-surface the same memory over and over)."""
+    if not topic_key:
+        return False
+    row = conn.execute(
+        f"SELECT 1 FROM nudges WHERE topic_key = ? AND created_at >= datetime('now','-{hours} hours') LIMIT 1",
+        (topic_key,)).fetchone()
+    return row is not None
+
+
+def enqueue_nudge(conn: sqlite3.Connection, type: str, title: str, body: str,
+                  source_wisp_id: int | None = None, topic_key: str | None = None) -> int:
+    cur = conn.execute(
+        "INSERT INTO nudges (type, title, body, source_wisp_id, topic_key, created_at, status) "
+        "VALUES (?, ?, ?, ?, ?, ?, 'pending')",
+        (type, title, body, source_wisp_id, topic_key, utcnow()))
+    conn.commit()
+    return cur.lastrowid
+
+
+def pending_nudges(conn: sqlite3.Connection) -> list[dict]:
+    cols = ["id", "type", "title", "body", "source_wisp_id", "created_at"]
+    rows = conn.execute(
+        "SELECT id, type, title, body, source_wisp_id, created_at FROM nudges "
+        "WHERE status = 'pending' ORDER BY id ASC").fetchall()
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def mark_nudge_delivered(conn: sqlite3.Connection, nudge_id: int) -> None:
+    conn.execute("UPDATE nudges SET status='delivered' WHERE id=?", (nudge_id,))
+    conn.commit()
+
+
+def nudge_feedback(conn: sqlite3.Connection, nudge_id: int, vote: str) -> None:
+    """Store 👍/👎 and dismiss. Feedback tunes the similarity threshold nightly."""
+    status = "dismissed"
+    conn.execute("UPDATE nudges SET feedback=?, status=? WHERE id=?",
+                 (vote if vote in ("up", "down") else None, status, nudge_id))
+    conn.commit()
 
 
 def recent_captures(conn: sqlite3.Connection, limit: int = 3,
