@@ -243,15 +243,18 @@ class Daemon:
                         digest.run()
                     except Exception:
                         log.exception("digest catch-up failed")
-                # Backfill embeddings for old / offline-stored rows, a chunk at a
-                # time so semantic search covers history without a big stall.
+                # Backfill embeddings + page_keys for old / offline-stored rows, a
+                # chunk at a time so history is covered without a big stall.
                 try:
                     n = db.embeddings_backfill(self.conn, batch=1000)
                     if n:
                         log.info("embed backfill: %d rows (%d remaining)",
                                  n, db.missing_embeddings(self.conn))
+                    pk = db.pagekey_backfill(self.conn, batch=2000)
+                    if pk:
+                        log.info("page_key backfill: %d rows", pk)
                 except Exception:
-                    log.exception("embed backfill failed")
+                    log.exception("backfill failed")
             time.sleep(config.TICK_SECONDS)
 
 

@@ -66,6 +66,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # backfilled for old rows). Lives on the row, so DELETE removes it too.
         conn.execute("ALTER TABLE captures ADD COLUMN embedding BLOB")
         conn.commit()
+    if "page_key" not in cols:
+        # Stable page identity for Delta ("what changed") and Numbers Over Time.
+        conn.execute("ALTER TABLE captures ADD COLUMN page_key TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_captures_pagekey ON captures(page_key, ts)")
+        conn.commit()
 
 
 def connect() -> sqlite3.Connection:
@@ -80,10 +85,12 @@ def connect() -> sqlite3.Connection:
 def insert_capture(conn: sqlite3.Connection, app: str, window_title: str | None,
                    url: str | None, ocr_text: str, embedding: bytes | None = None) -> int:
     ocr_text = ocr_text[: config.MAX_OCR_CHARS]
+    from . import delta
+    pkey = delta.page_key(app, window_title, url)
     cur = conn.execute(
-        "INSERT INTO captures (ts, app, window_title, url, ocr_text, embedding) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (utcnow(), app, window_title, url, ocr_text, embedding),
+        "INSERT INTO captures (ts, app, window_title, url, ocr_text, embedding, page_key) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (utcnow(), app, window_title, url, ocr_text, embedding, pkey),
     )
     conn.commit()
     return cur.lastrowid
@@ -193,6 +200,60 @@ def embeddings_backfill(conn: sqlite3.Connection, batch: int = 500) -> int:
 
 def missing_embeddings(conn: sqlite3.Connection) -> int:
     return conn.execute("SELECT COUNT(*) FROM captures WHERE embedding IS NULL").fetchone()[0]
+
+
+def pagekey_backfill(conn: sqlite3.Connection, batch: int = 2000) -> int:
+    """Compute page_key for old rows that predate the column. Cheap (string ops),
+    so a large batch per pass is fine."""
+    from . import delta
+    rows = conn.execute(
+        "SELECT id, app, window_title, url FROM captures WHERE page_key IS NULL "
+        "ORDER BY id DESC LIMIT ?", (batch,)).fetchall()
+    for rid, app, title, url in rows:
+        conn.execute("UPDATE captures SET page_key=? WHERE id=?",
+                     (delta.page_key(app, title, url), rid))
+    if rows:
+        conn.commit()
+    return len(rows)
+
+
+def latest_page_key(conn: sqlite3.Connection) -> str | None:
+    """page_key of the most recent capture — i.e. the page the user is on now
+    (Rewisp never captures its own UI, so this is the app behind the panel)."""
+    row = conn.execute(
+        "SELECT page_key FROM captures WHERE page_key IS NOT NULL "
+        "ORDER BY id DESC LIMIT 1").fetchone()
+    return row[0] if row else None
+
+
+def versions_for_key(conn: sqlite3.Connection, key: str, before: str | None = None,
+                     after: str | None = None) -> tuple[dict | None, dict | None]:
+    """The two versions of a page to diff. Default: latest vs the one just before
+    it. With `before` (a parsed 'since Tuesday'): latest vs the last capture at or
+    before that time. Returns (old, new) dicts or (None, None)."""
+    def _row(sql, params):
+        r = conn.execute(sql, params).fetchone()
+        if not r:
+            return None
+        return dict(zip(["id", "ts", "app", "window_title", "url", "ocr_text"], r))
+
+    base = ("SELECT id, ts, app, window_title, url, ocr_text FROM captures "
+            "WHERE page_key = ?")
+    new = _row(base + (" AND ts <= ?" if after else "") + " ORDER BY ts DESC LIMIT 1",
+               [key] + ([after] if after else []))
+    if not new:
+        return None, None
+    if before:
+        old = _row(base + " AND ts <= ? ORDER BY ts DESC LIMIT 1", [key, before])
+    else:
+        # "since I last looked" = a meaningfully earlier visit, not the frame from
+        # 1s ago. Prefer the newest version at least 5 min older; fall back to the
+        # immediately previous capture if that's all there is.
+        old = _row(base + " AND ts <= datetime(?, '-5 minutes') ORDER BY ts DESC LIMIT 1",
+                   [key, new["ts"]])
+        if not old:
+            old = _row(base + " AND id < ? ORDER BY ts DESC LIMIT 1", [key, new["id"]])
+    return old, new
 
 
 def delete_captures(conn: sqlite3.Connection, ids: list[int]) -> int:

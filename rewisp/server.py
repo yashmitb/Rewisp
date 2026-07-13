@@ -202,6 +202,24 @@ class Handler(BaseHTTPRequestHandler):
                         _n = len(found["fields"])
                 log.info("form-context path=%r pid=%s fields=%s", self.path, pid, _n)
                 self._json(out)
+            elif self.path.split("?")[0] == "/delta":
+                # Diff a page over time. No params -> the current page (latest
+                # capture) vs its previous version. ?page_key= targets a page;
+                # ?before= (ISO) diffs latest vs the version at/before that time.
+                import urllib.parse as _up
+                from . import delta as _delta
+                q = _up.parse_qs(_up.urlparse(self.path).query)
+                key = q["page_key"][0] if q.get("page_key") else db.latest_page_key(conn)
+                before = q["before"][0] if q.get("before") else None
+                after = q["after"][0] if q.get("after") else None
+                if not key:
+                    return self._json({"error": "no page"}, 404)
+                old, new = db.versions_for_key(conn, key, before=before, after=after)
+                if not new or not old:
+                    return self._json({"page_key": key, "have_two_versions": False})
+                d = _delta.diff_texts(old["ocr_text"], new["ocr_text"])
+                self._json({"page_key": key, "have_two_versions": True,
+                            "old_ts": old["ts"], "new_ts": new["ts"], **d})
             elif self.path == "/digest/status":
                 self._json({"running": _digest["running"],
                             "error": _digest["error"],

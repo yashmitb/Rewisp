@@ -340,13 +340,68 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
     return text, meta
 
 
+_DELTA_INTENT = re.compile(
+    r"\b(what('?s| is| has|)\s+(new|changed|different|updated)|any(thing)?\s+(new|change)"
+    r"|what'?s new|since (i )?last|diff(ed|erence)?|what did .* change)\b", re.I)
+
+
+def delta_answer(conn, question: str) -> dict | None:
+    """Deterministic 'what changed on this page' answer — diffs the current page
+    against its previous version (or the version before a parsed 'since Tuesday').
+    Returns a fact-shaped dict (answer/detail/source/copy_text/model) or None."""
+    if not _DELTA_INTENT.search(question):
+        return None
+    from . import delta
+    since, _until, _stripped = timeparse.parse(question)
+    key = db.latest_page_key(conn)
+    if not key:
+        return None
+    old, new = db.versions_for_key(conn, key, before=since)
+    if not new or not old:
+        return None
+    d = delta.diff_texts(old["ocr_text"], new["ocr_text"])
+    if not (d["added"] or d["removed"] or d["changed"]):
+        return {"answer": "Nothing has changed on this page since you last saw it.",
+                "source": f"Delta · {_pretty_key(key)}", "copy_text": "", "model": "Delta"}
+
+    def _fmt(lines, mark):
+        return "\n".join(f"{mark} {ln}" for ln in lines[:12])
+    parts = []
+    if d["added"]:
+        parts.append("Added\n" + _fmt(d["added"], "+"))
+    if d["changed"]:
+        parts.append("Changed\n" + "\n".join(
+            f"• {c['old']}  →  {c['new']}" for c in d["changed"][:12]))
+    if d["removed"]:
+        parts.append("Removed\n" + _fmt(d["removed"], "−"))
+    detail = "\n\n".join(parts)
+    span = f"{_short_ts(old['ts'])} → {_short_ts(new['ts'])}"
+    return {"answer": delta.summarize(d),
+            "detail": detail,
+            "source": f"Delta · {_pretty_key(key)}",
+            "time": span,
+            "copy_text": detail,
+            "model": "Delta"}
+
+
+def _pretty_key(key: str) -> str:
+    if key.startswith("http"):
+        return key.split("://", 1)[-1][:60]
+    return key.split("::", 1)[0][:40]
+
+
+def _short_ts(ts: str) -> str:
+    return (ts or "")[5:16].replace("-", "/")  # 'MM/DD HH:MM' from 'YYYY-MM-DD HH:MM:SS'
+
+
 def build_prompt(question: str, compact: bool = False) -> tuple[str, dict]:
     """Full prompt (rules + context + question). Used by the Swift app to run
     the Apple on-device model — retrieval stays here, generation happens there."""
     conn = db.connect()
     try:
-        # Deterministic personal-fact hit: skip the model entirely.
-        fact = vault_fact(conn, question)
+        # Deterministic hits skip the model entirely: 'what changed here' -> a
+        # page diff; a personal fact -> the exact Vault value.
+        fact = delta_answer(conn, question) or vault_fact(conn, question)
         context, meta = build_context(conn, question, compact=compact)
         if fact:
             meta["fact"] = fact
@@ -648,10 +703,12 @@ def parse_answer(raw: str) -> dict:
 
 def ask(question: str, save: bool = True) -> tuple[str, dict]:
     conn = db.connect()
-    fact = vault_fact(conn, question)
+    fact = delta_answer(conn, question) or vault_fact(conn, question)
     if fact:
-        meta = {"answer": fact["answer"], "source": fact["source"],
-                "copy_text": fact["copy_text"], "model": "Vault", "n_captures": 0}
+        meta = {"answer": fact["answer"], "source": fact.get("source"),
+                "detail": fact.get("detail"), "time": fact.get("time"),
+                "copy_text": fact.get("copy_text"), "model": fact.get("model", "Vault"),
+                "n_captures": 0}
         if save:
             ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             conn.execute("INSERT INTO chats (ts, role, content) VALUES (?, 'user', ?)", (ts, question))

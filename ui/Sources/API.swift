@@ -51,8 +51,11 @@ struct RewispAPI {
 
     struct VaultFact: Decodable {
         var answer: String
+        var detail: String?
         var source: String?
+        var time: String?
         var copy_text: String?
+        var model: String?   // "Vault" for a personal fact, "Delta" for a page diff
     }
 
     struct ContextResult: Decodable {

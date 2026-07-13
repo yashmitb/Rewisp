@@ -31,9 +31,11 @@ enum AskEngine {
                 if let f = ctx.fact {
                     var r = RewispAPI.AskResult()
                     r.answer = f.answer
+                    r.detail = f.detail
                     r.source = f.source
+                    r.time = f.time
                     r.copy_text = f.copy_text
-                    r.model = "Vault"
+                    r.model = f.model ?? "Vault"
                     await RewispAPI.logChat(question: question, answer: f.answer)
                     return r
                 }
