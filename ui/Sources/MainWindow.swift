@@ -277,6 +277,8 @@ struct TodayTab: View {
                 .opacity(appeared ? 1 : 0)
                 .offset(y: appeared ? 0 : 8)
 
+                PromisesCard()
+
                 if let r = recap {
                     Card {
                         CardHeader(title: r.source == "digest" ? "Your day, digested" : "Today so far",

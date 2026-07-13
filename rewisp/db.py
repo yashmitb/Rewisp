@@ -64,6 +64,18 @@ CREATE TABLE IF NOT EXISTS nudges (
   feedback TEXT              -- 'up' | 'down' | NULL
 );
 CREATE INDEX IF NOT EXISTS idx_nudges_status ON nudges(status, created_at);
+
+CREATE TABLE IF NOT EXISTS promises (
+  id INTEGER PRIMARY KEY,
+  wisp_id INTEGER,           -- source capture
+  who TEXT,                  -- 'me' (you owe) | 'them' (waiting on them)
+  what TEXT,
+  due TEXT,                  -- ISO date, nullable
+  status TEXT DEFAULT 'pending',   -- 'pending' | 'confirmed' | 'done' | 'dismissed'
+  confidence REAL,
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_promises_status ON promises(status, due);
 """
 
 
@@ -278,8 +290,9 @@ def delete_captures(conn: sqlite3.Connection, ids: list[int]) -> int:
     if not ids:
         return 0
     marks = ",".join("?" * len(ids))
+    conn.execute(f"DELETE FROM promises WHERE wisp_id IN ({marks})", ids)
+    # (future: also delete from series/episodes WHERE wisp_id IN (...))
     n = conn.execute(f"DELETE FROM captures WHERE id IN ({marks})", ids).rowcount
-    # (future: delete from promises/series/episodes WHERE wisp_id IN (...))
     conn.commit()
     return n
 
@@ -332,6 +345,41 @@ def nudge_feedback(conn: sqlite3.Connection, nudge_id: int, vote: str) -> None:
     conn.execute("UPDATE nudges SET feedback=?, status=? WHERE id=?",
                  (vote if vote in ("up", "down") else None, status, nudge_id))
     conn.commit()
+
+
+# -- promises -----------------------------------------------------------------
+
+def add_promise(conn: sqlite3.Connection, wisp_id: int, who: str, what: str,
+                due: str | None, confidence: float) -> int:
+    cur = conn.execute(
+        "INSERT INTO promises (wisp_id, who, what, due, status, confidence, created_at) "
+        "VALUES (?, ?, ?, ?, 'pending', ?, ?)",
+        (wisp_id, who, what, due, confidence, utcnow()))
+    conn.commit()
+    return cur.lastrowid
+
+
+def promises_by_status(conn: sqlite3.Connection, statuses: tuple[str, ...]) -> list[dict]:
+    marks = ",".join("?" * len(statuses))
+    cols = ["id", "who", "what", "due", "status", "confidence", "created_at"]
+    rows = conn.execute(
+        f"SELECT id, who, what, due, status, confidence, created_at FROM promises "
+        f"WHERE status IN ({marks}) ORDER BY (due IS NULL), due ASC, id DESC", statuses).fetchall()
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def set_promise_status(conn: sqlite3.Connection, promise_id: int, status: str) -> None:
+    conn.execute("UPDATE promises SET status=? WHERE id=?", (status, promise_id))
+    conn.commit()
+
+
+def due_promises(conn: sqlite3.Connection) -> list[dict]:
+    """Confirmed promises due today or overdue — drives the due-day nudge."""
+    cols = ["id", "who", "what", "due"]
+    rows = conn.execute(
+        "SELECT id, who, what, due FROM promises WHERE status='confirmed' "
+        "AND due IS NOT NULL AND due <= date('now')").fetchall()
+    return [dict(zip(cols, r)) for r in rows]
 
 
 def recent_captures(conn: sqlite3.Connection, limit: int = 3,

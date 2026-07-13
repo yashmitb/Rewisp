@@ -78,6 +78,12 @@ class Daemon:
                 dejavu.maybe_nudge(self.conn, row_id, embed.to_vec(emb), app, pkey)
             except Exception:  # noqa: BLE001 — never let a nudge break capture
                 log.debug("dejavu check failed", exc_info=True)
+        # Catch commitments ("I'll send it Friday") into the Pending review flow.
+        try:
+            from . import promises
+            promises.scan_and_store(self.conn, row_id, text)
+        except Exception:  # noqa: BLE001
+            log.debug("promise scan failed", exc_info=True)
 
     # -- main loop ------------------------------------------------------------
 
@@ -264,6 +270,19 @@ class Daemon:
                         log.info("page_key backfill: %d rows", pk)
                 except Exception:
                     log.exception("backfill failed")
+                # Due-day promise reminders (gated by the nudge setting, same as
+                # Déjà Vu). One pill per promise per day via the topic cooldown.
+                try:
+                    if config.load_settings().get("nudges_enabled", False):
+                        for p in db.due_promises(self.conn):
+                            topic = f"promise:{p['id']}"
+                            if db.nudge_topic_recent(self.conn, topic, hours=20):
+                                continue
+                            owed = "You said you'd" if p["who"] == "me" else "Someone owes you"
+                            db.enqueue_nudge(self.conn, "promise", "Promise due",
+                                             f"{owed}: {p['what']}", topic_key=topic)
+                except Exception:
+                    log.exception("promise due-check failed")
             time.sleep(config.TICK_SECONDS)
 
 

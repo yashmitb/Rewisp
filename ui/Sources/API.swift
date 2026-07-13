@@ -81,6 +81,15 @@ struct RewispAPI {
     }
     struct Nudges: Decodable { var nudges: [Nudge] }
 
+    struct Promise: Decodable, Identifiable, Hashable {
+        var id: Int
+        var who: String       // "me" = you owe, "them" = waiting on them
+        var what: String
+        var due: String?
+        var status: String
+    }
+    struct Promises: Decodable { var pending: [Promise]; var active: [Promise] }
+
     struct VaultFile: Decodable, Identifiable, Hashable {
         var name: String
         var size: Int

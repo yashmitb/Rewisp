@@ -222,6 +222,11 @@ class Handler(BaseHTTPRequestHandler):
                             "old_ts": old["ts"], "new_ts": new["ts"], **d})
             elif self.path == "/nudges":
                 self._json({"nudges": db.pending_nudges(conn)})
+            elif self.path == "/promises":
+                self._json({
+                    "pending": db.promises_by_status(conn, ("pending",)),
+                    "active": db.promises_by_status(conn, ("confirmed",)),
+                })
             elif self.path == "/digest/status":
                 self._json({"running": _digest["running"],
                             "error": _digest["error"],
@@ -329,6 +334,10 @@ class Handler(BaseHTTPRequestHandler):
                 n = db.delete_captures(conn, ids)  # cascade choke point (fts + embedding)
                 log.info("deleted last-10-min captures: %d rows", n)
                 self._json({"deleted": n})
+            elif self.path == "/promise/status":
+                # confirm | done | dismissed
+                db.set_promise_status(conn, int(body.get("id", 0)), body.get("status", "dismissed"))
+                self._json({"ok": True})
             elif self.path == "/nudge/feedback":
                 nid = int(body.get("id", 0))
                 db.nudge_feedback(conn, nid, body.get("vote", ""))
