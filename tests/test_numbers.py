@@ -69,3 +69,24 @@ class TestSeries:
         assert conn.execute("SELECT COUNT(*) FROM series").fetchone()[0] == 1
         db.delete_captures(conn, [rid])
         assert conn.execute("SELECT COUNT(*) FROM series").fetchone()[0] == 0
+
+
+class TestPrecisionGate:
+    """Audit fix: reject menu-bar chrome + require unit-or-metric so OCR noise
+    (battery %, 'Thought for 15s', episode/version numbers) isn't tracked."""
+    def test_menu_bar_chrome_rejected(self):
+        assert numbers.detect("Dia File Edit View History Extensions Window Help 49%") == []
+
+    def test_ai_ui_noise_rejected(self):
+        assert numbers.detect("Thought for 15s") == []
+        assert numbers.detect("Claude Sonnet 4.6") == []
+        assert numbers.detect("Episode 3 recap") == []
+
+    def test_bare_number_without_unit_or_metric_rejected(self):
+        assert numbers.detect("python 3 installed") == []
+
+    def test_real_metrics_kept(self):
+        assert numbers.detect("My weight 178 lbs")
+        assert numbers.detect("Grade 92%")
+        assert numbers.detect("Score 88 today")      # metric word, no unit
+        assert numbers.detect("Balance $1,240.50")

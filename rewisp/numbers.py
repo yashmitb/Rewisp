@@ -27,6 +27,22 @@ _PAIR = re.compile(
 
 _CRED_LABEL = re.compile(r"\b(card|cvv|cvc|ssn|pin|password|passcode|otp|code|account|routing|phone|zip|id)\b", re.I)
 
+# Menu-bar / window chrome — OCR reads it every frame and the battery % rides
+# along, so "…History Extensions Window Help 49%" would become a bogus series.
+_CHROME_LABEL = re.compile(
+    r"\b(file|edit|view|tabs?|bookmarks?|history|extensions?|window|help|"
+    r"format|selection|develop|terminal|toolbar|menu|favorites?|profiles?|"
+    r"thought|episode|season|sonnet|opus|haiku|gpt|claude|version|chapter)\b", re.I)
+
+# Numbers worth tracking almost always carry a unit OR a metric word. Requiring
+# one kills the ocean of OCR-fragment noise ("Thought for 15", "Episode 3",
+# "python 3", date fragments) without a brittle blocklist.
+_METRIC_LABEL = re.compile(
+    r"\b(weight|grade|score|gpa|price|cost|balance|total|amount|rank|rating|"
+    r"temp|temperature|followers?|subscribers?|steps?|calories|cals?|streak|"
+    r"level|progress|hours?|points?|reps?|sets?|miles?|km|pace|bpm|heart|"
+    r"revenue|profit|sales|views|likes|stock|shares?|price|pts)\b", re.I)
+
 
 def _norm_label(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip().lower()[:40]
@@ -51,7 +67,7 @@ def detect(text: str) -> list[dict]:
             continue
         for m in _PAIR.finditer(line):
             label = m.group("label").strip()
-            if len(label) < 3 or _CRED_LABEL.search(label):
+            if len(label) < 3 or _CRED_LABEL.search(label) or _CHROME_LABEL.search(label):
                 continue
             num_str = m.group("num")
             try:
@@ -61,6 +77,10 @@ def detect(text: str) -> list[dict]:
             if _looks_like_id(num_str, value):
                 continue
             unit = m.group("unit") or m.group("cur") or ""
+            # Precision gate: keep only numbers with a real unit/currency or a
+            # recognized metric word. Everything else is OCR noise.
+            if not unit and not _METRIC_LABEL.search(label):
+                continue
             klabel = _norm_label(label)
             if klabel in seen:
                 continue
