@@ -55,6 +55,10 @@ def find_recall(conn, wisp_id: int, qvec, app: str, page_key: str,
         if m_app == app and m_key == page_key:
             continue                             # same context, not a recall
         snippet = " ".join((snippet or "").split())[:120]
+        try:
+            db.bump_recall(conn, [hid])   # a surfaced memory counts as recalled
+        except Exception:  # noqa: BLE001
+            pass
         return {
             "type": "dejavu",
             "title": "You've seen something like this",

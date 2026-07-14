@@ -279,6 +279,8 @@ struct TodayTab: View {
 
                 PromisesCard()
 
+                SeriesCard()
+
                 if let r = recap {
                     Card {
                         CardHeader(title: r.source == "digest" ? "Your day, digested" : "Today so far",
@@ -1330,30 +1332,33 @@ struct SettingsTab: View {
     }
 
     private var dataSection: some View {
-        Card {
-            CardHeader(title: "Your data", symbol: "internaldrive.fill")
-            if let s = status.status {
-                row("Wisps", "\(s.captures_total) total · \(String(format: "%.1f", s.db_mb)) MB")
-            }
-            row("Retention", "Wisps ~6 months · summaries forever")
-            row("Location", "~/Rewisp — text only, this Mac only")
-            HStack(spacing: 10) {
-                Button("Export everything") {
-                    Task { @MainActor in
-                        if let data = try? await RewispAPI.post("export"),
-                           let res = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                            exportResult = "Exported \(res["captures"] ?? 0) wisps, \(res["summaries"] ?? 0) summaries"
-                            NSWorkspace.shared.open(URL(fileURLWithPath: res["path"] as? String ?? NSHomeDirectory() + "/Rewisp/export"))
+        VStack(alignment: .leading, spacing: 16) {
+            Card {
+                CardHeader(title: "Your data", symbol: "internaldrive.fill")
+                if let s = status.status {
+                    row("Wisps", "\(s.captures_total) total · \(String(format: "%.1f", s.db_mb)) MB")
+                }
+                row("Retention", "Wisps ~6 months · summaries forever")
+                row("Location", "~/Rewisp — text only, this Mac only")
+                HStack(spacing: 10) {
+                    Button("Export everything") {
+                        Task { @MainActor in
+                            if let data = try? await RewispAPI.post("export"),
+                               let res = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                                exportResult = "Exported \(res["captures"] ?? 0) wisps, \(res["summaries"] ?? 0) summaries"
+                                NSWorkspace.shared.open(URL(fileURLWithPath: res["path"] as? String ?? NSHomeDirectory() + "/Rewisp/export"))
+                            }
                         }
                     }
+                    Button("Open data folder") {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory() + "/Rewisp"))
+                    }
                 }
-                Button("Open data folder") {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory() + "/Rewisp"))
+                if let e = exportResult {
+                    Text(e).font(.caption).foregroundStyle(.green)
                 }
             }
-            if let e = exportResult {
-                Text(e).font(.caption).foregroundStyle(.green)
-            }
+            MemoryLayersCard()
         }
     }
 

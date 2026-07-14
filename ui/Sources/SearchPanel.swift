@@ -256,8 +256,9 @@ struct SearchPanelView: View {
             if query.isEmpty, result == nil, !asking, fieldLabel == nil, !suggestions.isEmpty {
                 Divider().opacity(0.4)
                 HStack(spacing: 8) {
-                    ForEach(suggestions, id: \.self) { s in
+                    ForEach(Array(suggestions.enumerated()), id: \.element) { idx, s in
                         Button {
+                            Task { try? await RewispAPI.post("precog/tapped", body: ["text": s]) }
                             query = s
                             ask()
                         } label: {
@@ -269,6 +270,7 @@ struct SearchPanelView: View {
                                 .overlay(Capsule().strokeBorder(.white.opacity(0.06)))
                         }
                         .buttonStyle(.plain)
+                        .modifier(ShimmerChip(delay: Double(idx) * 0.08))
                     }
                     Spacer(minLength: 0)
                 }
@@ -620,6 +622,13 @@ struct SearchPanelView: View {
     // fresh install so the empty state never looks broken.
     private func loadSuggestions() {
         Task { @MainActor in
+            // Precognition first: questions guessed from the current screen + your
+            // history. Falls back to recent questions, then canned starters.
+            if let p = try? await RewispAPI.get("precog", as: RewispAPI.Precog.self),
+               p.suggestions.count >= 1 {
+                suggestions = Array(p.suggestions.prefix(3))
+                return
+            }
             if let chats = try? await RewispAPI.get("chats", as: RewispAPI.Chats.self) {
                 let recent = chats.chats.filter { $0.role == "user" }
                     .suffix(6).map(\.content).reversed()
@@ -650,6 +659,33 @@ struct SearchPanelView: View {
                 SearchPanelState.shared.busy = false
             }
         }
+    }
+}
+
+// Precognition chips: fade + rise in, staggered, with one shimmer sweep — the
+// panel looks like it's already thinking before you type.
+struct ShimmerChip: ViewModifier {
+    let delay: Double
+    @State private var shown = false
+    @State private var sweep = false
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .offset(y: shown ? 0 : 4)
+            .overlay(
+                GeometryReader { geo in
+                    LinearGradient(colors: [.clear, .white.opacity(0.28), .clear],
+                                   startPoint: .leading, endPoint: .trailing)
+                        .frame(width: geo.size.width * 0.6)
+                        .offset(x: sweep ? geo.size.width : -geo.size.width * 0.6)
+                        .allowsHitTesting(false)
+                }
+                .mask(Capsule())
+            )
+            .onAppear {
+                withAnimation(.easeOut(duration: 0.3).delay(delay)) { shown = true }
+                withAnimation(.easeInOut(duration: 0.8).delay(delay + 0.15)) { sweep = true }
+            }
     }
 }
 

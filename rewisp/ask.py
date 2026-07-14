@@ -323,6 +323,17 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
         parts.append("## Daily summaries")
         for d, s, t in sums:
             parts.append(f"[summary {d}]\n{s or ''}\nThreads: {t or ''}")
+    # Consolidated episodes (Dream Mode) — clean summaries of older sessions that
+    # the raw wisps may have already aged out of. Cheap to include, high signal.
+    try:
+        from . import dream
+        eps = dream.search_episodes(conn, fts, qvec, limit=2 if compact else 3)
+        if eps:
+            parts.append("## Past episodes (consolidated memory)")
+            for e in eps:
+                parts.append(f"[episode {e['span'][:10]}] {e['title']}\n{e['summary'][:400]}")
+    except Exception:  # noqa: BLE001
+        pass
     if vrows and not compact:
         parts.append("## Vault (user-provided files — trusted truth; if Vault and "
                      "screen data conflict, Vault wins)")
@@ -332,6 +343,14 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
     if confirmed:
         parts.append("## Confirmed memory about the user\n" + confirmed)
 
+    # Reinforcement: the wisps that actually fed an answer count as recalled —
+    # they strengthen (rank higher next time, survive retention longer).
+    recalled_ids = [r["id"] for r in rows[:5]]
+    if recalled_ids:
+        try:
+            db.bump_recall(conn, recalled_ids)
+        except Exception:  # noqa: BLE001
+            pass
     meta = {"since": since, "until": until, "fts": fts, "n_captures": len(rows)}
     text = "\n\n".join(parts)
     # Hard caps: tight for the on-device window; also bound the cloud prompt so a
@@ -400,8 +419,12 @@ def build_prompt(question: str, compact: bool = False) -> tuple[str, dict]:
     conn = db.connect()
     try:
         # Deterministic hits skip the model entirely: 'what changed here' -> a
-        # page diff; a personal fact -> the exact Vault value.
-        fact = delta_answer(conn, question) or vault_fact(conn, question)
+        # page diff; 'how has my weight moved' -> a tracked series; a personal
+        # fact -> the exact Vault value.
+        from . import numbers, precog
+        precog.log_query(conn, question)   # feeds Precognition's guesses
+        fact = (delta_answer(conn, question) or numbers.lookup(conn, question)
+                or vault_fact(conn, question))
         context, meta = build_context(conn, question, compact=compact)
         if fact:
             meta["fact"] = fact
@@ -703,7 +726,8 @@ def parse_answer(raw: str) -> dict:
 
 def ask(question: str, save: bool = True) -> tuple[str, dict]:
     conn = db.connect()
-    fact = delta_answer(conn, question) or vault_fact(conn, question)
+    from . import numbers
+    fact = delta_answer(conn, question) or numbers.lookup(conn, question) or vault_fact(conn, question)
     if fact:
         meta = {"answer": fact["answer"], "source": fact.get("source"),
                 "detail": fact.get("detail"), "time": fact.get("time"),

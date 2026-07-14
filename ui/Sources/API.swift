@@ -90,6 +90,28 @@ struct RewispAPI {
     }
     struct Promises: Decodable { var pending: [Promise]; var active: [Promise] }
 
+    struct SeriesItem: Decodable, Identifiable, Hashable {
+        var key: String
+        var label: String
+        var unit: String
+        var current: Double
+        var first: Double
+        var n: Int
+        var last_ts: String
+        var points: [Double]
+        var id: String { key }
+    }
+    struct SeriesList: Decodable { var series: [SeriesItem] }
+
+    struct Precog: Decodable { var suggestions: [String] }
+
+    struct MemoryLayers: Decodable {
+        var raw_wisps: Int
+        var episodes: Int
+        var consolidated_days: Int
+        var reinforced: Int
+    }
+
     struct VaultFile: Decodable, Identifiable, Hashable {
         var name: String
         var size: Int

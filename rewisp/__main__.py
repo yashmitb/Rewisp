@@ -121,6 +121,18 @@ def main():
     elif cmd == "bench":
         from . import bench
         bench.main(args[1:])
+    elif cmd == "dream":
+        from . import dream
+        conn = db.connect()
+        if "--all" in args:
+            # Consolidate every day that has captures (dev/demo — normally only
+            # days older than 14 days consolidate).
+            days = [r[0] for r in conn.execute("SELECT DISTINCT date(ts) FROM captures ORDER BY date(ts)")]
+            total = sum(dream.consolidate_day(conn, d) for d in days)
+        else:
+            total = dream.run_pending(conn)
+        n = conn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]
+        print(f"consolidated {total} episodes this run; {n} episodes total")
     elif cmd == "embed-backfill":
         from . import embed
         conn = db.connect()

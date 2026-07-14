@@ -227,6 +227,20 @@ class Handler(BaseHTTPRequestHandler):
                     "pending": db.promises_by_status(conn, ("pending",)),
                     "active": db.promises_by_status(conn, ("confirmed",)),
                 })
+            elif self.path == "/series":
+                from . import numbers
+                self._json({"series": numbers.active_series(conn, limit=6)})
+            elif self.path == "/precog":
+                from . import precog
+                self._json({"suggestions": precog.suggest(conn, limit=3)})
+            elif self.path == "/memory-layers":
+                raw = conn.execute("SELECT COUNT(*) FROM captures").fetchone()[0]
+                eps = conn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]
+                cons_days = conn.execute("SELECT COUNT(DISTINCT date) FROM episodes").fetchone()[0]
+                reinforced = conn.execute(
+                    "SELECT COUNT(*) FROM captures WHERE COALESCE(recall_count,0) > 0").fetchone()[0]
+                self._json({"raw_wisps": raw, "episodes": eps,
+                            "consolidated_days": cons_days, "reinforced": reinforced})
             elif self.path == "/digest/status":
                 self._json({"running": _digest["running"],
                             "error": _digest["error"],
@@ -334,6 +348,19 @@ class Handler(BaseHTTPRequestHandler):
                 n = db.delete_captures(conn, ids)  # cascade choke point (fts + embedding)
                 log.info("deleted last-10-min captures: %d rows", n)
                 self._json({"deleted": n})
+            elif self.path == "/precog/tapped":
+                from . import precog
+                precog.mark_tapped(conn, body.get("text", ""))
+                self._json({"ok": True})
+            elif self.path == "/dream/run":
+                from . import dream
+                if body.get("include_recent"):
+                    days = [r[0] for r in conn.execute(
+                        "SELECT DISTINCT date(ts) FROM captures ORDER BY date(ts)")]
+                    total = sum(dream.consolidate_day(conn, d) for d in days)
+                else:
+                    total = dream.run_pending(conn)
+                self._json({"ok": True, "episodes": total})
             elif self.path == "/promise/status":
                 # confirm | done | dismissed
                 db.set_promise_status(conn, int(body.get("id", 0)), body.get("status", "dismissed"))

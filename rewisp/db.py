@@ -76,6 +76,51 @@ CREATE TABLE IF NOT EXISTS promises (
   created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_promises_status ON promises(status, due);
+
+CREATE TABLE IF NOT EXISTS episodes (
+  id INTEGER PRIMARY KEY,
+  date TEXT,                 -- day consolidated
+  title TEXT,
+  summary TEXT,
+  entities_json TEXT,
+  links_json TEXT,
+  numbers_json TEXT,
+  wisp_ids_json TEXT,
+  span_start TEXT,
+  span_end TEXT,
+  embedding BLOB
+);
+CREATE INDEX IF NOT EXISTS idx_episodes_date ON episodes(date);
+CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
+  title, summary, content=episodes, content_rowid=id
+);
+CREATE TRIGGER IF NOT EXISTS episodes_ai AFTER INSERT ON episodes BEGIN
+  INSERT INTO episodes_fts(rowid, title, summary) VALUES (new.id, new.title, new.summary);
+END;
+CREATE TRIGGER IF NOT EXISTS episodes_ad AFTER DELETE ON episodes BEGIN
+  INSERT INTO episodes_fts(episodes_fts, rowid, title, summary)
+  VALUES ('delete', old.id, old.title, old.summary);
+END;
+
+CREATE TABLE IF NOT EXISTS series (
+  id INTEGER PRIMARY KEY,
+  key TEXT,             -- page_key + normalized label
+  label TEXT,
+  value REAL,
+  unit TEXT,            -- '$', '%', 'kg', ''
+  ts TEXT,
+  wisp_id INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_series_key ON series(key, ts);
+
+CREATE TABLE IF NOT EXISTS queries (
+  id INTEGER PRIMARY KEY,
+  text TEXT,
+  ts TEXT,
+  app_context TEXT,
+  was_tapped INTEGER DEFAULT 0,
+  embedding BLOB
+);
 """
 
 
@@ -95,6 +140,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # Stable page identity for Delta ("what changed") and Numbers Over Time.
         conn.execute("ALTER TABLE captures ADD COLUMN page_key TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_captures_pagekey ON captures(page_key, ts)")
+        conn.commit()
+    if "recall_count" not in cols:
+        # Reinforcement: every time a wisp is recalled it strengthens — ranks
+        # higher and survives consolidation/retention longer.
+        conn.execute("ALTER TABLE captures ADD COLUMN recall_count INTEGER DEFAULT 0")
+        conn.execute("ALTER TABLE captures ADD COLUMN last_recalled TEXT")
         conn.commit()
 
 
@@ -171,12 +222,45 @@ def vector_search(conn: sqlite3.Connection, qvec, k: int = 40,
     return [(ids[i], float(sims[i])) for i in top]
 
 
+def reinforcement_rank(conn: sqlite3.Connection, ids: list[int]) -> list[int]:
+    """Order the given wisp ids by reinforcement weight w = recall_count *
+    exp(-days_since_last_recall / 90). Returns ids sorted strongest-first; used as
+    a third RRF signal so frequently-recalled memories surface higher."""
+    if not ids:
+        return []
+    import math
+    marks = ",".join("?" * len(ids))
+    rows = conn.execute(
+        f"SELECT id, recall_count, "
+        f"CAST(julianday('now') - julianday(COALESCE(last_recalled, created_at_fallback)) AS REAL) "
+        f"FROM (SELECT id, COALESCE(recall_count,0) recall_count, last_recalled, ts AS created_at_fallback "
+        f"      FROM captures WHERE id IN ({marks}))", ids).fetchall()
+    weighted = []
+    for rid, rc, days in rows:
+        w = (rc or 0) * math.exp(-(days or 0) / 90.0)
+        weighted.append((rid, w))
+    weighted.sort(key=lambda x: -x[1])
+    return [rid for rid, w in weighted if w > 0]
+
+
+def bump_recall(conn: sqlite3.Connection, ids: list[int]) -> None:
+    """Record that these wisps were recalled (search hit, Déjà Vu match, delta
+    view). Strengthens them for ranking + retention."""
+    if not ids:
+        return
+    marks = ",".join("?" * len(ids))
+    conn.execute(
+        f"UPDATE captures SET recall_count = COALESCE(recall_count,0) + 1, last_recalled = ? "
+        f"WHERE id IN ({marks})", [utcnow()] + ids)
+    conn.commit()
+
+
 def search_captures_hybrid(conn: sqlite3.Connection, query: str, qvec,
                            limit: int = 20, since: str | None = None,
                            until: str | None = None) -> list[dict]:
-    """FTS keyword search fused with semantic vector search via Reciprocal Rank
-    Fusion. Falls back to FTS-only when no query vector is available (embedder
-    offline). Row shape matches search_captures() so build_context is unchanged."""
+    """FTS keyword search fused with semantic vector search (and reinforcement)
+    via Reciprocal Rank Fusion. Falls back to FTS-only when no query vector is
+    available (embedder offline). Row shape matches search_captures()."""
     fts_rows = search_captures(conn, query, limit=config.RRF_POOL, since=since, until=until)
     if qvec is None:
         return fts_rows[:limit]
@@ -187,6 +271,9 @@ def search_captures_hybrid(conn: sqlite3.Connection, query: str, qvec,
     for rank, r in enumerate(fts_rows):
         fused[r["id"]] = fused.get(r["id"], 0.0) + 1.0 / (kk + rank)
     for rank, (rid, _score) in enumerate(vec_hits):
+        fused[rid] = fused.get(rid, 0.0) + 1.0 / (kk + rank)
+    # Third signal: reinforcement weight, over the candidates we already have.
+    for rank, rid in enumerate(reinforcement_rank(conn, list(fused))):
         fused[rid] = fused.get(rid, 0.0) + 1.0 / (kk + rank)
 
     order = sorted(fused, key=lambda i: -fused[i])[:limit]
@@ -291,7 +378,18 @@ def delete_captures(conn: sqlite3.Connection, ids: list[int]) -> int:
         return 0
     marks = ",".join("?" * len(ids))
     conn.execute(f"DELETE FROM promises WHERE wisp_id IN ({marks})", ids)
-    # (future: also delete from series/episodes WHERE wisp_id IN (...))
+    # Episodes are summaries built from wisps — if a forgotten wisp fed one, drop
+    # the whole episode so no trace of the forgotten content survives in a summary.
+    idset = set(ids)
+    try:
+        import json as _json
+        gone = [eid for eid, wj in conn.execute("SELECT id, wisp_ids_json FROM episodes")
+                if wj and idset & set(_json.loads(wj))]
+        if gone:
+            conn.execute(f"DELETE FROM episodes WHERE id IN ({','.join('?' * len(gone))})", gone)
+    except Exception:  # noqa: BLE001
+        pass
+    conn.execute(f"DELETE FROM series WHERE wisp_id IN ({marks})", ids)
     n = conn.execute(f"DELETE FROM captures WHERE id IN ({marks})", ids).rowcount
     conn.commit()
     return n
@@ -402,8 +500,14 @@ def recent_captures(conn: sqlite3.Connection, limit: int = 3,
 def run_retention(conn: sqlite3.Connection) -> tuple[int, int]:
     """Delete captures and chats older than the retention window. Summaries kept forever."""
     cutoff = f"datetime('now', '-{config.RETENTION_DAYS} days')"
-    old = [r[0] for r in conn.execute(f"SELECT id FROM captures WHERE ts < {cutoff}")]
-    c1 = delete_captures(conn, old)   # cascade choke point (fts + embedding + future tables)
+    hard = f"datetime('now', '-{config.RETENTION_DAYS * 2} days')"
+    # Reinforcement: a wisp that's been recalled survives past the normal cutoff —
+    # importance-based, not clock-based. A hard cap (2x the window) bounds growth
+    # so the exemption can't let the DB grow forever.
+    old = [r[0] for r in conn.execute(
+        f"SELECT id FROM captures WHERE (ts < {cutoff} AND COALESCE(recall_count,0) = 0) "
+        f"OR ts < {hard}")]
+    c1 = delete_captures(conn, old)   # cascade choke point (fts + embedding + promises)
     c2 = conn.execute(f"DELETE FROM chats WHERE ts < {cutoff}").rowcount
     conn.commit()
     return c1, c2

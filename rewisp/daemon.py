@@ -84,6 +84,12 @@ class Daemon:
             promises.scan_and_store(self.conn, row_id, text)
         except Exception:  # noqa: BLE001
             log.debug("promise scan failed", exc_info=True)
+        # Track recurring label+number pairs on this page (weight, grade, price…).
+        try:
+            from . import delta, numbers
+            numbers.scan_and_store(self.conn, row_id, delta.page_key(app, title, url), text)
+        except Exception:  # noqa: BLE001
+            log.debug("numbers scan failed", exc_info=True)
 
     # -- main loop ------------------------------------------------------------
 
@@ -270,6 +276,15 @@ class Daemon:
                         log.info("page_key backfill: %d rows", pk)
                 except Exception:
                     log.exception("backfill failed")
+                # Dream Mode: consolidate days aged past the raw window into
+                # episodes (extractive, local — no cloud call).
+                try:
+                    from . import dream
+                    n_ep = dream.run_pending(self.conn)
+                    if n_ep:
+                        log.info("dream: wrote %d episodes", n_ep)
+                except Exception:
+                    log.exception("dream consolidation failed")
                 # Due-day promise reminders (gated by the nudge setting, same as
                 # Déjà Vu). One pill per promise per day via the topic cooldown.
                 try:
