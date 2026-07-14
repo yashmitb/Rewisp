@@ -38,16 +38,45 @@ def confirmed_text() -> str:
     return "\n".join(f"- {c}" for c in confirmed)
 
 
+def _similar(a: str, b: str) -> bool:
+    """Fuzzy near-duplicate check — the digest often re-proposes a fact it already
+    learned, worded differently ('DS student at UCSD…' vs 'Data Science student at
+    UC San Diego…'). Exact-match dedup let those pile up. Catch high text overlap
+    or a strong word-set overlap."""
+    import re
+    from difflib import SequenceMatcher
+    if SequenceMatcher(None, a.lower(), b.lower()).ratio() > 0.72:
+        return True
+
+    def words(s: str) -> set[str]:
+        out = set()
+        for w in re.findall(r"[a-z0-9/]+", s.lower()):
+            if w in _STOP or len(w) < 2:
+                continue
+            out.add(w[:-1] if w.endswith("s") and len(w) > 3 else w)   # crude stem
+        return out
+
+    wa, wb = words(a), words(b)
+    if len(wa) >= 3 and len(wb) >= 3:
+        if len(wa & wb) / min(len(wa), len(wb)) > 0.7:   # one nearly a subset of the other
+            return True
+    return False
+
+
+_STOP = {"the", "a", "an", "he", "she", "his", "her", "with", "and", "for", "of",
+         "to", "in", "on", "at", "is", "was", "as", "per", "also"}
+
+
 def add_pending(proposals: list[str]) -> int:
-    """Append new proposals to Pending. Dedupes against everything already there."""
+    """Append new proposals to Pending. Dedupes (fuzzily) against everything
+    already in Confirmed or Pending, so re-worded repeats don't pile up."""
     ensure_file()
     confirmed, pending = read_sections()
-    existing = {p.lower() for p in confirmed + pending}
+    existing = confirmed + pending
     new = []
     for p in proposals:
         p = p.strip()
-        if p and p.lower() not in existing:
-            existing.add(p.lower())
+        if p and not any(_similar(p, e) for e in existing) and not any(_similar(p, n) for n in new):
             new.append(p)
     if not new:
         return 0
