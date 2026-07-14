@@ -341,6 +341,8 @@ struct OnboardingView: View {
                 .padding(.bottom, 4)
             bullet("command", "⌘⇧Space — ask anything, anywhere",
                    "“What was due July 12?” · “That video from last night?” Esc clears, Esc again closes.")
+            bullet("brain.head.profile", "It reasons, not just recalls",
+                   "Ask “what changed on this page?”, track a number over time, and it quietly holds promises you make on screen — all on Today.")
             bullet("menubar.rectangle", "Menu bar — today at a glance",
                    "Time per app, loose threads, pause, and Forget 10 min. The icon shows capture state.")
             bullet("lock.rectangle.stack", "Vault — facts about you",
