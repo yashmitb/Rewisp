@@ -36,7 +36,11 @@ enum AskEngine {
                     r.time = f.time
                     r.copy_text = f.copy_text
                     r.model = f.model ?? "Vault"
-                    await RewispAPI.logChat(question: question, answer: f.answer)
+                    // Log the detail too (e.g. a Delta diff), so chat history keeps
+                    // the full answer, not just the one-line summary.
+                    let logged = [f.answer, f.detail].compactMap { $0 }
+                        .filter { !$0.isEmpty }.joined(separator: "\n\n")
+                    await RewispAPI.logChat(question: question, answer: logged)
                     return r
                 }
                 let session = LanguageModelSession()
