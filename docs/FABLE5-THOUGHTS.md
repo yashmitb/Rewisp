@@ -114,9 +114,90 @@ They're the two halves of the intention lifecycle Rewisp doesn't yet close: **"W
 
 ---
 
+## Part 4 — MIND BREAKING (never done, implementable now)
+
+*Second research pass, deeper. Landscape check first: every shipping competitor — [Screenpipe, Microsoft Recall, Limitless/Rewind (Meta-acquired, capture disabled Dec 2025)](https://screenpipe.com/blog/best-ai-screen-recorder-2026) — is the same product: capture → index → search. All of them answer "what did I see?" None of them model the **human** in front of the screen. Both features below do. Neither has ever shipped anywhere.*
+
+---
+
+### 4.1 — Decision Provenance: *"Why did I choose this?"* — total recall of WHY
+
+**The mind-breaking part:** your memory of your own decisions is provably, systematically **falsified** — and Rewisp holds the only unfalsified copy.
+
+**The science (this is a big, replicated literature):** *choice-supportive misremembering*. After you decide anything — laptop, apartment, job offer, which class to take — your brain rewrites the record: [the chosen option is remembered as clearly superior, the rejected ones as worse than they were, and this is distortion of the remembered facts themselves, not just opinion](https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2017.02062/full). The taxonomy has four documented mechanisms: misattribution (remembering the good feature as belonging to your pick when it belonged to the rejected one), fact distortion, outright false memory, and selective forgetting. Add hindsight bias and you get: **nobody on earth can accurately remember why they decided anything.** Every human carries a doctored archive of their own choices.
+
+Rewisp watched the *undoctored* version. It saw the comparison tabs, the prices *as they were that day*, the review you read, the spec sheet, the email that tipped you. Nobody has ever built the tool that hands you back the true record of your own reasoning.
+
+**The feature:**
+- Ask **"why did I choose X?"** → a *provenance card*: the decision moment, and the frozen evidence trail leading into it — what you compared, what each cost **at the time**, which reviews/pages you actually read (vs. had open), what you searched right before committing.
+- *"You chose the M3 Air on Jun 2. That week you compared it against the XPS 13 ($1,249 then — it's $999 now), read one review calling the XPS keyboard 'mushy', and searched 'macbook air overheating' twice — nothing you read contradicted it."*
+- The killer twist — **it can tell you when your memory is lying**: you say "the Dell was way more expensive anyway," Rewisp says *"it was $80 more."* No product in history has been able to contradict your choice-supportive memory with your own eyes' evidence.
+- Quiet mode: a "Decisions" ledger — each major decision auto-filed with its evidence bundle, so a year later the reasoning is replayable (great for re-negotiations, returns, annual reviews, "why did we pick this vendor").
+
+**Implementation (real, ~4–6 days, all local):**
+1. **Decision-moment detectors** (regex families + page context, same pattern as Promises/receipts): checkout confirmations, "Accept offer", plan-selection pages, booking confirmations, a sent email whose text matches "we've decided / going with / I accept". Store `decisions(id, wisp_id, what, ts, kind)`.
+2. **Backward evidence chaining:** from the decision wisp, walk back through the prior N days of wisps and keep those that are (a) semantically near the decision text (embeddings — already computed, free), or (b) same page_key family (product pages, comparison sites), or (c) contain comparable numbers (the `numbers.py` detector already extracts prices). Rank by similarity × recency × dwell (capture count on that page_key ≈ how long you actually engaged).
+3. **Freeze the bundle:** store the evidence wisp-ids + extracted facts (options seen, prices at the time, salient lines from reviews) as JSON on the decision row — so it survives even after raw wisps consolidate into episodes. Cascade-delete respected like everything else.
+4. **Answer route:** "why did I choose / why did we go with / what was the other option" → deterministic provenance card (like Vault facts — no model needed for retrieval; optional one-shot summarization through the existing engine chain when the user asks in chat).
+5. **UI:** a timeline card — decision at the right, evidence nodes flowing into it left-to-right with drawn connector lines (the nudge-pill connector, scaled up). Prices render with "then vs now" chips when the series data exists.
+
+**Why competitors can't follow:** video tools would have to re-watch weeks of footage to build one provenance chain (compute-prohibitive). Rewisp's text + page_key + embeddings + extracted numbers make the backward chain a few SQL queries and one matmul. The moat is the architecture.
+
+---
+
+### 4.2 — The Forgetting Model: *it knows what YOU will forget, before you forget it*
+
+**The mind-breaking part:** every failed search you type is a **documented forgetting event** — a timestamped record of your brain losing something specific. Rewisp is the only system positioned to watch a human forget in real time, learn their personal forgetting signature from it, and start rescuing memories *before* they cross that person's forgetting cliff. Memory that anticipates its own failure. Nobody has ever built this.
+
+**The science:** [Personalized forgetting-curve models exist and work](https://pmc.ncbi.nlm.nih.gov/articles/PMC7334729/) — SuperMemo/Anki-class systems predict per-item recall probability and schedule review right before it drops, and personalization measurably beats fixed schedules. But every one of them lives inside a **flashcard app**: the user must decide in advance what's worth remembering, author cards, and do deliberate reviews. The entire scheduling science has never been applied to *ambient life memory* — because no other system has both (a) everything you saw and (b) evidence of what you failed to recall. Rewisp has both, today:
+- **Failed searches** = forgetting events. You typed "that pasta place brooklyn" and got nothing useful, rephrased twice — you just forgot something, and Rewisp logged the whole failure (`queries` table, already shipping).
+- **Re-asks** = forgetting events. Asking "what's the wifi password at the office" for the third time in a month is your brain telling Rewisp exactly which categories don't stick.
+- **Re-lookups** = forgetting events. Re-opening the same doc to find the same number twice a week.
+
+**The feature:**
+- A local model learns **your forgetting signature**: which *kinds* of things you personally lose (names? numbers? links? places? deadlines?), and how fast. Not Ebbinghaus's average curve — *yours*, fit on your own documented failures.
+- When something crosses your predicted forgetting cliff *and* matches a category you historically re-search, Rewisp rescues it **once, at the optimal moment** — the same "review right before recall probability drops" trick that makes spaced repetition work, applied passively to life: a digest line or nudge, *"Three weeks ago: the contractor's quote was $2,400 (Mike, 415-xxx). You usually lose numbers around now."*
+- Answer-time honesty: when you *do* forget and search, it not only answers — it says *"you've looked this up 4 times; pinned it to your Vault."* Self-healing memory: repeated forgetting auto-promotes the fact to permanent, deterministic recall.
+- Settings shows the signature itself — "you forget names in ~6 days, numbers in ~3, links almost immediately" — which is a screenshot people will post. Nobody has ever seen their own forgetting curve measured from their real life.
+
+**Implementation (real, ~4–5 days, all local):**
+1. **Label forgetting events:** a query followed within 2 min by a rephrase, or with no result interaction, = failed recall; a repeat of a semantically-near query ≥N days later = decayed memory. Both computable from the existing `queries` table (embeddings already stored). Re-lookups come from page_key revisit patterns.
+2. **Categorize targets:** each event's subject classified locally into coarse bins (person-name / number-amount / place / link / date / how-to) with the regex + entity machinery already in `dream.py`/`numbers.py`.
+3. **Fit the signature:** per bin, fit a simple exponential `P(recall) = e^(-t/S)` where stability `S` comes from observed gaps between exposure and failed recall. A dozen events per bin is enough to beat the population prior; start with the prior, update Bayesian-ly. (~100 lines of numpy.)
+4. **The rescue scheduler:** nightly (inside the existing consolidation pipeline), score recent unrevisited wisps: `importance (salience + reinforcement) × P(forget by next week | bin) × matches-your-failure-categories`. Top 1–2 → digest "About to fade" section; extreme cases → a nudge (off by default, like everything proactive).
+5. **Auto-pin:** third semantically-equivalent lookup of the same fact → write it to a `pinned` store answered deterministically like Vault facts.
+
+**Why it's a market twist:** every memory product to date is *reactive* — a better filing cabinet. This flips the category: the memory that models its owner. Even Anki can't follow (it only sees flashcards you wrote); video tools can't follow (no query-failure signal, no text granularity). And it compounds: every day of use makes your signature sharper, which makes the product irreplaceable — the data moat is *you*.
+
+---
+
+## Part 5 — IDK HOW TO DO (never done; feasibility genuinely unclear)
+
+### 5.1 — Two Brains: transactive memory between two people
+
+**The idea:** [Wegner's transactive memory](https://dtg.sites.fas.harvard.edu/DANWEGNER/wjh/tm.htm) — couples and close teams naturally split the remembering: [one partner holds the finances, the other holds the social calendar, and each uses the other as an external memory drive](https://pmc.ncbi.nlm.nih.gov/articles/PMC4419599/). It's one of the most-cited frameworks in memory science and **no digital implementation exists** (checked — the literature has scales that *measure* it in couples, zero tools that *build* it). The feature: two Rewisps form a consented pair. Ask your Mac *"when's the dentist thing?"* — your Rewisp doesn't know, but it knows *your partner's Rewisp probably does* (their screen sees the family calendar), asks it over an encrypted channel, and answers with provenance: *"From Maya's memory: Thursday 3 PM."* A shared brain with a directory of who-knows-what — exactly Wegner's model, made of software.
+
+**Why I don't know how to do it:** everything about Rewisp's trust model is single-user, single-machine — the DB is the most sensitive file the user owns. Pairing means: scoped sharing (which page_keys/categories are shareable — how does a user even express that safely?), a sync/transport layer between two Macs that never touches a cloud, consent that's revocable and provable, and the nightmare edge: *your partner's screen contains other people's private messages to them*. The "who-knows-what directory" is buildable (exchange topic embeddings, not content); the consent UX and the social contract are the unsolved part. Might be a v2.0 flagship; might be un-shippable responsibly.
+
+### 5.2 — Cognitive Weather: your mind's dashboard, from your own behavior
+
+**The idea:** the research is real and recent — [keystroke dynamics and passive device-interaction patterns detect cognitive change with sensitivity approaching clinical assessment](https://www.nature.com/articles/s41598-022-11865-7), and [naturalistic digital traces work as cognitive biomarkers](https://arxiv.org/html/2512.23093). Rewisp already passively holds a richer behavioral stream than any of those studies: failed-search rate, question repetition, re-reading loops (same page_key revisited within minutes), time-to-resume after interruptions, typo rate in typed queries, session fragmentation. Fuse them into a private, local **"cognitive weather"** line: *"You're re-reading 3× more than your baseline and re-asking questions today — rough night? Heavy stuff can wait."* Long-horizon version: your 6-month trend, visible only to you — the first consumer tool that could notice *"you're not forgetting more than you were last year"* (or that you are, gently, early — when it's most actionable).
+
+**Why I don't know how to do it:** signal validity (my proxies are analogous to the published biomarkers, not validated — a stressful week looks like decline; a new job looks like chaos), base rates (false alarms on something this sensitive are catastrophically bad UX), and the ethical cliff — the moment it hints at *decline* rather than *tiredness* it's medical-adjacent territory a solo portfolio app should not casually enter. The honest version ships as "focus weather" (tired/scattered/sharp vs. your own baseline, never diagnostic) and even that needs weeks of baseline data and very careful copy. The science says the signal is there; I don't know how to ship the *product* responsibly. Worth a design doc before a line of code.
+
+---
+
 ## Sources
 
 - [It takes 23 minutes to recover after an interruption](https://addyo.substack.com/p/it-takes-23-mins-to-recover-after) — Gloria Mark's UC Irvine finding (~23 min to return to a task at focus; ~2 intervening tasks before resuming).
 - [EEG correlates of cognitive dynamics in task resumption after interruptions](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11851001/) — resumption lag and how available context at resumption changes recovery.
 - [Source-monitoring error](https://grokipedia.com/page/Source-monitoring_error) — intention-behavior confusion: mistaking a *planned* action for a *completed* one ("did I lock the door, or only imagine it?").
 - [The checking trap](https://www.ocdanxietycenters.com/south-jordan-utah/the-checking-trap-when-did-i-lock-the-door-controls-your-life/) — re-checking creates more doubt, not less; evidence beats repetition.
+
+*Part 4/5 research:*
+- [Choice-supportive misremembering: a new taxonomy and review (Frontiers in Psychology)](https://www.frontiersin.org/journals/psychology/articles/10.3389/fpsyg.2017.02062/full) — decisions are misremembered via misattribution, fact distortion, false memory, selective forgetting.
+- [Choice-supportive bias](https://en.wikipedia.org/wiki/Choice-supportive_bias) — chosen options remembered as clearly superior; distortion of remembered facts, not just attitude.
+- [Adaptive forgetting curves for spaced repetition (PMC)](https://pmc.ncbi.nlm.nih.gov/articles/PMC7334729/) — per-person, per-item forgetting prediction works; personalization beats fixed schedules. Exists only in deliberate-study tools.
+- [2026 screen-memory landscape](https://screenpipe.com/blog/best-ai-screen-recorder-2026) — Screenpipe / Recall / Limitless: all capture→index→search; none model the user.
+- [Wegner, transactive memory](https://dtg.sites.fas.harvard.edu/DANWEGNER/wjh/tm.htm) and [TMS scale for couples (PMC)](https://pmc.ncbi.nlm.nih.gov/articles/PMC4419599/) — the theory is mature; no digital implementation exists.
+- [Keystroke dynamics as digital biomarkers (Nature Sci Reports meta-analysis)](https://www.nature.com/articles/s41598-022-11865-7) and [Cogniscope (arXiv 2025)](https://arxiv.org/html/2512.23093) — passive interaction patterns detect cognitive change.
