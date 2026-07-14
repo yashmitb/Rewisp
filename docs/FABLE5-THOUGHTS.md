@@ -2,7 +2,7 @@
 
 *A full read of the app — every doc, every Python module, every Swift file — as of v0.8.1 (2026-07-14). Three parts: what needs fixing, what could be better, and two new features grounded in memory science.*
 
-*Honesty note: live web search was unavailable when this was written, so the research below leans on the established memory-science literature (Ebbinghaus's forgetting curve, Tulving's encoding specificity, the Zeigarnik effect, Einstein & McDaniel's prospective-memory work, Gloria Mark's task-interruption studies, Johnson's source-monitoring framework). These are stable, replicated findings — the right foundation for memory features regardless.*
+*Research note: grounded in the established memory-science literature — Ebbinghaus's forgetting curve, Tulving's encoding specificity, the Zeigarnik effect, Einstein & McDaniel's prospective-memory work, Gloria Mark's task-interruption studies, Johnson's source-monitoring framework. The two load-bearing claims were verified against live sources (see Sources at the bottom): Mark's ~23-minute interruption-recovery finding, and the intention-behavior confusion behind "did I lock the door?" checking loops — including the finding that re-checking creates* more *doubt, not less, which is exactly why proof beats re-checking.*
 
 ---
 
@@ -111,3 +111,12 @@ The research lens: surveys of everyday memory failures consistently rank these a
 ### Why these two, together
 
 They're the two halves of the intention lifecycle Rewisp doesn't yet close: **"Where was I?"** recovers intentions that got *interrupted*; **"Did I?"** verifies intentions that got *completed*. Promises already holds intentions that got *stated*. With all three, Rewisp covers the full arc of a human intention — stated → interrupted → resumed → done → proven — entirely from passively watched text, entirely on-device, at zero marginal cost. No competitor is even framing the problem this way.
+
+---
+
+## Sources
+
+- [It takes 23 minutes to recover after an interruption](https://addyo.substack.com/p/it-takes-23-mins-to-recover-after) — Gloria Mark's UC Irvine finding (~23 min to return to a task at focus; ~2 intervening tasks before resuming).
+- [EEG correlates of cognitive dynamics in task resumption after interruptions](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC11851001/) — resumption lag and how available context at resumption changes recovery.
+- [Source-monitoring error](https://grokipedia.com/page/Source-monitoring_error) — intention-behavior confusion: mistaking a *planned* action for a *completed* one ("did I lock the door, or only imagine it?").
+- [The checking trap](https://www.ocdanxietycenters.com/south-jordan-utah/the-checking-trap-when-did-i-lock-the-door-controls-your-life/) — re-checking creates more doubt, not less; evidence beats repetition.
