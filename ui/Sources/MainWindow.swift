@@ -266,12 +266,23 @@ struct TodayTab: View {
                         StatTile(value: "\(status.status?.captures_today ?? 0)",
                                  label: "wisps today", accent: true)
                         Divider().frame(height: 30).opacity(0.3)
-                        StatTile(value: topAppToday, label: "most time")
+                        StatTile(value: topAppToday, label: "top app")
                             .padding(.leading, 16)
                         Divider().frame(height: 30).opacity(0.3)
-                        StatTile(value: status.status?.paused == true ? "Paused" : "Active",
-                                 label: "capture")
-                            .padding(.leading, 16)
+                        // Live capture status with a colored dot so it reads at a glance.
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(status.status?.paused == true ? Color.orange : Color.green)
+                                    .frame(width: 8, height: 8)
+                                Text(status.status?.paused == true ? "Paused" : "Capturing")
+                                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                            }
+                            Text(status.status?.paused == true ? "⌘⌥P to resume" : "remembering")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.leading, 16)
                     }
                 }
                 .opacity(appeared ? 1 : 0)
