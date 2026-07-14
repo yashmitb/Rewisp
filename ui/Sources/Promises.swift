@@ -31,7 +31,13 @@ struct PromisesCard: View {
                 }
             }
         }
-        .task { await reload() }
+        // Poll while visible so a promise caught after the tab opened still shows.
+        .task {
+            while !Task.isCancelled {
+                await reload()
+                try? await Task.sleep(for: .seconds(6))
+            }
+        }
     }
 
     private func lane(_ title: String, _ items: [RewispAPI.Promise]) -> some View {

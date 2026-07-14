@@ -25,8 +25,11 @@ struct SeriesCard: View {
             }
         }
         .task {
-            if let r = try? await RewispAPI.get("series", as: RewispAPI.SeriesList.self) {
-                series = r.series
+            while !Task.isCancelled {
+                if let r = try? await RewispAPI.get("series", as: RewispAPI.SeriesList.self) {
+                    series = r.series
+                }
+                try? await Task.sleep(for: .seconds(8))
             }
         }
     }
