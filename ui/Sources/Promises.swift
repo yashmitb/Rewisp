@@ -14,10 +14,11 @@ struct PromisesCard: View {
     private var waiting: [RewispAPI.Promise] { (pending + active).filter { $0.who == "them" && !gone.contains($0.id) } }
 
     var body: some View {
-        Group {
-            if owe.isEmpty && waiting.isEmpty {
-                EmptyView()
-            } else {
+        // NOTE: the poll .task lives on this always-present VStack, NOT on a
+        // conditional Group. SwiftUI won't fire .task if the view resolves to
+        // EmptyView, so gating it behind "no promises" meant it never fetched.
+        VStack(spacing: 0) {
+            if !owe.isEmpty || !waiting.isEmpty {
                 Card {
                     CardHeader(title: "Promises", symbol: "hand.raised.fingers.spread.fill")
                     if !owe.isEmpty {
@@ -31,7 +32,6 @@ struct PromisesCard: View {
                 }
             }
         }
-        // Poll while visible so a promise caught after the tab opened still shows.
         .task {
             while !Task.isCancelled {
                 await reload()

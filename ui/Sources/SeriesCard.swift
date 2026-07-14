@@ -10,10 +10,10 @@ struct SeriesCard: View {
     @State private var series: [RewispAPI.SeriesItem] = []
 
     var body: some View {
-        Group {
-            if series.isEmpty {
-                EmptyView()
-            } else {
+        // .task on an always-present VStack (see PromisesCard note) — a
+        // conditional that resolves to EmptyView never fires .task.
+        VStack(spacing: 0) {
+            if !series.isEmpty {
                 Card {
                     CardHeader(title: "Tracked", symbol: "chart.xyaxis.line")
                     ForEach(series) { s in
