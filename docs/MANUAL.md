@@ -98,6 +98,10 @@ wisp gets a local semantic fingerprint (model2vec, ~0.1 ms, no cloud); answers
 fuse keyword + meaning ranking. If the embedder is offline it silently falls back
 to keyword search.
 
+And when a search truly misses, you don't get a dead end: the answer includes
+**"Closest moments in your memory"** — the three nearest things Rewisp did see,
+with app and time — because half the time you just misremembered the wording.
+
 ### "What changed on this page?"
 Because Rewisp stores every version of a page as text, it can diff them. On any
 page you revisit, ⌘⇧Space → *"what changed on this page?"* or *"what's new here
@@ -109,8 +113,15 @@ Rewisp catches commitments off your screen — *"I'll send mavi the doc"*, *"ema
 manvi by end of today"*, *"call dona today"* — and pins them to **Today →
 Promises** as little slips: what **you owe** and what you're **waiting on**. You
 never type them. Tap ✓ to confirm, ✕ to dismiss; confirmed ones get a **Done**
-button that crumples the slip away. Overdue slips glow red. Nothing is stored
-until you confirm.
+button that crumples the slip away. Overdue slips glow red.
+
+It only listens where *you* write: Notes, Mail, Slack, Discord, Gmail and the
+like. AI chats, code editors, ads, and random web pages can't create promises —
+so the list stays yours, not noise.
+
+**Confirming a promise arms its reminder:** on the due day (and while overdue) a
+small pill slides down from the menu bar with the full commitment — one reminder
+per day, never spam. Pending slips you never confirmed stay silent.
 
 ### Numbers over time
 Any label+number Rewisp sees repeatedly — a weight, a grade, a price, tracked

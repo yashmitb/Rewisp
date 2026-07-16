@@ -4,7 +4,7 @@ An ambient memory for macOS. Rewisp quietly captures the **text** of what you se
 
 Owner: Yashmit. Single user, his Mac only. Nothing leaves the machine except the prompt of a question or the nightly digest, and only to the engine you choose.
 
-**Current version: v0.8.0** (10 releases across 2026-07-08 → 07-14). In daily use (~180+ wisps/day, 3800+ wisps). v0.8 = the "intelligent memory" cycle: seven local reasoning features (semantic search, delta, promises, numbers, precognition, dream/reinforcement, proactive-recall nudges) + the first test suite.
+**Current version: v0.9.0** (12 releases across 2026-07-08 → 07-16). In daily use (~180+ wisps/day, 3800+ wisps). v0.8 shipped the "intelligent memory" cycle (semantic search, delta, promises, numbers, precognition, dream/reinforcement, nudges); v0.9 was the precision cycle — research-grounded refinement of all of it, closing the promise loop with due-day reminders and failed-search near-miss rescue. 108 tests.
 
 > This file describes what Rewisp *is today*. For the build timeline and per-task history, see `PROGRESS.md`. For the manual, `MANUAL.md`. For the threat model, `SECURITY.md`.
 

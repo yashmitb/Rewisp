@@ -239,9 +239,9 @@ enum HelpContent {
         .init(q: "Can I make it forget something?",
               a: "Yes. Menu bar → **Forget 10 min** wipes the last ten minutes. You can also pause capture with **⌘⌥P**. Everything auto-expires after about six months regardless."),
         .init(q: "What are Promises and how do they show up?",
-              a: "Rewisp notices when you commit to something on screen (*“I’ll send it Friday”*) and holds it on **Today → Promises** — what you owe and what you’re waiting on. You never type them; confirm to keep, check off when done."),
+              a: "Rewisp notices when you commit to something in places you write — Notes, Mail, Slack, Discord (*“I’ll send it Friday”*) — and holds it on **Today → Promises**. You never type them. **Confirming a promise arms its reminder**: on the due day a small pill slides down with the full commitment, once a day until you mark it done. AI chats, editors, and ads can never create promises."),
         .init(q: "Why does it sometimes say “not found in your memory”?",
-              a: "Rewisp only answers from what it actually saw on your screen. If it says not found, that information genuinely wasn’t captured — it won’t guess or make something up."),
+              a: "Rewisp only answers from what it actually saw on your screen — it won’t guess. And a miss isn’t a dead end: it shows **Closest moments in your memory**, the nearest things it did see, since half the time the wording was just remembered differently."),
     ]
 
     static let troubleshooting: [QA] = [

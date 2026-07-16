@@ -170,6 +170,19 @@ Dia (Chromium-based) fully supports Chrome-style AppleScript (`URL of active tab
 
 ---
 
+## v0.9.0 — promises that keep themselves (2026-07-16)
+
+The refinement cycle: multiple precision passes over the v0.8 features, grounded
+in memory-science research (prospective-memory diary studies, re-finding logs).
+- **Promises precision redesign** — live use showed ~95% false positives (AI assistants' "I'll fix that", ad copy, dictation garble). Now source-gated (AI-chat surfaces/IDEs/system UI never produce promises; Notes/Mail/Slack/gmail = authored bar; generic web = strict bar) + evidence-scored with hard rejects (questions, negation, hedges, ad lexicon, instructional copy, clipped tails). All 16 live false positives pinned as regression tests.
+- **Due-day promise reminders** — confirming a promise opts it into a pill on its due day (action + deadline, once per day, overdue variant). The detect → confirm → remind → done loop is closed. Live-verified.
+- **Near-miss rescue** — a failed search now attaches the 3 closest moments instead of a bare "Not found" (re-finding research: ~40% of queries are re-finds; people misremember their own wording ~30% of the time).
+- **Names bank** — "who …" questions inject recent episodes' people/org names into context (names = #1 retrospective failure).
+- **Numbers** — labels normalize to their noun core ("My weight today" → "weight") so phrasing variants merge; lookup regex fix + wider phrasings.
+- **Delta** — menu-bar/browser chrome no longer pollutes diffs.
+- **Precog** — history chips need semantic proximity to the screen; junk queries never re-offered.
+- Tests 84 → 108.
+
 ## v0.8.1 — polish (2026-07-14)
 
 Post-v0.8 polish from a full manual UI sweep. No new features; everything above
