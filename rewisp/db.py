@@ -141,6 +141,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE captures ADD COLUMN page_key TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_captures_pagekey ON captures(page_key, ts)")
         conn.commit()
+    pcols = {r[1] for r in conn.execute("PRAGMA table_info(promises)")}
+    if pcols and "reminded_at" not in pcols:
+        # Due-day reminders: one pill per promise per day, never spam.
+        conn.execute("ALTER TABLE promises ADD COLUMN reminded_at TEXT")
+        conn.commit()
     if "recall_count" not in cols:
         # Reinforcement: every time a wisp is recalled it strengthens — ranks
         # higher and survives consolidation/retention longer.
@@ -478,6 +483,22 @@ def due_promises(conn: sqlite3.Connection) -> list[dict]:
         "SELECT id, who, what, due FROM promises WHERE status='confirmed' "
         "AND due IS NOT NULL AND due <= date('now')").fetchall()
     return [dict(zip(cols, r)) for r in rows]
+
+
+def promises_needing_reminder(conn: sqlite3.Connection) -> list[dict]:
+    """Due/overdue confirmed promises not yet reminded today. Confirming a
+    promise is the opt-in for its reminder — pending ones stay silent."""
+    cols = ["id", "who", "what", "due", "created_at"]
+    rows = conn.execute(
+        "SELECT id, who, what, due, created_at FROM promises WHERE status='confirmed' "
+        "AND due IS NOT NULL AND due <= date('now') "
+        "AND (reminded_at IS NULL OR date(reminded_at) < date('now'))").fetchall()
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def mark_promise_reminded(conn: sqlite3.Connection, promise_id: int) -> None:
+    conn.execute("UPDATE promises SET reminded_at=? WHERE id=?", (utcnow(), promise_id))
+    conn.commit()
 
 
 def recent_captures(conn: sqlite3.Connection, limit: int = 3,

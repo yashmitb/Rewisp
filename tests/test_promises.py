@@ -189,3 +189,27 @@ class TestStore:
         assert hits("need to email the professor tonight")
         assert not hits("need to complete the refresher course and pass the test")
         assert not hits("have to update Namecheap once more")
+
+
+class TestDueDayReminders:
+    def _promise(self, conn, due, status="confirmed"):
+        rid = db.insert_capture(conn, "Notes", None, None, "x")
+        pid = db.add_promise(conn, rid, "me", "email manvi the doc", due, 0.9)
+        db.set_promise_status(conn, pid, status)
+        return pid
+
+    def test_reminder_fires_once_per_day(self, conn):
+        self._promise(conn, "2020-01-01")
+        assert promises.remind_due(conn) == 1
+        assert promises.remind_due(conn) == 0        # same day: no spam
+        assert len(db.pending_nudges(conn)) == 1
+        n = db.pending_nudges(conn)[0]
+        assert n["type"] == "promise" and "email manvi the doc" in n["body"]
+
+    def test_pending_promises_stay_silent(self, conn):
+        self._promise(conn, "2020-01-01", status="pending")
+        assert promises.remind_due(conn) == 0        # confirm = the opt-in
+
+    def test_future_due_stays_silent(self, conn):
+        self._promise(conn, "2099-01-01")
+        assert promises.remind_due(conn) == 0

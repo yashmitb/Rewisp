@@ -288,6 +288,32 @@ def scan_and_store(conn, wisp_id: int, text: str, app: str | None = None,
     src = source_class(app, url)
     if src == "blocked":
         return 0
+    return _scan(conn, wisp_id, text, src, max_per_capture)
+
+
+def remind_due(conn) -> int:
+    """Due-day reminders for confirmed promises, via the nudge pill. Prospective-
+    memory research is unambiguous: time-based intentions are the most-forgotten
+    kind, explicit reminders massively raise completion, and a reminder only works
+    when it names BOTH the action and the deadline — so the pill carries the full
+    commitment text, not just a topic. One reminder per promise per day; confirming
+    the promise is the opt-in. Returns how many reminders were enqueued."""
+    n = 0
+    for p in db.promises_needing_reminder(conn):
+        overdue = p["due"] < db.utcnow()[:10]
+        title = "Overdue promise" if overdue else "You said you'd do this today"
+        if p["who"] == "them":
+            title = "Overdue — waiting on them" if overdue else "Due today — waiting on them"
+        db.enqueue_nudge(conn, "promise", title, p["what"],
+                         topic_key=f"promise:{p['id']}")
+        db.mark_promise_reminded(conn, p["id"])
+        n += 1
+    if n:
+        log.info("promises: enqueued %d due-day reminders", n)
+    return n
+
+
+def _scan(conn, wisp_id: int, text: str, src: str, max_per_capture: int) -> int:
     # authored: any solid commitment; strict: effectively requires a first-person
     # commitment WITH a deadline (0.55 + 0.25) — imperatives/requests can't reach it.
     bar = 0.70 if src == "authored" else 0.80

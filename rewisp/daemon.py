@@ -265,6 +265,12 @@ class Daemon:
                         digest.run()
                     except Exception:
                         log.exception("digest catch-up failed")
+                # Due-day promise reminders (one pill per promise per day).
+                try:
+                    from . import promises
+                    promises.remind_due(self.conn)
+                except Exception:  # noqa: BLE001
+                    log.exception("promise reminders failed")
                 # Backfill embeddings + page_keys for old / offline-stored rows, a
                 # chunk at a time so history is covered without a big stall.
                 try:

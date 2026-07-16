@@ -343,6 +343,24 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
     if confirmed:
         parts.append("## Confirmed memory about the user\n" + confirmed)
 
+    # Names are the single most-forgotten retrospective item (diary studies), so
+    # "who …" questions get the names bank from recent episodes as extra context.
+    if re.match(r"\s*who(?:'s|se| was| is| did| do)?\b", question, re.I):
+        try:
+            import json as _json
+            from collections import Counter
+            names: Counter = Counter()
+            for (ej,) in conn.execute(
+                    "SELECT entities_json FROM episodes ORDER BY id DESC LIMIT 20"):
+                for e in _json.loads(ej or "[]"):
+                    if " " in e or len(e) > 3:      # skip acronym noise
+                        names[e] += 1
+            if names:
+                parts.append("## Names seen recently (people, orgs, products)\n"
+                             + ", ".join(n for n, _ in names.most_common(15)))
+        except Exception:  # noqa: BLE001
+            pass
+
     # Reinforcement: the wisps that actually fed an answer count as recalled —
     # they strengthen (rank higher next time, survive retention longer).
     recalled_ids = [r["id"] for r in rows[:5]]
@@ -724,6 +742,34 @@ def parse_answer(raw: str) -> dict:
     return fields
 
 
+def near_misses(conn, question: str, limit: int = 3) -> str | None:
+    """Closest moments for a failed search. Re-finding research: ~40% of queries
+    are re-finding, and people misremember their own original wording ~30% of the
+    time — so a flat "not found" is a dead end exactly when the user needs a
+    nudge. Show the nearest things Rewisp DID see instead."""
+    from . import embed
+    from .dejavu import clean_snippet
+    qvec = embed.embed_vec(question)
+    try:
+        rows = db.search_captures_hybrid(conn, _fts_query(question) or '""', qvec,
+                                         limit=limit * 3)
+    except Exception:  # noqa: BLE001 — rescue must never break the answer path
+        return None
+    rows = _dedupe_captures(rows, limit * 2)
+    lines = []
+    for r in rows:
+        snip = clean_snippet(r.get("snippet") or "", 90)
+        if len(snip) < 12:
+            continue
+        when = (r.get("ts") or "")[5:16]
+        lines.append(f"• {r.get('app','')} · {when}: {snip}")
+        if len(lines) >= limit:
+            break
+    if not lines:
+        return None
+    return "Closest moments in your memory:\n" + "\n".join(lines)
+
+
 def ask(question: str, save: bool = True) -> tuple[str, dict]:
     conn = db.connect()
     from . import numbers
@@ -747,6 +793,13 @@ def ask(question: str, save: bool = True) -> tuple[str, dict]:
               f"# Context\n{context}\n\n# Question\n{question}")
     raw, engine = call_llm(prompt)
     fields = parse_answer(raw)
+    # Failed re-find -> show the nearest moments instead of a dead end (the user
+    # likely misremembered the wording, not imagined the memory).
+    if "not found in your memory" in (fields.get("answer") or "").lower():
+        misses = near_misses(conn, question)
+        if misses:
+            fields["detail"] = (fields.get("detail") or "").strip()
+            fields["detail"] = (fields["detail"] + "\n\n" + misses).strip()
     meta.update(fields)
     meta["model"] = _engine_label(engine)
     answer = fields["answer"]
