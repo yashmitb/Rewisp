@@ -79,9 +79,10 @@ class Daemon:
             except Exception:  # noqa: BLE001 — never let a nudge break capture
                 log.debug("dejavu check failed", exc_info=True)
         # Catch commitments ("I'll send it Friday") into the Pending review flow.
+        # Source-gated: only correspondence/notes surfaces can produce promises.
         try:
             from . import promises
-            promises.scan_and_store(self.conn, row_id, text)
+            promises.scan_and_store(self.conn, row_id, text, app=app, url=url)
         except Exception:  # noqa: BLE001
             log.debug("promise scan failed", exc_info=True)
         # Track recurring label+number pairs on this page (weight, grade, price…).
