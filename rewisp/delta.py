@@ -29,6 +29,23 @@ DEFAULT_IGNORE = [
 _TITLE_COUNTER = re.compile(r"\s*[\(\[]\s*\d+\s*[\)\]]\s*$")   # "Inbox (3)"
 _LEADING_COUNT = re.compile(r"^\s*[\(\[]?\d+[\)\]]?\s+")        # "(3) Inbox"
 
+# Menu-bar / browser chrome vocabulary. OCR reads the menu bar on every frame
+# ("Dia File Edit View Tabs Bookmarks History … Help 21% Sun Jul 14"), and those
+# lines otherwise show up as added/removed rows in every diff. A line with 3+
+# of these words is chrome, not content.
+_CHROME_WORDS = frozenset(
+    "file edit view tabs tab bookmarks bookmark history extensions extension "
+    "window help format selection develop favorites menu toolbar profiles "
+    "run go terminal dock mon tue wed thu fri sat sun jan feb mar apr may jun "
+    "jul aug sep oct nov dec".split())
+
+
+def _is_chrome(line: str) -> bool:
+    toks = re.findall(r"[a-z]+", line.lower())
+    if not toks:
+        return False
+    return sum(1 for t in toks if t in _CHROME_WORDS) >= 3
+
 
 def page_key(app: str | None, window_title: str | None, url: str | None) -> str:
     """Stable identity for a page/screen across time.
@@ -72,7 +89,7 @@ def _clean_lines(text: str) -> list[str]:
         ln = re.sub(r"\s+", " ", raw).strip()
         if len(ln) < 3:
             continue
-        if any(p.match(ln) for p in ignore):
+        if any(p.match(ln) for p in ignore) or _is_chrome(ln):
             continue
         out.append(ln)
     return out

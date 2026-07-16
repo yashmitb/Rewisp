@@ -44,8 +44,19 @@ _METRIC_LABEL = re.compile(
     r"revenue|profit|sales|views|likes|stock|shares?|price|pts)\b", re.I)
 
 
+_LABEL_TRIM_LEAD = re.compile(r"^(?:my|the|your|our|current|total)\s+", re.I)
+_LABEL_TRIM_TAIL = re.compile(r"\s+(?:today|now|currently|so far|this week)$", re.I)
+
+
 def _norm_label(s: str) -> str:
-    return re.sub(r"\s+", " ", s).strip().lower()[:40]
+    """Normalize a label to its noun core: 'My weight today' -> 'weight'.
+    Keeps series keyed by the metric itself, so phrasing variants merge."""
+    s = re.sub(r"\s+", " ", s).strip()
+    for pat in (_LABEL_TRIM_LEAD, _LABEL_TRIM_TAIL):
+        prev = None
+        while prev != s:
+            prev, s = s, pat.sub("", s)
+    return s.strip().lower()[:40]
 
 
 def _looks_like_id(num_str: str, value: float) -> bool:
@@ -85,7 +96,9 @@ def detect(text: str) -> list[dict]:
             if klabel in seen:
                 continue
             seen.add(klabel)
-            out.append({"label": label.strip(), "value": value,
+            # Store the normalized core as the label too ("weight", not "My
+            # weight today") — phrasing variants merge and the UI reads clean.
+            out.append({"label": klabel, "value": value,
                         "unit": unit, "key_label": klabel})
     return out
 
@@ -145,7 +158,8 @@ def active_series(conn, limit: int = 5) -> list[dict]:
 
 def lookup(conn, question: str) -> dict | None:
     """Match a 'how has X moved/changed/trended' question to a promoted series."""
-    if not re.search(r"\b(how (has|have|much)|trend|over time|moved|changed|progress|history) \b", question, re.I) \
+    if not re.search(r"\b(how (has|have|much|is|are)|what'?s my|trend(ing)?|over time|"
+                     r"moved|changed|changing|progress|history|doing)\b", question, re.I) \
        and not re.search(r"\b(my|the)\b.*\b(weight|grade|score|price|balance|hours|streak)\b", question, re.I):
         return None
     q = _norm_label(re.sub(r"[^a-zA-Z ]", " ", question))

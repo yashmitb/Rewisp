@@ -65,3 +65,20 @@ class TestDiff:
 
     def test_summarize_nothing(self):
         assert "Nothing" in delta.summarize({"added": [], "removed": [], "changed": []})
+
+
+class TestChromeFiltering:
+    def test_menu_bar_lines_never_diff(self):
+        # real chrome lines from live diffs — must not appear as changes
+        old = ("Dia File Edit View Tabs Bookmarks History Extensions Window Help 21% Sun Jul\n"
+               "Actual article content line one\n")
+        new = ("Dia File Hlle Edit View Tabs Bookmarks History Extensions Window Help 43% Tue Jul\n"
+               "Actual article content line one\n"
+               "A brand new paragraph appeared here\n")
+        d = delta.diff_texts(old, new)
+        assert d["removed"] == [] and d["changed"] == []
+        assert d["added"] == ["A brand new paragraph appeared here"]
+
+    def test_content_mentioning_a_menu_word_survives(self):
+        assert not delta._is_chrome("How to edit a PDF file quickly")  # 2 hits only
+        assert delta._is_chrome("File Edit View Tabs Bookmarks History")

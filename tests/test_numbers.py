@@ -90,3 +90,21 @@ class TestPrecisionGate:
         assert numbers.detect("Grade 92%")
         assert numbers.detect("Score 88 today")      # metric word, no unit
         assert numbers.detect("Balance $1,240.50")
+
+
+class TestLabelNormalization:
+    def test_phrasing_variants_merge_into_one_series(self):
+        from rewisp import numbers
+        a = numbers.detect("My weight today 182 lbs")[0]
+        b = numbers.detect("Weight 182 lbs")[0]
+        assert a["key_label"] == b["key_label"] == "weight"
+
+    def test_lookup_phrasings(self, conn):
+        from rewisp import db, numbers
+        rid = db.insert_capture(conn, "Health", None, None, "x")
+        for val, ago in [(182, "-6 days"), (180, "-4 days"), (179, "-2 days")]:
+            numbers.scan_and_store(conn, rid, "health::w", f"Weight {val} lbs")
+            conn.execute("UPDATE series SET ts=datetime('now',?) WHERE value=?", (ago, val))
+        conn.commit()
+        for q in ["how has my weight moved", "weight over time", "how is my weight doing"]:
+            assert numbers.lookup(conn, q), q
