@@ -127,9 +127,13 @@ h2 { font-size: clamp(28px, 4vw, 42px); font-weight: 700; letter-spacing: -.02em
 .panel {
   background: linear-gradient(180deg, var(--card-2), #141827);
   border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 22px; position: relative; overflow: hidden; min-height: 300px;
+  padding: 22px; position: relative; overflow: hidden; height: 340px;
   display: flex; flex-direction: column;
+  transition: transform .2s var(--ease), border-color .2s var(--ease);
 }
+/* subtle interactivity — lift + accent border on hover */
+.panel:hover { transform: translateY(-3px); border-color: rgba(142,162,255,.3); }
+@media (max-width: 860px) { .panel { height: auto; min-height: 300px; } }
 .panel .ph { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
 .panel .ph .tag { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
 .panel .ph .dots { margin-left: auto; display: flex; gap: 6px; }
@@ -195,6 +199,32 @@ h2 { font-size: clamp(28px, 4vw, 42px); font-weight: 700; letter-spacing: -.02em
 .time-demo .trow:nth-child(4) .fill { animation-delay: .68s; }
 @keyframes fillbar { from { width: 0; } to { width: var(--w); } }
 .trow .tm { width: 58px; text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* delta demo — lines diff in on reveal (CSS-driven, no JS) */
+.delta-view { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+.dl { font-size: 13.5px; padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,.03); border: 1px solid var(--line); color: var(--muted); }
+.dl.rm { color: #f0a0a0; border-color: rgba(240,120,120,.3); text-decoration: line-through; opacity: .5; }
+.dl.ad { color: var(--green); border-color: rgba(125,216,125,.35); background: rgba(125,216,125,.06); opacity: 0; transform: translateX(-10px); }
+.dl.ch b { color: var(--accent-2); }
+.dl.ch s { color: var(--dim); }
+#delta-demo.in .dl.ad { animation: slidein .5s var(--ease) .5s both; }
+#delta-demo.in .dl.rm { animation: strike .5s var(--ease) .3s both; }
+#delta-demo.in .dl.ch { animation: flash 1s var(--ease) .7s both; }
+@keyframes slidein { to { opacity: 1; transform: none; } }
+@keyframes strike { from { opacity: 1; } to { opacity: .5; } }
+@keyframes flash { 0% { background: rgba(142,162,255,.18); } 100% { background: rgba(255,255,255,.03); } }
+
+/* connect demo — agent asks, rewisp answers (staggered reveal) */
+.conv { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; min-height: 150px; }
+.c-q { align-self: flex-end; max-width: 80%; background: var(--accent); color: #0b0d16; font-size: 13.5px; font-weight: 500; padding: 9px 14px; border-radius: 14px; opacity: 0; transform: translateY(6px); }
+.c-tool { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--text); opacity: 0; }
+.c-tool .cmono { font-family: ui-monospace, "SF Mono", monospace; color: var(--muted); font-weight: 400; }
+.c-tool .cdot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); }
+.c-a { align-self: flex-start; max-width: 85%; background: rgba(255,255,255,.04); border: 1px solid var(--line); font-size: 13.5px; padding: 9px 14px; border-radius: 14px; opacity: 0; transform: translateY(6px); }
+#connect-demo.in .c-q { animation: cbubble .45s var(--ease) .2s both; }
+#connect-demo.in .c-tool { animation: cbubble .45s var(--ease) .9s both; }
+#connect-demo.in .c-a { animation: cbubble .5s var(--ease) 1.5s both; }
+@keyframes cbubble { to { opacity: 1; transform: none; } }
 
 /* product shots */
 .shots { margin-top: 56px; display: flex; flex-direction: column; gap: 72px; }
