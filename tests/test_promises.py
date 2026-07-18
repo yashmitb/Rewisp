@@ -213,3 +213,14 @@ class TestDueDayReminders:
     def test_future_due_stays_silent(self, conn):
         self._promise(conn, "2099-01-01")
         assert promises.remind_due(conn) == 0
+
+
+class TestInstructionalReminderGate:
+    def test_canvas_instruction_full_length_rejected_everywhere(self):
+        t = ("remember to scan the paper where you showed your work for each "
+             "question and upload the file using the submission link")
+        assert not hits(t, source="authored")
+        assert not hits(t, source="strict", bar=0.80)
+
+    def test_self_note_reminder_still_works(self):
+        assert hits("remember to book the flight this week")

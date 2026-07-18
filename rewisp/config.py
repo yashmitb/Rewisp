@@ -69,7 +69,19 @@ DEFAULT_KILL_APPS = [
     "Bitwarden",
     "KeePassXC",
     "Keychain Access",
+    # Exam proctoring browser — capturing during a locked-down exam is a
+    # privacy + academic-integrity hazard. Found 29 live captures of it.
+    "LockDown Browser",
 ]
+
+# Frontmost "apps" that aren't real content: the Dock (a click on it makes the
+# whole desktop the capture, misattributed), Mission Control, the wallpaper.
+# Live data: 201 junk desktop captures in one week attributed to "Dock".
+CAPTURE_SKIP_APPS = {"Dock", "Mission Control", "WindowManager", "Window Server"}
+
+# A capture with almost no text is a video frame's subtitles or an empty screen —
+# 78 live rows were fragments like "Your honor,". Not worth remembering.
+MIN_CAPTURE_CHARS = 40
 
 DEFAULT_KILL_URL_PATTERNS = [
     # substring match against the active URL, lowercased

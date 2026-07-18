@@ -53,9 +53,12 @@ final class NudgePillController: NSObject {
                                        onHoverChange: { [weak self] hovering in
                                            self?.hovering = hovering
                                        })
-        guard let screen = NSScreen.main else { return }
+        // Pin to the PRIMARY display (the one with the menu bar). NSScreen.main is
+        // the screen with keyboard focus, which made the pill appear on whatever
+        // monitor you happened to be typing on — "random places".
+        guard let screen = NSScreen.screens.first else { return }
         let w: CGFloat = 380, h: CGFloat = 210
-        let restY = screen.frame.maxY - h - 8          // just under the menu bar
+        let restY = screen.visibleFrame.maxY - h - 6   // just under menu bar / notch
         panel.setFrame(NSRect(x: screen.frame.midX - w / 2, y: restY + 24,
                               width: w, height: h), display: false)
         panel.alphaValue = 0
@@ -172,10 +175,16 @@ struct NudgePillView: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.pillBG))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.white.opacity(0.08)))
-        .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
+        // One clean dark surface — stacking material + a dark fill read as muddy
+        // grey, and the huge offset shadow looked like a detached blob.
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(LinearGradient(colors: [Color(red: 0.13, green: 0.14, blue: 0.20),
+                                              Color(red: 0.09, green: 0.10, blue: 0.15)],
+                                     startPoint: .top, endPoint: .bottom)))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .strokeBorder(Color.white.opacity(0.12)))
+        .shadow(color: .black.opacity(0.22), radius: 8, y: 3)
     }
 
     private var connector: some View {
@@ -200,10 +209,14 @@ struct NudgePillView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.pillBG))
-        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.white.opacity(0.08)))
-        .shadow(color: .black.opacity(0.3), radius: 16, y: 6)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(LinearGradient(colors: [Color(red: 0.13, green: 0.14, blue: 0.20),
+                                              Color(red: 0.09, green: 0.10, blue: 0.15)],
+                                     startPoint: .top, endPoint: .bottom)))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .strokeBorder(Color.white.opacity(0.12)))
+        .shadow(color: .black.opacity(0.22), radius: 8, y: 3)
         .transition(.opacity)
     }
 }

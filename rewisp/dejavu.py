@@ -19,8 +19,8 @@ log = logging.getLogger("rewisp")
 # real page content.
 _MENUBAR = re.compile(r"^.{0,90}?\bHelp\b\s*", re.I)
 _JUNK_TOK = re.compile(
-    r"^(?:\d[\d,.:%]*|[•·|@&()\[\]<>/\\+*=~^_-]+|am|pm|"
-    r"mon|tue|wed|thu|fri|sat|sun|"
+    r"^(?:\d[\d,.:%]*|[•·|@&()\[\]<>/\\+*=~^_-]+|[a-z]|am|pm|"      # single letters =
+    r"mon|tue|wed|thu|fri|sat|sun|"                                  # OCR glyph noise
     r"jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)$", re.I)
 
 

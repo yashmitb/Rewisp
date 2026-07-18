@@ -56,8 +56,8 @@ class Daemon:
             text = screen.ocr_cgimage(img)
         finally:
             del img  # image existed only in memory; released here
-        if not text.strip():
-            return
+        if len(text.strip()) < config.MIN_CAPTURE_CHARS:
+            return   # video-subtitle fragments / near-empty screens aren't memories
         # Semantic vector for meaning-based retrieval. Best-effort: if the embedder
         # is offline the row stores NULL and the nightly backfill fills it later.
         emb = None
@@ -116,7 +116,9 @@ class Daemon:
         # index the questions you type as if they were memories — a feedback loop
         # that pollutes retrieval (you ask "what did I search?" and it finds your
         # own past questions). The digest is already stored separately.
-        if app == "Rewisp":
+        # Same for pseudo-apps (Dock/Mission Control): clicking the Dock makes the
+        # whole desktop "frontmost" and stores a junk desktop capture.
+        if app == "Rewisp" or app in config.CAPTURE_SKIP_APPS:
             STATE["capture"] = "idle"
             return
 

@@ -12,7 +12,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 from . import config, db, memory
-from .ask import call_claude
+from .ask import call_llm
 
 log = logging.getLogger("rewisp")
 
@@ -139,6 +139,34 @@ def already_ran(date_str: str) -> bool:
     return last_run_date() == date_str
 
 
+def _state() -> dict:
+    if DIGEST_STATE.exists():
+        try:
+            return json.loads(DIGEST_STATE.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def _record_failure(date_str: str) -> None:
+    s = _state()
+    s["last_fail_ts"] = db.utcnow()
+    s["fail_date"] = date_str
+    DIGEST_STATE.write_text(json.dumps(s))
+
+
+def _in_backoff(now: datetime) -> bool:
+    """True within 30 min of the last failed attempt — retry soon, not every tick."""
+    ts = _state().get("last_fail_ts")
+    if not ts:
+        return False
+    try:
+        last = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    return (now.astimezone(timezone.utc) - last).total_seconds() < 1800
+
+
 def _interval_elapsed(now: datetime) -> bool:
     """Respect the user's digest frequency (Settings): nightly / every N days."""
     last = last_run_date()
@@ -161,8 +189,18 @@ def run(day: datetime | None = None, force: bool = False) -> dict | None:
     conn = db.connect()
     text = build_input(conn, day)
     prompt = f"{PROMPT_RULES}\n\n{text}"
-    log.info("digest: calling Claude for %s (%d chars input)", date_str, len(prompt))
-    answer = call_claude(prompt)
+    log.info("digest: calling engine chain for %s (%d chars input)", date_str, len(prompt))
+    # Engine CHAIN, not Claude-only: when Claude's session limit is hit at 9 PM
+    # the digest used to fail all night even with Gemini available. Still exactly
+    # one cloud call — whichever engine answers first. On total failure, record it
+    # so the catch-up loop backs off (30 min) instead of hammering a rate limit,
+    # then runs the digest as soon as an engine responds.
+    try:
+        answer, engine = call_llm(prompt)
+    except Exception:
+        _record_failure(date_str)
+        raise
+    log.info("digest: answered by %s", engine)
     sections = parse_sections(answer)
     time_report = compute_time_report(conn, day)
 
@@ -197,7 +235,7 @@ def catchup_due() -> bool:
     now = datetime.now().astimezone()
     hour = int(config.load_settings().get("digest_hour", 21))
     return (now.hour >= hour and not already_ran(now.strftime("%Y-%m-%d"))
-            and _interval_elapsed(now))
+            and _interval_elapsed(now) and not _in_backoff(now))
 
 
 def calls_this_month() -> int:

@@ -192,8 +192,12 @@ def _rejected(sent: str, what: str, imperative: bool) -> bool:
         return True
     if _AD_LEX.search(sent):
         return True                    # commerce lexicon anywhere near = ad copy
-    if imperative and _INSTRUCTIONAL.search(sent):
-        return True                    # "remember to … your work" = course/tour copy
+    # Instructional copy addressed at "you/your" — applies to bare imperatives AND
+    # reminder-openers: "remember to scan the paper where you showed your work"
+    # is a course page talking to you, not a note you wrote (live leak, twice).
+    reminder = bool(re.match(r"\s*(?:remember to|don'?t forget to)", sent, re.I))
+    if (imperative or reminder) and _INSTRUCTIONAL.search(sent):
+        return True
     words = what.split()
     if not 3 <= len(words) <= 16:
         return True                    # too short to mean anything / run-on
