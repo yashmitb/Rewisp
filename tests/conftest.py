@@ -14,6 +14,8 @@ from rewisp import db
 def conn():
     c = sqlite3.connect(":memory:")
     c.executescript(db.SCHEMA)
+    from rewisp import vault
+    c.executescript(vault.VAULT_SCHEMA)
     db._migrate(c)
     yield c
     c.close()

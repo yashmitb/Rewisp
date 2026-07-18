@@ -183,10 +183,21 @@ def mark_rescued(conn, wisp_ids: list[int]) -> None:
 
 # ── auto-pin: the 3rd lookup of the same fact makes it permanent ─────────────
 
+# Questions whose answers are time-dependent can never be pinned — "what did I
+# do yesterday" has a different correct answer every day. Only stable facts
+# (wifi passwords, codes, links, names) qualify.
+_UNPINNABLE = re.compile(
+    r"\b(today|yesterday|tonight|this (week|morning|afternoon|evening)|last (week|night)|"
+    r"now|currently|recently|what did i|what was i|what have i|summarize|recap|"
+    r"what changed|how has|what happened)\b", re.I)
+
+
 def maybe_pin(conn, question: str, answer: str) -> bool:
     """Called after every answered question. If this is the ~3rd time the same
-    thing has been asked, pin the answer for instant deterministic recall."""
+    STABLE fact has been asked, pin the answer for instant deterministic recall."""
     if not answer or "not found" in answer.lower():
+        return False
+    if _UNPINNABLE.search(question):
         return False
     qv = None
     try:
@@ -214,6 +225,8 @@ def maybe_pin(conn, question: str, answer: str) -> bool:
 
 def pinned_answer(conn, question: str) -> dict | None:
     """Deterministic hit for a previously-pinned fact."""
+    if _UNPINNABLE.search(question):
+        return None                     # time-dependent asks always re-answer live
     try:
         from . import embed
         qv = embed.embed(question)

@@ -121,3 +121,16 @@ class TestAutoPin:
             _q(conn, "gym door code", v, "-3 days")
             _q(conn, "door code for the gym", v, "-1 minutes")
             assert forgetting.maybe_pin(conn, "door code for the gym", "4821") is False
+
+
+class TestUnpinnable:
+    def test_time_dependent_questions_never_pin(self, conn):
+        for q in ["what did i do yesterday?", "summarize my day",
+                  "what changed on this page", "what was i working on today"]:
+            assert forgetting.maybe_pin(conn, q, "some answer") is False, q
+
+    def test_time_dependent_lookup_bypasses_pins(self, conn):
+        conn.execute("INSERT INTO pinned (question, answer, embedding, created_at) "
+                     "VALUES ('what did i do yesterday?', 'stale', x'00', datetime('now'))")
+        conn.commit()
+        assert forgetting.pinned_answer(conn, "what did i do yesterday?") is None

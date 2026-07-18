@@ -36,6 +36,19 @@ Answer quality:
   one. Give as many sentences as the answer genuinely needs; don't cut it short.
 - For a specific fact (a name, number, link), give it directly and exactly.
 
+ANSWER formatting (people scan, they don't read walls of text):
+- Short answer (≤2 sentences): just write it, no structure.
+- Longer answer: KEEP EVERY FACT — the structure re-arranges the full content,
+  it never shortens it. Format:
+  · line 1 = ONE sentence stating the overall answer (the lead).
+  · blank line, then ALL the substance as bullets — one per thread/event:
+    "- **Short topic** — the full detail for that thread, every specific fact,
+    name, number, quote, and time that belongs to it. 1–4 sentences each."
+  · bold key names, numbers, and times inline (e.g. **$36.04**, **5:00 PM**).
+  · a long thread gets multiple bullets rather than one long paragraph.
+- DETAIL is only for tangents (unresolved items, follow-ups) — never move the
+  main content there. The complete detailed answer lives in ANSWER.
+
 Respond in EXACTLY this format (omit a line entirely if it does not apply):
 ANSWER: <the direct, complete answer — as long as the question needs, no citations here>
 DETAIL: <any extra supporting findings worth knowing>
@@ -68,12 +81,14 @@ RULES:
    captures; ignore older ones that don't fit the question's time.
 5. Scan the whole context. If it clearly shows several DIFFERENT activities from
    the time asked about — e.g. work in one app and entertainment in another — name
-   each as a numbered list. But include ONLY activities that actually appear for
+   each as its own list item. But include ONLY activities that actually appear for
    that time; do not pad with unrelated, old, or one-off captures.
 6. Be specific: name the exact apps, files, sites, people, shows, episodes,
    versions, and numbers from the CONTEXT.
-7. For "summarize" or "what did I do" questions, write a short paragraph covering
-   the main activities of that period — don't reduce it to a single item.
+7. If your answer is longer than two sentences, format it for scanning:
+   first a single short sentence saying the overall answer, then a blank line,
+   then one line per activity starting with "- " followed by the activity and
+   one or two details. Keep every item under two sentences.
 8. Never copy any wording from these instructions into your answer.
 
 Reply as four labeled lines. Replace the parentheses with your real answer:
@@ -231,12 +246,34 @@ def _dedupe_captures(rows: list, limit: int) -> list:
     return out
 
 
+_ACTIVITY_Q = re.compile(
+    r"\b(what (did|have) i (do|done|work(ed)? on)|what was i (doing|working on)|"
+    r"summarize|summary of|recap|what happened|how did i spend|what did i get done)\b", re.I)
+
+
 def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict]:
     """compact=True shrinks everything to fit the on-device model's small
     context window (~4k tokens total including the answer)."""
     since, until, stripped_q = timeparse.parse(question)
     fts = _fts_query(stripped_q)
     n_match = 8 if compact else 12
+    # "Generic activity" question — after stripping the time phrase and stopwords
+    # there are no real content words left ("what did I do today?"). FTS would
+    # then match the literal words what/did/do, dragging in Vault files and old
+    # pages that merely contain them ("[what]'s left…" in a portfolio PDF), and
+    # the small model reports THOSE as your activity. For these questions the
+    # time-window captures ARE the answer — skip keyword retrieval entirely.
+    content_words = [w for w in re.findall(r"[a-zA-Z0-9_.-]+", stripped_q.lower())
+                     if w not in STOPWORDS and len(w) > 1]
+    generic = not content_words
+    # Activity questions ("what did I work on", "summarize my day") are about a
+    # TIME SPAN, not a keyword — words like "work" would keyword-match portfolio
+    # PDFs. Force the window path, and default the window to today when the
+    # question implies it but timeparse found no explicit phrase ("my day").
+    if _ACTIVITY_Q.search(question):
+        generic = True
+        if not since and not until:
+            since, until, _ = timeparse.parse("today")
     # Hybrid retrieval: FTS keyword rank fused with semantic vector rank (RRF), so
     # "that article about burnout" matches a page that said "exhaustion". Falls
     # back to FTS-only when the embedder is offline. Over-fetch, then drop
@@ -244,9 +281,11 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
     # facts matter more than raw count, especially for the small on-device model.
     from . import embed
     qvec = embed.embed_vec(stripped_q or question)
-    rows = db.search_captures_hybrid(conn, fts, qvec, limit=n_match * 3,
-                                     since=since, until=until)
-    rows = _dedupe_captures(rows, n_match)
+    rows = []
+    if not generic:
+        rows = db.search_captures_hybrid(conn, fts, qvec, limit=n_match * 3,
+                                         since=since, until=until)
+        rows = _dedupe_captures(rows, n_match)
     if not rows:
         # Keyword miss (e.g. "what was due?") — fall back to the most recent
         # captures in the asked time window so Claude still sees something real.
@@ -259,7 +298,8 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
             sql += (" AND" if since else " WHERE") + " ts <= ?"
             params.append(until)
         sql += " ORDER BY id DESC LIMIT ?"
-        params.append(6 if compact else 15)
+        # Generic day questions live entirely off this window — give them more.
+        params.append((10 if generic else 6) if compact else 18)
         cols = ["id", "ts", "app", "window_title", "url", "snippet"]
         rows = [dict(zip(cols, r)) for r in conn.execute(sql, params)]
     # Daily summaries. For a time-bounded question ("today", "this morning"), only
@@ -286,14 +326,25 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
     # Small models weight early tokens heavily — in compact mode the trusted
     # Vault leads the context so it beats noisy screen text.
     from . import memory, vault
-    vrows = vault.search(conn, fts, limit=3 if compact else 5)
+    # Generic activity questions have no content terms — Vault "matches" would be
+    # stopword hits inside PDFs (portfolio junk the model then narrates as your
+    # day). Skip the Vault for them entirely.
+    vrows = [] if generic else vault.search(conn, fts, limit=3 if compact else 5)
     if compact and vrows:
         parts.append("## Vault (user-provided files — trusted truth; if Vault and "
                      "screen data conflict, Vault wins)")
         for v in vrows:
             parts.append(f"[vault:{v['path']}]\n{v['snippet']}")
-    # Always lead with what's on screen right now — most questions are about it.
-    recent = db.recent_captures(conn, limit=2, max_chars=800 if compact else 1100)
+    # Lead with what's on screen right now — most questions are about it. But a
+    # question about a PAST window ("yesterday") must not open with today's
+    # screen: the small model anchors on it and reports the wrong day.
+    window_is_past = bool(until) and until < db.utcnow()
+    recent = [] if window_is_past else db.recent_captures(
+        conn, limit=2, max_chars=800 if compact else 1100)
+    # Window-bounded question: the recent block must not smuggle in captures
+    # from OUTSIDE the window (e.g. an old wisp when today is nearly empty).
+    if since:
+        recent = [r for r in recent if r["ts"] >= since]
     if recent:
         parts.append("## Current / most recent screen (full text)")
         for r in recent:
@@ -328,6 +379,12 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
     try:
         from . import dream
         eps = dream.search_episodes(conn, fts, qvec, limit=2 if compact else 3)
+        # A time-bounded question must not surface other days' episodes — old
+        # "what I did" summaries are exactly what a small model mistakes for today.
+        if since or until:
+            eps = [e for e in eps
+                   if (not since or e["span"][:10] >= since[:10])
+                   and (not until or e["span"][:10] <= until[:10])]
         if eps:
             parts.append("## Past episodes (consolidated memory)")
             for e in eps:

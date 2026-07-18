@@ -413,9 +413,9 @@ struct SearchPanelView: View {
     private func answerContent(_ r: RewispAPI.AskResult) -> some View {
             VStack(alignment: .leading, spacing: 10) {
                 // Hierarchy: answer loudest, detail quieter, source small, time smallest.
-                RichText(text: r.answer ?? "")
-                    .font(.title3.weight(.medium))
-                    .lineSpacing(3)
+                // prominentLead: first sentence renders as the bold takeaway,
+                // the rest as relaxed scannable body (NNG inverted pyramid).
+                RichText(text: r.answer ?? "", prominentLead: true)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
