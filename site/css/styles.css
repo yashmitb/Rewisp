@@ -106,8 +106,12 @@ h1 .soft { color: var(--dim); }
 .demo .bar .spark { color: var(--accent); animation: spin 6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .demo .q { border-right: 2px solid var(--accent); padding-right: 2px; white-space: nowrap; overflow: hidden; min-height: 1.2em; }
-.demo .answer { border-top: 1px solid var(--line); padding: 18px 20px 16px; display: none; }
-.demo .answer.show { display: block; animation: rise .35s ease; }
+/* Answer area ALWAYS occupies its space (fixed min-height) and fades with
+   opacity — toggling display:none/block resized the box and shoved the whole
+   page down on every loop. */
+.demo .answer { border-top: 1px solid var(--line); padding: 18px 20px 16px;
+  height: 140px; overflow: hidden; opacity: 0; transition: opacity .3s ease; }
+.demo .answer.show { opacity: 1; }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; } }
 .demo .a-main { font-size: 16px; font-weight: 600; }
 .demo .a-detail { margin-top: 6px; font-size: 14px; color: var(--muted); }
