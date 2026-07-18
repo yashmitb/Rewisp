@@ -1,9 +1,22 @@
 import SwiftUI
 import AppKit
 
-// Settings → Connect agents. Hand Rewisp's memory to Claude Desktop, Claude Code,
-// or any MCP client. Live connection status, three setup paths (one-click for
-// Desktop), an animated demo, and a copy-paste test prompt.
+// Top-level "Connect" tab — a full page for wiring Rewisp's memory into AI agents.
+struct ConnectTab: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                TabHeader(title: "Connect agents",
+                          subtitle: "Give Claude and other AI agents your memory to work with.")
+                ConnectorSection()
+            }
+            .padding(28)
+        }
+    }
+}
+
+// The connector content: live status, three setup paths (one-click for Desktop),
+// an animated demo, test prompts, and the privacy guarantees.
 struct ConnectorSection: View {
     @State private var status: RewispAPI.MCPStatus?
     @State private var method = Method.desktop
@@ -13,6 +26,13 @@ struct ConnectorSection: View {
     enum Method: String, CaseIterable, Identifiable {
         case desktop = "Claude Desktop", code = "Claude Code", manual = "Other client"
         var id: String { rawValue }
+        var icon: String {
+            switch self {
+            case .desktop: "menubar.dock.rectangle"
+            case .code: "terminal.fill"
+            case .manual: "curlybraces"
+            }
+        }
     }
 
     var body: some View {
@@ -87,60 +107,129 @@ struct ConnectorSection: View {
     private var methodCard: some View {
         Card {
             CardHeader(title: "Set it up", symbol: "wrench.and.screwdriver.fill")
-            Picker("", selection: $method) {
-                ForEach(Method.allCases) { Text($0.rawValue).tag($0) }
+            // Big tappable method tabs instead of a tiny segmented control.
+            HStack(spacing: 8) {
+                ForEach(Method.allCases) { m in
+                    Button { withAnimation(.spring(response: 0.3)) { method = m } } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: m.icon)
+                            Text(m.rawValue).fontWeight(.medium)
+                        }
+                        .font(.callout)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(method == m ? AnyShapeStyle(Theme.accent.opacity(0.9)) : AnyShapeStyle(.quaternary.opacity(0.4)),
+                                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .foregroundStyle(method == m ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .pickerStyle(.segmented).labelsHidden()
+            .padding(.bottom, 4)
 
             switch method {
             case .desktop: desktopMethod
             case .code: commandMethod(status?.cli_command ?? "loading…",
-                                      hint: "Paste in Terminal. Then just talk to Claude Code.")
+                                      hint: "Paste in Terminal — then just talk to Claude Code.", tall: false)
             case .manual: commandMethod(status?.json_block ?? "loading…",
-                                        hint: "Merge into your client's MCP config (mcpServers).", mono: true, tall: true)
+                                        hint: "Merge into your client's MCP config under \"mcpServers\".", tall: true)
             }
         }
     }
 
     private var desktopMethod: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            StepRow(1, "Click the button — Rewisp writes the config for you.")
-            StepRow(2, "Quit and reopen Claude Desktop.")
-            StepRow(3, "It appears under Settings → Connectors as “rewisp.”")
-            HStack(spacing: 10) {
-                Button {
-                    Task { @MainActor in
-                        _ = try? await RewispAPI.post("mcp/install-desktop")
-                        withAnimation(.spring) { installedFlash = true }
-                        await refresh()
-                    }
-                } label: {
-                    Label(status?.desktop_installed == true ? "Re-add to Claude Desktop" : "Add to Claude Desktop",
-                          systemImage: "plus.app.fill")
-                }
-                .buttonStyle(.borderedProminent)
-                if status?.desktop_installed == true {
-                    Label("Config written", systemImage: "checkmark.circle.fill")
-                        .font(.caption).foregroundStyle(.green)
-                }
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 9) {
+                StepRow(1, "Add Rewisp — one click below, or download the config file.")
+                StepRow(2, "Quit and reopen Claude Desktop.")
+                StepRow(3, "It shows under Settings → Connectors as “rewisp.”")
             }
-            .padding(.top, 2)
+
+            // Primary: full-width, large.
+            Button {
+                Task { @MainActor in
+                    _ = try? await RewispAPI.post("mcp/install-desktop")
+                    withAnimation(.spring) { installedFlash = true }
+                    await refresh()
+                }
+            } label: {
+                Label(status?.desktop_installed == true ? "Re-add to Claude Desktop" : "Add to Claude Desktop automatically",
+                      systemImage: "plus.app.fill")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+            }
+            .controlSize(.large)
+            .buttonStyle(.borderedProminent)
+
+            if status?.desktop_installed == true {
+                Label("Config written — reopen Claude Desktop to see it", systemImage: "checkmark.circle.fill")
+                    .font(.caption).foregroundStyle(.green)
+            }
+
+            Divider().opacity(0.4)
+            Text("Prefer to do it yourself?").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Button { downloadConfig() } label: {
+                    Label("Download config file", systemImage: "arrow.down.doc.fill").frame(maxWidth: .infinity)
+                }
+                .controlSize(.large)
+                Button { revealDesktopConfig() } label: {
+                    Label("Show config in Finder", systemImage: "folder.fill").frame(maxWidth: .infinity)
+                }
+                .controlSize(.large)
+            }
+            Text("The config file is `claude_desktop_config.json`. (Claude Desktop's “Add custom connector” box is for *remote* servers only — a local one like Rewisp goes in this file.)")
+                .font(.caption2).foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func commandMethod(_ text: String, hint: String, mono: Bool = true, tall: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 8) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    Text(text).font(.caption.monospaced())
-                        .textSelection(.enabled)
-                        .padding(10)
-                        .frame(maxWidth: .infinity, minHeight: tall ? 92 : 0, alignment: .topLeading)
+    private func commandMethod(_ text: String, hint: String, tall: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(text).font(.callout.monospaced())
+                    .textSelection(.enabled)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, minHeight: tall ? 120 : 0, alignment: .topLeading)
+            }
+            .background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
+            HStack(spacing: 10) {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc").frame(maxWidth: .infinity)
                 }
-                .background(.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
-                CopyButton(text: text, label: "Copy")
+                .controlSize(.large).buttonStyle(.borderedProminent)
+                if method == .manual {
+                    Button { downloadConfig() } label: {
+                        Label("Download file", systemImage: "arrow.down.doc.fill").frame(maxWidth: .infinity)
+                    }
+                    .controlSize(.large)
+                }
             }
             Text(hint).font(.caption).foregroundStyle(.tertiary)
+        }
+    }
+
+    private func downloadConfig() {
+        guard let json = status?.json_block else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "claude_desktop_config.json"
+        panel.canCreateDirectories = true
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        if panel.runModal() == .OK, let url = panel.url {
+            try? json.write(to: url, atomically: true, encoding: .utf8)
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
+    }
+
+    private func revealDesktopConfig() {
+        let p = NSHomeDirectory() + "/Library/Application Support/Claude/claude_desktop_config.json"
+        if FileManager.default.fileExists(atPath: p) {
+            NSWorkspace.shared.selectFile(p, inFileViewerRootedAtPath: "")
+        } else {
+            NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory() + "/Library/Application Support/Claude"))
         }
     }
 
@@ -218,8 +307,9 @@ private struct ConnectorDemo: View {
     @State private var toolIdx = 0
 
     var body: some View {
+        // Fixed-height rows so nothing reflows — the box no longer grows/shrinks.
         VStack(alignment: .leading, spacing: 12) {
-            // agent question
+            // agent question (always present)
             HStack {
                 Spacer(minLength: 40)
                 Text("What did I promise this week?")
@@ -227,7 +317,7 @@ private struct ConnectorDemo: View {
                     .background(Theme.accent.opacity(0.9), in: RoundedRectangle(cornerRadius: 14))
                     .foregroundStyle(.white)
             }
-            // rewisp tool call
+            // rewisp tool call (always present; fades from dim to lit)
             HStack(spacing: 8) {
                 Image(systemName: "point.3.filled.connected.trianglepath.dotted")
                     .foregroundStyle(Theme.wisp)
@@ -237,21 +327,20 @@ private struct ConnectorDemo: View {
                 Spacer()
             }
             .opacity(phase >= 1 ? 1 : 0.25)
-            .animation(.spring(response: 0.3), value: phase)
-            // answer
-            if phase >= 2 {
-                HStack {
-                    Text("You owe Dana the design doc (due Fri) · waiting on Alex's contract.")
-                        .font(.callout)
-                        .padding(.horizontal, 14).padding(.vertical, 9)
-                        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 14))
-                    Spacer(minLength: 40)
-                }
-                .transition(.opacity.combined(with: .offset(y: 6)))
+            // answer bubble ALWAYS occupies its slot — only opacity changes, so the
+            // container height is constant (the old conditional insert made it jump).
+            HStack {
+                Text("You owe Dana the design doc (due Fri) · waiting on Alex's contract.")
+                    .font(.callout)
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 14))
+                Spacer(minLength: 40)
             }
+            .opacity(phase >= 2 ? 1 : 0)
+            Spacer(minLength: 0)
         }
         .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 172, alignment: .topLeading)
         .background(
             LinearGradient(colors: [Theme.accent.opacity(0.08), .clear],
                            startPoint: .topLeading, endPoint: .bottomTrailing),
@@ -259,9 +348,9 @@ private struct ConnectorDemo: View {
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.06)))
         .task {
             while !Task.isCancelled {
-                withAnimation { phase = 0 }
+                withAnimation(.easeInOut(duration: 0.3)) { phase = 0 }
                 try? await Task.sleep(for: .milliseconds(900))
-                withAnimation { phase = 1 }
+                withAnimation(.easeInOut(duration: 0.3)) { phase = 1 }
                 try? await Task.sleep(for: .milliseconds(1100))
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { phase = 2 }
                 try? await Task.sleep(for: .seconds(3))

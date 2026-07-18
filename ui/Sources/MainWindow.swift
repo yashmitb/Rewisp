@@ -72,6 +72,7 @@ struct MainWindowContent: View {
                 case .chat: ChatTab()
                 case .vault: VaultTab()
                 case .memory: MemoryTab()
+                case .connect: ConnectTab()
                 case .help: HelpTab()
                 case .settings: SettingsTab()
                 }
@@ -952,14 +953,13 @@ private struct ConfirmedRow: View {
 // MARK: - Settings
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case answers, local, cloud, connect, digest, alerts, privacy, data, help
+    case answers, local, cloud, digest, alerts, privacy, data, help
     var id: String { rawValue }
     var title: String {
         switch self {
         case .answers: "Answers"
         case .local: "Local model"
         case .cloud: "Cloud & keys"
-        case .connect: "Connect agents"
         case .digest: "Digest"
         case .alerts: "Notifications"
         case .privacy: "Privacy"
@@ -972,7 +972,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .answers: "Choose how Rewisp answers your questions."
         case .local: "A private model that runs on your Mac."
         case .cloud: "Free Gemini or your own paid API key."
-        case .connect: "Give Claude & other AI agents your memory."
         case .digest: "The nightly recap of your day."
         case .alerts: "Notifications and search-panel behavior."
         case .privacy: "What Rewisp never captures."
@@ -985,7 +984,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .answers: "cpu.fill"
         case .local: "desktopcomputer"
         case .cloud: "key.fill"
-        case .connect: "point.3.filled.connected.trianglepath.dotted"
         case .digest: "moon.stars.fill"
         case .alerts: "bell.badge.fill"
         case .privacy: "hand.raised.fill"
@@ -1084,7 +1082,6 @@ struct SettingsTab: View {
         case .answers: answersSection
         case .local: localSection
         case .cloud: cloudSection
-        case .connect: ConnectorSection()
         case .digest: digestSection
         case .alerts: alertsSection
         case .privacy: privacySection
