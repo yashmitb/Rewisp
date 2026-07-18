@@ -5,10 +5,11 @@ from rewisp import db, numbers
 
 class TestDetect:
     def test_basic_pairs(self):
+        # Only real personal metrics — money/balance is noise on the open web now.
         found = {d["key_label"]: d for d in numbers.detect("Weight 154.2 lbs\nBalance: $1,240.50\nGrade 92%")}
         assert found["weight"]["value"] == 154.2 and found["weight"]["unit"] == "lbs"
-        assert found["balance"]["value"] == 1240.5 and found["balance"]["unit"] == "$"
         assert found["grade"]["value"] == 92 and found["grade"]["unit"] == "%"
+        assert "balance" not in found                      # money not tracked
 
     def test_refuses_credentials(self):
         found = numbers.detect("PIN 1234\nCard 4242\nSSN 123")
@@ -89,7 +90,23 @@ class TestPrecisionGate:
         assert numbers.detect("My weight 178 lbs")
         assert numbers.detect("Grade 92%")
         assert numbers.detect("Score 88 today")      # metric word, no unit
-        assert numbers.detect("Balance $1,240.50")
+        assert numbers.detect("Resting heart rate 61 bpm")
+        assert numbers.detect("Daily steps 8400")
+
+    def test_ambient_noise_rejected(self):
+        # the exact garbage that showed up live — labels that aren't metrics
+        for junk in ["Hr up to 20", "up to 8", "jpeg 11 MB", "Checkpoint 31%",
+                     "Ve used 99%", "Balance $1,240.50", "for 30%", "Season 3"]:
+            assert numbers.detect(junk) == [], junk
+
+    def test_noise_surfaces_store_nothing(self, conn):
+        from rewisp import db
+        rid = db.insert_capture(conn, "Dia", None, None, "x")
+        # streaming / ad / AI page_keys are skipped wholesale
+        assert numbers.scan_and_store(conn, rid, "https://streampk.org/soccer/x", "Weight 180 lbs") == 0
+        assert numbers.scan_and_store(conn, rid, "finder::downloads", "Weight 180 lbs") == 0
+        # a real app/page still tracks
+        assert numbers.scan_and_store(conn, rid, "health::body", "Weight 180 lbs") == 1
 
 
 class TestLabelNormalization:

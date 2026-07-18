@@ -34,16 +34,42 @@ _CHROME_LABEL = re.compile(
     r"format|selection|develop|terminal|toolbar|menu|favorites?|profiles?|"
     r"thought|episode|season|sonnet|opus|haiku|gpt|claude|version|chapter)\b", re.I)
 
-# Numbers worth tracking almost always carry a unit OR a metric word. Requiring
-# one kills the ocean of OCR-fragment noise ("Thought for 15", "Episode 3",
-# "python 3", date fragments) without a brittle blocklist.
-# NOTE: views/subscribers/likes deliberately absent — every video page shows
-# them, and they charted as junk series in live use.
-_METRIC_LABEL = re.compile(
-    r"\b(weight|grade|score|gpa|price|cost|balance|total|amount|rank|rating|"
-    r"temp|temperature|steps?|calories|cals?|streak|"
-    r"level|progress|points?|reps?|sets?|miles?|km|pace|bpm|heart|"
-    r"revenue|profit|sales|stock|shares?|pts)\b", re.I)
+# A number is tracked only if its LABEL *is* a personal metric — not merely
+# contains a metric-ish word. The old "has a unit OR a metric word" gate promoted
+# ad prices ("up to $20"), file sizes ("jpeg 11MB"), progress bars ("checkpoint
+# 31%"), and drive usage ("ve used 99%"). Precision-first: the label, stripped of
+# modifiers, must consist ENTIRELY of known metric words. Money/price/count
+# metrics are excluded on purpose — they're indistinguishable from ad/UI noise on
+# the open web.
+_METRIC_WORDS = {
+    "weight", "bodyweight", "bmi", "grade", "gpa", "score", "sleep", "streak",
+    "steps", "step", "calorie", "calories", "cal", "cals", "kcal", "macros",
+    "protein", "carbs", "heart", "rate", "bpm", "pulse", "hydration", "hrv",
+    "spo2", "rank", "elo", "rating", "level", "reps", "sets", "pace", "mileage",
+    "temperature", "temp", "streaks",
+}
+_METRIC_MODIFIERS = {
+    "my", "the", "your", "our", "current", "total", "today", "todays", "now",
+    "this", "week", "weekly", "daily", "avg", "average", "resting", "max", "min",
+    "goal", "value", "latest", "so", "far",
+}
+
+
+def _is_metric_label(label: str) -> bool:
+    words = re.findall(r"[a-z]+", label.lower())
+    content = [w for w in words if w not in _METRIC_MODIFIERS]
+    return bool(content) and all(w in _METRIC_WORDS for w in content)
+
+
+# Surfaces that are pure number-noise: streaming/torrent, search, shopping/ads,
+# file managers, AI chats. Number tracking is skipped there entirely.
+_NOISE_KEY = re.compile(
+    r"(stream|torrent|soccer|/watch|youtube\.com|netflix|twitch|hulu|tiktok|"
+    r"instagram|reddit\.com|google\.com/search|bing\.com|duckduckgo|amazon\.|"
+    r"ebay\.|aliexpress|/opportunities|automatiq|outlier\.ai|claude\.ai|"
+    r"chatgpt\.com|chat\.openai|gemini\.google|perplexity|"
+    r"^(finder|dock|claude|gemini|chatgpt|antigravity ide|cursor|code|terminal|system settings)::)",
+    re.I)
 
 # Labels that are pure churn no matter what: engagement counters, relative
 # timestamps ("3 hours ago"), K/M-suffix fragments, and the literal word "label".
@@ -51,27 +77,13 @@ _JUNK_LABEL = re.compile(
     r"\b(views?|subscribers?|likes?|comments?|commented|watching|ago|label|"
     r"followers?|shares?d?|upvotes?|replies|reposts?)\b|^[kmb]\b", re.I)
 
-# Media/feed sites: every page is a firehose of engagement numbers; nothing
-# there is a personal metric. page_key strips URL queries, so all youtube
-# /watch pages share one key and random videos would chart as fake trends.
-_MEDIA_KEY = re.compile(
-    r"(youtube\.com|netflix\.com|twitch\.tv|hulu\.com|tiktok\.com|instagram\.com|"
-    r"reddit\.com|x\.com|twitter\.com)", re.I)
-
-
-_LABEL_TRIM_LEAD = re.compile(r"^(?:my|the|your|our|current|total)\s+", re.I)
-_LABEL_TRIM_TAIL = re.compile(r"\s+(?:today|now|currently|so far|this week)$", re.I)
-
-
 def _norm_label(s: str) -> str:
-    """Normalize a label to its noun core: 'My weight today' -> 'weight'.
-    Keeps series keyed by the metric itself, so phrasing variants merge."""
-    s = re.sub(r"\s+", " ", s).strip()
-    for pat in (_LABEL_TRIM_LEAD, _LABEL_TRIM_TAIL):
-        prev = None
-        while prev != s:
-            prev, s = s, pat.sub("", s)
-    return s.strip().lower()[:40]
+    """Normalize a label to its metric core: 'My resting heart rate' -> 'heart
+    rate', 'Daily steps' -> 'steps'. Drops modifier words so phrasing variants
+    merge into one series."""
+    words = re.findall(r"[a-z]+", s.lower())
+    core = [w for w in words if w not in _METRIC_MODIFIERS]
+    return " ".join(core)[:40] if core else s.strip().lower()[:40]
 
 
 def _looks_like_id(num_str: str, value: float) -> bool:
@@ -104,9 +116,9 @@ def detect(text: str) -> list[dict]:
             if _looks_like_id(num_str, value):
                 continue
             unit = m.group("unit") or m.group("cur") or ""
-            # Precision gate: keep only numbers with a real unit/currency or a
-            # recognized metric word. Everything else is OCR noise.
-            if not unit and not _METRIC_LABEL.search(label):
+            # Precision gate: the label must BE a personal metric (weight, grade,
+            # steps…). A unit alone is not enough — $/MB/% appear all over the web.
+            if not _is_metric_label(label):
                 continue
             klabel = _norm_label(label)
             if klabel in seen:
@@ -123,7 +135,7 @@ def scan_and_store(conn, wisp_id: int, page_key: str, text: str,
                    max_per_capture: int = 8) -> int:
     """Store observations for this capture. Dedups the same key+value seen again
     within ~a day (a static number that keeps appearing shouldn't pile up rows)."""
-    if not page_key or _MEDIA_KEY.search(page_key):
+    if not page_key or _NOISE_KEY.search(page_key):
         return 0
     found = detect(text)[:max_per_capture]
     added = 0
