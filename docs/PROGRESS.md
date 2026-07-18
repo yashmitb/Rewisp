@@ -170,6 +170,12 @@ Dia (Chromium-based) fully supports Chrome-style AppleScript (`URL of active tab
 
 ---
 
+## v0.11.0 — connect your agents (2026-07-19)
+
+- **MCP connector** — `python3 -m rewisp mcp` speaks the Model Context Protocol over stdio, so Claude Desktop / Claude Code / Cursor / VS Code / Windsurf / Gemini CLI can query your screen memory as five read-only tools (search_memory, get_context, get_day_summary, get_promises, get_page_changes). Read-only, fully local (no network listener), never spends your subscriptions, Vault excluded by default.
+- **Connect agents** is a top-level sidebar page: a live "Connected" banner (heartbeat when an agent queries), an animated demo, and per-client setup — one-click "Add to Claude Desktop" (writes the config), plus copy/download for every other client. Honest note that ChatGPT connectors are remote-only.
+- **Numbers precision fix** — the "Tracked" card was charting garbage (ad prices, file sizes, progress bars). Now the label must BE a personal metric (weight, grade, steps, heart rate…); money/counts and noise surfaces (streaming/search/AI/Finder) are excluded. Purged 291 junk rows. 143 tests.
+
 ## v0.10.0 — it learns how you forget (2026-07-18)
 
 The Forgetting Model ships, plus a data-driven refinement sweep over live usage.

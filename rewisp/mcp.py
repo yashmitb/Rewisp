@@ -28,7 +28,7 @@ from . import config, db
 log = logging.getLogger("rewisp")
 
 PROTOCOL_VERSION = "2024-11-05"
-SERVER_INFO = {"name": "rewisp", "version": "0.10.0"}
+SERVER_INFO = {"name": "rewisp", "version": "0.11.0"}
 
 # The MCP server runs as a separate short-lived process spawned by the client, so
 # the menu-bar app can't see it directly. It records a heartbeat here on every

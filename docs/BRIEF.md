@@ -4,7 +4,7 @@ An ambient memory for macOS. Rewisp quietly captures the **text** of what you se
 
 Owner: Yashmit. Single user, his Mac only. Nothing leaves the machine except the prompt of a question or the nightly digest, and only to the engine you choose.
 
-**Current version: v0.10.0** (13 releases across 2026-07-08 → 07-18). In daily use (~180+ wisps/day, 3800+ wisps). v0.8 shipped the "intelligent memory" cycle (semantic search, delta, promises, numbers, precognition, dream/reinforcement, nudges); v0.9 was the precision cycle — research-grounded refinement of all of it, closing the promise loop with due-day reminders and failed-search near-miss rescue. 108 tests.
+**Current version: v0.11.0** (14 releases across 2026-07-08 → 07-19). In daily use (~180+ wisps/day, 3800+ wisps). v0.8 shipped the "intelligent memory" cycle (semantic search, delta, promises, numbers, precognition, dream/reinforcement, nudges); v0.9 was the precision cycle — research-grounded refinement of all of it, closing the promise loop with due-day reminders and failed-search near-miss rescue. 108 tests.
 
 > This file describes what Rewisp *is today*. For the build timeline and per-task history, see `PROGRESS.md`. For the manual, `MANUAL.md`. For the threat model, `SECURITY.md`.
 
@@ -88,6 +88,9 @@ Minutes per app, weekly report, computed locally from timestamps.
 - **Main window** — Today dashboard (greeting, digest, loose threads, weekly bars), Chat, Vault, Memory, sectioned **Settings** (Answers / Local model / Cloud & keys / Digest / Notifications / Privacy / Your data / Help), in-app Manual + bug report.
 - **Onboarding** — welcome → privacy → permissions → Vault setup → animated demos.
 
+### Connect agents (MCP)
+`python3 -m rewisp mcp` exposes memory to Claude Desktop / Claude Code / Cursor / VS Code / Windsurf / Gemini CLI as five **read-only** tools. Local stdio (no network listener), never calls a cloud engine, Vault excluded by default. A top-level "Connect" tab has a live connection banner, per-client setup (one-click for Claude Desktop), and an animated demo.
+
 ### Distribution
 DMG (daemon bundled inside the app + installer), `/Applications`, launchd agents (capture always-on + 9 PM digest), auto-update via GitHub Releases. Landing page at https://yashmitb.github.io/Rewisp/ (GitHub Pages; html/css/js with live in-browser feature demos).
 
@@ -101,4 +104,3 @@ DMG (daemon bundled inside the app + installer), `/Applications`, launchd agents
 
 **Next (see `todo.md`):**
 - Train a custom "Rewisp AI model" (~week-long effort).
-- An MCP connector to expose Rewisp memory to external agents.
