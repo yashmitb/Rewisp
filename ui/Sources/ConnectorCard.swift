@@ -19,20 +19,13 @@ struct ConnectTab: View {
 // an animated demo, test prompts, and the privacy guarantees.
 struct ConnectorSection: View {
     @State private var status: RewispAPI.MCPStatus?
-    @State private var method = Method.desktop
+    @State private var selected = "Claude Desktop"
     @State private var installedFlash = false
     @State private var exposeVault = false
 
-    enum Method: String, CaseIterable, Identifiable {
-        case desktop = "Claude Desktop", code = "Claude Code", manual = "Other client"
-        var id: String { rawValue }
-        var icon: String {
-            switch self {
-            case .desktop: "menubar.dock.rectangle"
-            case .code: "terminal.fill"
-            case .manual: "curlybraces"
-            }
-        }
+    private var clients: [RewispAPI.MCPClient] { status?.clients ?? [] }
+    private var current: RewispAPI.MCPClient? {
+        clients.first { $0.name == selected } ?? clients.first
     }
 
     var body: some View {
@@ -103,123 +96,128 @@ struct ConnectorSection: View {
         return bits.joined(separator: " · ")
     }
 
-    // ── setup methods ──
+    // ── setup: pick a client, then follow its steps ──
     private var methodCard: some View {
         Card {
             CardHeader(title: "Set it up", symbol: "wrench.and.screwdriver.fill")
-            // Big tappable method tabs instead of a tiny segmented control.
-            HStack(spacing: 8) {
-                ForEach(Method.allCases) { m in
-                    Button { withAnimation(.spring(response: 0.3)) { method = m } } label: {
+            Text("Pick your app:").font(.callout).foregroundStyle(.secondary)
+            // Wrapping grid of client chips (Claude Desktop, Cursor, VS Code…).
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], spacing: 8) {
+                ForEach(clients) { c in
+                    Button { withAnimation(.spring(response: 0.3)) { selected = c.name } } label: {
                         HStack(spacing: 7) {
-                            Image(systemName: m.icon)
-                            Text(m.rawValue).fontWeight(.medium)
+                            Image(systemName: c.icon).frame(width: 18)
+                            Text(c.name).fontWeight(.medium).lineLimit(1)
+                            Spacer(minLength: 0)
                         }
                         .font(.callout)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(method == m ? AnyShapeStyle(Theme.accent.opacity(0.9)) : AnyShapeStyle(.quaternary.opacity(0.4)),
+                        .padding(.horizontal, 12).padding(.vertical, 11)
+                        .background(selected == c.name ? AnyShapeStyle(Theme.accent.opacity(0.9)) : AnyShapeStyle(.quaternary.opacity(0.4)),
                                     in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .foregroundStyle(method == m ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                        .foregroundStyle(selected == c.name ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.bottom, 4)
 
-            switch method {
-            case .desktop: desktopMethod
-            case .code: commandMethod(status?.cli_command ?? "loading…",
-                                      hint: "Paste in Terminal — then just talk to Claude Code.", tall: false)
-            case .manual: commandMethod(status?.json_block ?? "loading…",
-                                        hint: "Merge into your client's MCP config under \"mcpServers\".", tall: true)
-            }
+            if let c = current { clientSetup(c) }
         }
     }
 
-    private var desktopMethod: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 9) {
-                StepRow(1, "Add Rewisp — one click below, or download the config file.")
-                StepRow(2, "Quit and reopen Claude Desktop.")
-                StepRow(3, "It shows under Settings → Connectors as “rewisp.”")
+    @ViewBuilder private func clientSetup(_ c: RewispAPI.MCPClient) -> some View {
+        Divider().opacity(0.4).padding(.vertical, 2)
+        switch c.kind {
+        case "note":
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "info.circle.fill").foregroundStyle(.orange)
+                Text(c.note).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-
-            // Primary: full-width, large.
-            Button {
-                Task { @MainActor in
-                    _ = try? await RewispAPI.post("mcp/install-desktop")
-                    withAnimation(.spring) { installedFlash = true }
-                    await refresh()
-                }
-            } label: {
-                Label(status?.desktop_installed == true ? "Re-add to Claude Desktop" : "Add to Claude Desktop automatically",
-                      systemImage: "plus.app.fill")
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
-            }
-            .controlSize(.large)
-            .buttonStyle(.borderedProminent)
-
-            if status?.desktop_installed == true {
-                Label("Config written — reopen Claude Desktop to see it", systemImage: "checkmark.circle.fill")
-                    .font(.caption).foregroundStyle(.green)
-            }
-
-            Divider().opacity(0.4)
-            Text("Prefer to do it yourself?").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            HStack(spacing: 10) {
-                Button { downloadConfig() } label: {
-                    Label("Download config file", systemImage: "arrow.down.doc.fill").frame(maxWidth: .infinity)
-                }
-                .controlSize(.large)
-                Button { revealDesktopConfig() } label: {
-                    Label("Show config in Finder", systemImage: "folder.fill").frame(maxWidth: .infinity)
-                }
-                .controlSize(.large)
-            }
-            Text("The config file is `claude_desktop_config.json`. (Claude Desktop's “Add custom connector” box is for *remote* servers only — a local one like Rewisp goes in this file.)")
-                .font(.caption2).foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private func commandMethod(_ text: String, hint: String, tall: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(text).font(.callout.monospaced())
-                    .textSelection(.enabled)
-                    .padding(12)
-                    .frame(maxWidth: .infinity, minHeight: tall ? 120 : 0, alignment: .topLeading)
-            }
-            .background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
-            HStack(spacing: 10) {
+        case "button":
+            VStack(alignment: .leading, spacing: 14) {
+                Text(c.note).font(.callout).foregroundStyle(.secondary)
                 Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
+                    Task { @MainActor in
+                        _ = try? await RewispAPI.post("mcp/install-desktop")
+                        withAnimation(.spring) { installedFlash = true }
+                        await refresh()
+                    }
                 } label: {
-                    Label("Copy", systemImage: "doc.on.doc").frame(maxWidth: .infinity)
+                    Label(status?.desktop_installed == true ? "Re-add to Claude Desktop" : "Add to Claude Desktop automatically",
+                          systemImage: "plus.app.fill")
+                        .frame(maxWidth: .infinity).padding(.vertical, 4)
                 }
                 .controlSize(.large).buttonStyle(.borderedProminent)
-                if method == .manual {
-                    Button { downloadConfig() } label: {
-                        Label("Download file", systemImage: "arrow.down.doc.fill").frame(maxWidth: .infinity)
-                    }
-                    .controlSize(.large)
+                if status?.desktop_installed == true {
+                    Label("Config written — reopen Claude Desktop to see it", systemImage: "checkmark.circle.fill")
+                        .font(.caption).foregroundStyle(.green)
                 }
+                Text("Or do it manually:").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                manualButtons(c)
+                fileHint(c)
             }
-            Text(hint).font(.caption).foregroundStyle(.tertiary)
+        case "cli":
+            VStack(alignment: .leading, spacing: 10) {
+                codeBox(c.text, tall: false)
+                copyButton(c.text)
+                if !c.note.isEmpty { Text(c.note).font(.caption).foregroundStyle(.tertiary) }
+                fileHint(c)
+            }
+        default:  // "config"
+            VStack(alignment: .leading, spacing: 10) {
+                codeBox(c.text, tall: true)
+                manualButtons(c)
+                if !c.note.isEmpty { Text(c.note).font(.caption).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true) }
+                fileHint(c)
+            }
         }
     }
 
-    private func downloadConfig() {
-        guard let json = status?.json_block else { return }
+    private func codeBox(_ text: String, tall: Bool) -> some View {
+        ScrollView(tall ? [.horizontal, .vertical] : .horizontal, showsIndicators: tall) {
+            Text(text).font(.callout.monospaced()).textSelection(.enabled)
+                .padding(12)
+                .frame(maxWidth: .infinity, minHeight: tall ? 120 : 0, alignment: .topLeading)
+        }
+        .frame(maxHeight: tall ? 180 : nil)
+        .background(.black.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func copyButton(_ text: String) -> some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        } label: { Label("Copy", systemImage: "doc.on.doc").frame(maxWidth: .infinity).padding(.vertical, 2) }
+            .controlSize(.large).buttonStyle(.borderedProminent)
+    }
+
+    private func manualButtons(_ c: RewispAPI.MCPClient) -> some View {
+        HStack(spacing: 10) {
+            copyButton(c.text)
+            Button { downloadConfig(named: c.name.contains("Code") ? "config.json" : "mcp.json", text: c.text) } label: {
+                Label("Download", systemImage: "arrow.down.doc.fill").frame(maxWidth: .infinity).padding(.vertical, 2)
+            }
+            .controlSize(.large)
+        }
+    }
+
+    @ViewBuilder private func fileHint(_ c: RewispAPI.MCPClient) -> some View {
+        if !c.location.isEmpty {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: "arrow.turn.down.right").font(.caption2).foregroundStyle(.tertiary)
+                Text(c.location).font(.caption2.monospaced()).foregroundStyle(.secondary)
+                    .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func downloadConfig(named: String, text: String) {
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "claude_desktop_config.json"
+        panel.nameFieldStringValue = named
         panel.canCreateDirectories = true
         panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
         if panel.runModal() == .OK, let url = panel.url {
-            try? json.write(to: url, atomically: true, encoding: .utf8)
+            try? text.write(to: url, atomically: true, encoding: .utf8)
             NSWorkspace.shared.activateFileViewerSelecting([url])
         }
     }

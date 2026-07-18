@@ -242,6 +242,7 @@ class Handler(BaseHTTPRequestHandler):
                     "cli_command": _mcp.cli_command(),
                     "json_block": _json_mod.dumps({"mcpServers": {"rewisp": _mcp.server_entry()}}, indent=2),
                     "desktop_installed": _mcp.desktop_installed(),
+                    "clients": _mcp.client_setups(),
                 })
             elif self.path == "/forgetting":
                 # Your forgetting signature + what's about to fade + pinned facts.

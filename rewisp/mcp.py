@@ -298,6 +298,44 @@ def cli_command() -> str:
             f'-- "{sys.executable}" -m rewisp mcp')
 
 
+def client_setups() -> list[dict]:
+    """Per-client setup instructions. Most MCP clients read a JSON config with an
+    `mcpServers` block; VS Code uses `servers` with an explicit type. CLIs get a
+    one-liner. Everything is generated from the one canonical server entry."""
+    entry = server_entry()
+    mcp_json = json.dumps({"mcpServers": {"rewisp": entry}}, indent=2)
+    home = str(config.HOME)
+    return [
+        {"name": "Claude Desktop", "icon": "menubar.dock.rectangle", "kind": "button",
+         "text": mcp_json,
+         "where": "~/Library/Application Support/Claude/claude_desktop_config.json",
+         "note": "One click below writes it for you. Then quit and reopen Claude Desktop."},
+        {"name": "Claude Code", "icon": "terminal.fill", "kind": "cli",
+         "text": cli_command(),
+         "where": "Run in Terminal.",
+         "note": "Then just talk to Claude Code — it'll use the tools automatically."},
+        {"name": "Cursor", "icon": "cursorarrow.rays", "kind": "config",
+         "text": mcp_json, "where": f"{home}/.cursor/mcp.json",
+         "note": "Create/merge this file, then reload Cursor. Also visible in Cursor → Settings → MCP."},
+        {"name": "Windsurf", "icon": "wind", "kind": "config",
+         "text": mcp_json, "where": f"{home}/.codeium/windsurf/mcp_config.json",
+         "note": "Create/merge this file, then reload Windsurf."},
+        {"name": "VS Code", "icon": "chevron.left.forwardslash.chevron.right", "kind": "config",
+         "text": json.dumps({"servers": {"rewisp": {"type": "stdio", **entry}}}, indent=2),
+         "where": ".vscode/mcp.json (in your workspace)",
+         "note": "VS Code uses `servers` + a stdio type. Needs GitHub Copilot / Agent mode."},
+        {"name": "Gemini CLI", "icon": "sparkle", "kind": "config",
+         "text": mcp_json, "where": f"{home}/.gemini/settings.json",
+         "note": "Merge into your Gemini CLI settings under mcpServers."},
+        {"name": "ChatGPT", "icon": "bubble.left.and.bubble.right", "kind": "note",
+         "text": "", "where": "",
+         "note": "ChatGPT's connectors accept only REMOTE MCP servers (a public https URL). Rewisp is local by design (your memory never leaves the Mac), so it can't be added to ChatGPT without exposing a server to the internet — not recommended."},
+        {"name": "Other client", "icon": "curlybraces", "kind": "config",
+         "text": mcp_json, "where": "your client's MCP config",
+         "note": "Any client that reads an `mcpServers` block will work with this."},
+    ]
+
+
 def desktop_config_path():
     return (config.HOME / "Library" / "Application Support" / "Claude"
             / "claude_desktop_config.json")

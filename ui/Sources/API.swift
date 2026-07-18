@@ -81,6 +81,20 @@ struct RewispAPI {
     }
     struct Nudges: Decodable { var nudges: [Nudge] }
 
+    struct MCPClient: Decodable, Identifiable, Hashable {
+        var name: String
+        var icon: String
+        var kind: String        // button | cli | config | note
+        var text: String
+        var location: String
+        var note: String
+        var id: String { name }
+        enum CodingKeys: String, CodingKey {
+            case name, icon, kind, text, note
+            case location = "where"
+        }
+    }
+
     struct MCPStatus: Decodable {
         var connected: Bool
         var last_seen: String?
@@ -91,6 +105,7 @@ struct RewispAPI {
         var cli_command: String?
         var json_block: String?
         var desktop_installed: Bool?
+        var clients: [MCPClient]?
     }
 
     struct Promise: Decodable, Identifiable, Hashable {
