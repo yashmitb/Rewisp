@@ -6,8 +6,8 @@
 <title>Installing Rewisp — 4 quick steps</title>
 <meta name="description" content="How to install Rewisp on your Mac, including the one-time macOS security prompt.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23181c2c'/%3E%3Cpath d='M 1.44 14.80 L 3.55 18.13 L 5.66 18.48 L 7.78 15.93 L 9.89 11.86 L 12.00 8.23 L 14.11 6.60 L 16.22 7.52 L 18.34 10.30 L 20.45 13.52 L 22.56 15.70' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' fill='none'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="css/styles.css?v=20260719g">
-<link rel="stylesheet" href="css/install.css?v=20260719g">
+<link rel="stylesheet" href="css/styles.css?v=20260719h">
+<link rel="stylesheet" href="css/install.css?v=20260719h">
 </head>
 <body>
 
@@ -118,22 +118,22 @@
     <div class="step-row reveal">
       <div class="step-text">
         <div class="step-n">4</div>
-        <h2>Run the installer, then allow Screen Recording</h2>
-        <p>Back in the Rewisp.dmg window, double-click <b>Install Rewisp.command</b>. It sets up the background helper that does the remembering. (Right-click → Open if it complains too.)</p>
-        <p>Then macOS asks for <b>Screen Recording</b>. Rewisp needs it to read text off your screen. Turn it on for <b>Python</b> and you're done.</p>
+        <h2>Allow Screen Recording</h2>
+        <p>Rewisp sets itself up the moment it opens — nothing to run. It just needs permission to read text off your screen.</p>
+        <p>When macOS asks, turn it on for <b>Rewisp Backend</b>. That's Rewisp's background helper, and it's the whole thing working.</p>
+        <p class="muted">Already clicked past the prompt? System Settings → Privacy &amp; Security → Screen &amp; System Audio Recording → enable <b>Rewisp Backend</b>. Rewisp restarts itself once you do.</p>
       </div>
       <div class="step-vis">
-        <div class="term">
-          <div class="mac-bar"><i class="r"></i><i class="y"></i><i class="g"></i><span>Install Rewisp</span></div>
-          <div class="term-body">
-            <div>── Rewisp installer ──</div>
-            <div class="ok">✓ python3 + pyobjc</div>
-            <div class="ok">✓ semantic search ready</div>
-            <div class="ok">✓ installed /Applications/Rewisp.app</div>
-            <div class="ok">✓ launchd agents loaded</div>
-            <div class="blink">Done. Rewisp will ask for Screen Recording…</div>
+        <div class="gk-dialog">
+          <div class="gk-icon">👁</div>
+          <div class="gk-title">“Rewisp Backend” would like to record this computer’s screen and audio.</div>
+          <div class="gk-body">Rewisp reads the text on your screen so you can ask about it later. Nothing is recorded and no screenshot is ever saved.</div>
+          <div class="gk-btns">
+            <button class="gk-btn">Deny</button>
+            <button class="gk-btn primary">Allow</button>
           </div>
         </div>
+        <div class="gk-note">No Terminal, no installer to run. Rewisp starts its helper by itself the first time you open it.</div>
       </div>
     </div>
 
