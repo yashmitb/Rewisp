@@ -74,6 +74,28 @@ enum Setup {
         return allOK
     }
 
+    /// Restart the helper. macOS only applies a Screen Recording grant when the
+    /// process restarts, so granting permission does nothing visible until this
+    /// runs — users otherwise sit on "permission needed" forever after granting it.
+    @discardableResult
+    static func restartDaemon() -> Bool {
+        run("/bin/launchctl", ["kickstart", "-k", "gui/\(getuid())/com.rewisp.daemon"])
+    }
+
+    /// Watch for the user granting Screen Recording, then restart the helper so it
+    /// actually takes effect. Cheap poll, gives up after a few minutes.
+    static func restartWhenPermissionGranted(timeout: TimeInterval = 300) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            try? await Task.sleep(for: .seconds(3))
+            guard let s = try? await RewispAPI.get("status", as: RewispAPI.Status.self) else { continue }
+            if s.screen_permission == true {
+                if s.capture_state == "starting" { restartDaemon() }   // grant seen, needs a kick
+                return
+            }
+        }
+    }
+
     /// Called at launch: if the helper isn't up and we can fix it ourselves, do it.
     static func ensureDaemonRunning() async {
         if await daemonRunning() { return }

@@ -233,13 +233,28 @@ struct DashboardView: View {
                 .symbolRenderingMode(.hierarchical)
             Text("Screen Recording permission needed")
                 .font(.callout.weight(.medium))
-            Text("System Settings → Privacy & Security →\nScreen & System Audio Recording → enable **Python**")
+            Text("System Settings → Privacy & Security →\nScreen & System Audio Recording → enable **Rewisp Backend**")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Button("Open System Settings") {
-                NSWorkspace.shared.open(URL(string:
-                    "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+            // Upgrade note: before v0.12 the helper ran on the system Python, so
+            // an old "Python" entry may still be listed — it no longer applies.
+            Text("Upgrading? The old **Python** entry is stale — grant Rewisp Backend instead.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+            HStack(spacing: 8) {
+                Button("Open System Settings") {
+                    NSWorkspace.shared.open(URL(string:
+                        "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+                    // A grant only takes effect on restart — watch for it and
+                    // restart the helper automatically so this card clears itself.
+                    Task { await Setup.restartWhenPermissionGranted(); StatusModel.shared.refresh() }
+                }
+                Button("Already granted") {
+                    Setup.restartDaemon()
+                    Task { try? await Task.sleep(for: .seconds(4)); StatusModel.shared.refresh() }
+                }
             }
             .controlSize(.small)
         }

@@ -360,7 +360,7 @@ struct OnboardingView: View {
             permissionRow(
                 ok: status.status?.screen_permission == true,
                 title: "Screen & System Audio Recording",
-                detail: "Lets Rewisp see the screen to remember it.",
+                detail: "Lets Rewisp see the screen to remember it. Grant it to “Rewisp Backend”.",
                 anchor: "Privacy_ScreenCapture")
 
             permissionRow(

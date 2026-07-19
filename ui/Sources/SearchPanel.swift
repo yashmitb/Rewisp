@@ -207,6 +207,7 @@ struct SearchPanelView: View {
     @State private var writingForm = false
     @State private var writeResult: String?
     @State private var needsSetup = false
+    @State private var needsPermission = false
     @ObservedObject private var pin = PanelPin.shared
     @State private var suggestions: [String] = []
     @AppStorage("rewisp.formassist") private var formAssist = true
@@ -427,6 +428,24 @@ struct SearchPanelView: View {
                         .lineSpacing(2)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                // Capture is silently off without Screen Recording. This bites on
+                // upgrade too: the helper moved to a bundled runtime, so macOS sees
+                // a new binary and the old "Python" grant no longer counts.
+                if needsPermission {
+                    Button {
+                        NSWorkspace.shared.open(URL(string:
+                            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+                    } label: {
+                        Label("Turn on Screen Recording for “Rewisp Backend”",
+                              systemImage: "eye.trianglebadge.exclamationmark")
+                            .font(.callout.weight(.semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.orange)
+                    .controlSize(.large)
+                    .padding(.top, 2)
                 }
 
                 // First-run: the background helper was never installed. Offer the
@@ -681,6 +700,12 @@ struct SearchPanelView: View {
                 } else {
                     r = RewispAPI.AskResult(answer: "⚠︎ \(error.localizedDescription)")
                 }
+            }
+            // Answered, but is capture even on? Without Screen Recording there's
+            // nothing new to answer from — say so instead of looking merely empty.
+            if let st = try? await RewispAPI.get("status", as: RewispAPI.Status.self),
+               st.screen_permission == false {
+                needsPermission = true
             }
             withAnimation(spring) { result = r; asking = false }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
