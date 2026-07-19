@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.12.0, 2026-07-19):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 143 tests. 15 releases (v0.1.0 → v0.12.0).
+**Current status (v0.12.2, 2026-07-19):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 143 tests. 17 releases (v0.1.0 → v0.12.2).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -169,6 +169,34 @@ Dia (Chromium-based) fully supports Chrome-style AppleScript (`URL of active tab
 10. **GitHub Pages CDN caches assets ~10 min** — a browser cache-reset refetches from the edge, not origin, so a fixed CSS/JS still looked broken. Version the asset URLs (`styles.css?v=…`) to force a fresh fetch.
 
 ---
+
+## v0.12.2 — the first-launch token race (2026-07-19)
+
+Caught while rehearsing a cold install: the app showed "Daemon offline" in the
+sidebar while the header said "Capturing", and `/status` answered fine from curl.
+The daemon was never broken — the app could not authenticate to it.
+
+`RewispAPI.token` was a lazily-initialized `static var token = { … }()`, which
+Swift evaluates exactly **once**. On a first launch the app provisions the daemon
+and reads `~/Rewisp/.api_token` before the daemon has written it, so the initializer
+cached `""` permanently. Every later request sent an empty token, got 401, and had
+the error swallowed by `try?` — indistinguishable from a dead daemon. It never
+recovered until the app was quit and relaunched. This hit **every new install**.
+
+- Token now re-reads from disk until it gets a non-empty value, then caches. One
+  file read per request, only during the startup window.
+- Any 401 reloads the token and retries once, so a re-provisioned daemon that mints
+  a new secret recovers on its own.
+- `provisionDaemon()` drops the cached token, since that is when a new one appears.
+
+Lesson worth keeping: `static let`/lazy `static var` initializers are permanent.
+Never use one to read state that another process creates asynchronously.
+
+## v0.12.1 — docs catch up to the install rewrite (2026-07-19)
+
+The in-app Help still told people to enable "Python" in Screen Recording, which
+v0.12 renamed to "Rewisp Backend" — misdirecting exactly the users it was meant to
+rescue. Help, MANUAL, README, BRIEF and this log brought in line with what shipped.
 
 ## v0.12.0 — it installs itself (2026-07-19)
 

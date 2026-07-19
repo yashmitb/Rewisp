@@ -5,12 +5,28 @@ import Foundation
 struct RewispAPI {
     static let base = URL(string: "http://127.0.0.1:43117")!
 
-    static var token: String = {
+    // Read from disk until we get a real value, then cache.
+    //
+    // Deliberately NOT a lazily-initialized `static var token = { … }()`: on a
+    // first launch the app provisions the daemon and reads this file before the
+    // daemon has written it, so a one-shot initializer caches "" forever. Every
+    // request then 401s and the app reports "Daemon offline" while the daemon is
+    // running perfectly — until you quit and relaunch. Re-reading while empty
+    // costs one file read per request, and only during that startup window.
+    private static var cachedToken = ""
+
+    static var token: String {
+        if !cachedToken.isEmpty { return cachedToken }
         let path = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Rewisp/.api_token")
-        return (try? String(contentsOf: path, encoding: .utf8))?
+        cachedToken = (try? String(contentsOf: path, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    }()
+        return cachedToken
+    }
+
+    /// Drop the cached token so the next request re-reads it. Call when the
+    /// daemon is re-provisioned or restarted, since it may mint a new secret.
+    static func reloadToken() { cachedToken = "" }
 
     struct Status: Decodable {
         var paused: Bool
@@ -318,8 +334,22 @@ struct RewispAPI {
         return req
     }
 
+    /// Send a request, and if it comes back 401, re-read the token and try once
+    /// more. The daemon mints a new secret whenever it is re-provisioned, so a
+    /// stale cached token would otherwise 401 every call until the app relaunched
+    /// — indistinguishable, from the UI's side, from the daemon being down.
+    private static func send(_ req: URLRequest) async throws -> Data {
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 401 else { return data }
+        reloadToken()
+        var retry = req
+        retry.setValue(token, forHTTPHeaderField: "X-Rewisp-Token")
+        let (data2, _) = try await URLSession.shared.data(for: retry)
+        return data2
+    }
+
     static func get<T: Decodable>(_ path: String, as type: T.Type) async throws -> T {
-        let (data, _) = try await URLSession.shared.data(for: request(path))
+        let data = try await send(request(path))
         return try JSONDecoder().decode(T.self, from: data)
     }
 
@@ -332,8 +362,7 @@ struct RewispAPI {
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
-        let (data, _) = try await URLSession.shared.data(for: req)
-        return data
+        return try await send(req)
     }
 
     static func ask(_ question: String) async throws -> AskResult {

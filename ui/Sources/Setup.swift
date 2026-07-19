@@ -71,6 +71,10 @@ enum Setup {
             _ = run("/bin/launchctl", ["bootout", "\(target)/\(job.label)"])   // ignore if absent
             if !run("/bin/launchctl", ["bootstrap", target, url.path]) { allOK = false }
         }
+        // A freshly provisioned daemon writes a new .api_token, and on a first
+        // run it does so *after* the app has already tried to read it. Drop the
+        // cached value so the next request picks up whatever lands on disk.
+        RewispAPI.reloadToken()
         return allOK
     }
 
