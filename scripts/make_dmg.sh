@@ -10,6 +10,9 @@ echo "── building app ──"
 # read the version AFTER the build — the pre-existing bundle may be stale
 VERSION=$(defaults read "$(pwd)/ui/Rewisp.app/Contents/Info" CFBundleShortVersionString 2>/dev/null || echo "0.1.0")
 
+echo "── bundling the Python runtime into the app ──"
+./scripts/bundle_python.sh
+
 echo "── bundling daemon into the app ──"
 RES="ui/Rewisp.app/Contents/Resources/daemon"
 rm -rf "$RES"

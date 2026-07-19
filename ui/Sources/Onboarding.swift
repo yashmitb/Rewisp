@@ -48,6 +48,8 @@ struct OnboardingView: View {
     @State private var vaultSaved = false
     @State private var iconGlow = false
 
+    @State private var setupRunning = false
+    @State private var setupFailed = false
     private let pages = 7
     private let browsers: [(name: String, note: String?)] = [
         ("Safari", nil), ("Google Chrome", nil), ("Arc", nil), ("Dia", nil),
@@ -306,21 +308,60 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 20) {
             Text("Two permissions")
                 .font(.title.weight(.semibold))
-            Text("Rewisp's background helper (it shows up as “Python”) reads the screen and listens for the pause hotkey.")
+            Text("Rewisp runs a small background helper that reads the screen and listens for the pause hotkey. Everything it needs ships inside the app.")
                 .font(.callout).foregroundStyle(.secondary)
+
+            // The helper is a launchd agent the bundled installer sets up. If it
+            // isn't running, this is THE thing that makes the app look broken on
+            // first use ("Could not connect to the server"), so fix it right here
+            // instead of sending people to find a .command file.
+            VStack(alignment: .leading, spacing: 10) {
+                permissionRow(
+                    ok: status.daemonUp,
+                    title: "Background helper running",
+                    detail: status.daemonUp
+                        ? "All set — Rewisp is remembering."
+                        : "Not started yet. One click sets it up.",
+                    anchor: nil)
+
+                if !status.daemonUp {
+                    HStack(spacing: 10) {
+                        Button {
+                            setupRunning = true
+                            Setup.runInstaller()
+                            Task {
+                                let ok = await Setup.waitForDaemon()
+                                await MainActor.run {
+                                    setupRunning = false
+                                    setupFailed = !ok
+                                    StatusModel.shared.refresh()
+                                }
+                            }
+                        } label: {
+                            Label(setupRunning ? "Setting up…" : "Finish setup",
+                                  systemImage: "bolt.badge.checkmark")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(setupRunning)
+
+                        if setupRunning {
+                            ProgressView().controlSize(.small)
+                            Text("A Terminal window will show progress.")
+                                .font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                    if setupFailed {
+                        Text("Setup didn't finish. Check the Terminal window for the error, then try again.")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                }
+            }
 
             permissionRow(
                 ok: status.status?.screen_permission == true,
                 title: "Screen & System Audio Recording",
                 detail: "Lets Rewisp see the screen to remember it.",
                 anchor: "Privacy_ScreenCapture")
-
-            permissionRow(
-                ok: status.daemonUp,
-                title: "Background service running",
-                detail: status.daemonUp ? "The Rewisp daemon is up."
-                                        : "Run scripts/install.sh (or `python3 -m rewisp daemon`) to start it.",
-                anchor: nil)
 
             permissionRow(
                 ok: nil,

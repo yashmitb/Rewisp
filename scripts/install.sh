@@ -17,20 +17,29 @@ else
 fi
 echo "✓ daemon source: $DAEMON_DIR"
 
-# 2. Python 3.11+ with pyobjc.
-PY="$(command -v python3 || true)"
-[[ -z "$PY" ]] && { echo "✗ python3 not found. Install from python.org, then re-run."; exit 1; }
-"$PY" - <<'EOF' || "$PY" -m pip install --quiet pyobjc
+# 2. Python. Prefer the runtime bundled inside the app: macOS ships no usable
+# python3 (just a stub that prompts for Xcode CLT), so depending on the system
+# one made installs fail on a normal person's Mac. The bundled runtime already
+# has pyobjc/numpy/model2vec baked in, so there is nothing to pip-install.
+BUNDLED_PY="/Applications/Rewisp.app/Contents/Resources/python/bin/Rewisp Backend"
+[[ -x "$BUNDLED_PY" ]] || BUNDLED_PY="$DAEMON_DIR/../python/bin/Rewisp Backend"
+
+if [[ -x "$BUNDLED_PY" ]] && "$BUNDLED_PY" -c "import Quartz, Vision" 2>/dev/null; then
+    PY="$BUNDLED_PY"
+    echo "✓ using the Python bundled with Rewisp (no system install needed)"
+else
+    # Source checkout / older build: fall back to the system Python.
+    PY="$(command -v python3 || true)"
+    [[ -z "$PY" ]] && { echo "✗ No bundled Python and no python3 on this Mac."; \
+                        echo "  Reinstall Rewisp from the latest DMG, or install Python from python.org."; exit 1; }
+    "$PY" - <<'EOF' || "$PY" -m pip install --quiet pyobjc
 import Quartz, Vision  # noqa
 EOF
-echo "✓ python3 + pyobjc: $PY"
-
-# 2b. model2vec — local semantic-search embeddings (pure numpy, no torch).
-# Optional: if it can't install, Rewisp falls back to keyword-only search.
-"$PY" - <<'EOF' || "$PY" -m pip install --quiet model2vec
+    "$PY" - <<'EOF' || "$PY" -m pip install --quiet model2vec
 import model2vec  # noqa
 EOF
-echo "✓ semantic search (model2vec) ready"
+    echo "✓ python3 + deps: $PY"
+fi
 
 # 3. Rewisp.app in /Applications (skipped when already there or building from source).
 if [[ ! -d /Applications/Rewisp.app && -d "$SCRIPT_DIR/../ui/Rewisp.app" ]]; then
@@ -87,5 +96,5 @@ open /Applications/Rewisp.app 2>/dev/null || true
 
 echo ""
 echo "Done. Rewisp will ask for Screen Recording permission —"
-echo "grant it to the app named “Python” in System Settings."
+echo "grant it to “Rewisp Backend” in System Settings."
 echo "Optional: install Claude Code and run \`claude\` once for the nightly Digest."

@@ -48,6 +48,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         GlobalHotkey.register {
             SearchPanelController.shared.toggle()
         }
+        // Zero-step setup: the app bundles its own Python with all deps, so if
+        // the background helper isn't installed yet we just install and start it.
+        // No Terminal, no installer file for the user to find.
+        Task { await Setup.ensureDaemonRunning(); await MainActor.run { StatusModel.shared.refresh() } }
         DigestNotifier.shared.start()
         NudgePillController.shared.startPolling()
         // Esc closes the menu bar popover. SwiftUI's onExitCommand never fires

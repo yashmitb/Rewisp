@@ -206,6 +206,7 @@ struct SearchPanelView: View {
     @State private var fillingForm = false
     @State private var writingForm = false
     @State private var writeResult: String?
+    @State private var needsSetup = false
     @ObservedObject private var pin = PanelPin.shared
     @State private var suggestions: [String] = []
     @AppStorage("rewisp.formassist") private var formAssist = true
@@ -426,6 +427,21 @@ struct SearchPanelView: View {
                         .lineSpacing(2)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                // First-run: the background helper was never installed. Offer the
+                // one click that fixes it instead of making them hunt for a file.
+                if needsSetup {
+                    Button {
+                        Setup.runInstaller()
+                        dismiss()
+                    } label: {
+                        Label("Finish setup", systemImage: "bolt.badge.checkmark")
+                            .font(.callout.weight(.semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .padding(.top, 2)
                 }
 
                 HStack(spacing: 8) {
@@ -651,7 +667,20 @@ struct SearchPanelView: View {
             var r: RewispAPI.AskResult
             do { r = try await AskEngine.ask(q) }
             catch {
-                r = RewispAPI.AskResult(answer: "⚠︎ \(error.localizedDescription)")
+                // "Could not connect to the server" is a useless first-run message:
+                // it means the background helper was never set up, not that the app
+                // is broken. Say that, and say how to fix it.
+                if Setup.isDaemonDown(error) {
+                    r = RewispAPI.AskResult(
+                        answer: "Rewisp's background helper isn't running yet.",
+                        detail: "That's the part that actually remembers your screen. "
+                              + "Open Rewisp from your Applications folder and click "
+                              + "“Finish setup” to start it.",
+                        model: "Setup needed")
+                    needsSetup = true
+                } else {
+                    r = RewispAPI.AskResult(answer: "⚠︎ \(error.localizedDescription)")
+                }
             }
             withAnimation(spring) { result = r; asking = false }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
