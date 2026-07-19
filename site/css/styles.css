@@ -328,7 +328,7 @@ footer a:hover { color: var(--text); }
   transition: transform .18s var(--ease), box-shadow .18s var(--ease);
 }
 .ph-badge:hover { transform: translateY(-2px); box-shadow: 0 14px 36px rgba(142,162,255,.35); }
-.ph-badge img { display: block; }
+.ph-badge img { display: block; width: 180px; height: auto; }
 @keyframes phIn { to { opacity: 1; transform: none; } }
-@media (max-width: 560px) { .ph-badge { right: 12px; bottom: 12px; transform: scale(.85); transform-origin: bottom right; } }
+@media (max-width: 560px) { .ph-badge { right: 12px; bottom: 12px; } .ph-badge img { width: 150px; } }
 @media (prefers-reduced-motion: reduce) { .ph-badge { opacity: 1; transform: none; animation: none; } }
