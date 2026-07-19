@@ -179,6 +179,78 @@ without burying it in 100 junk links is unsolved (it's why graph views in PKM to
 
 ---
 
+## Part 4.5 — Primary-literature deep-dive (what the papers *actually* say)
+
+*I read the full papers, not summaries. This changes the ranking — some directions get
+sharper and validated, one gets honestly downgraded.*
+
+### The forgetting curve is a solved equation — we can upgrade our model tonight
+The [adaptive-forgetting-curve paper (PMC7334729)](https://pmc.ncbi.nlm.nih.gov/articles/PMC7334729/)
+gives the exact math, validated on **4.28M Duolingo observations**:
+- Recall probability: **p = 2^(−Δt / h)** — decays, halving every `h` days.
+- Per-item, per-person half-life: **ĥ = 2^(w·x)**, where `x` is a feature vector (item
+  difficulty + learner features), `w` learned.
+- Best variant **C-HLR+**: **p = 2^(−(Δt/ĥ)^C)** — a complexity term `C` makes hard items'
+  curves *steeper*. This beat plain HLR substantially.
+- Stated limit: a single user-difficulty scalar isn't enough; they want **high-dimensional
+  user embeddings**. → **We already compute per-wisp embeddings.** So Rewisp can do the
+  thing the paper says it *couldn't*: fit the forgetting curve with real content embeddings,
+  not just hand-features. That's a concrete, novel upgrade to the shipped forgetting model.
+
+### Reconsolidation: don't "edit memory" — detect the *prediction error*
+The [reconsolidation update review (PMC5605913)](https://pmc.ncbi.nlm.nih.gov/articles/PMC5605913/)
+is blunt: **retrieval alone does NOT make a memory editable — you need a prediction error**
+(a mismatch between expected and actual). The labile window is **~hours** (extinction at
+~10 min post-reactivation ≫ at 6 h). And crucially, **the clinical "edit the memory" work
+is replication-shaky.** So the *unreliable* framing is "help you rewrite your memory." The
+*reliable, buildable* signal is the **prediction-error itself**: the moment what you now see
+or claim **contradicts Rewisp's record** is the highest-value instant to surface the truth.
+Prediction error isn't a bug to fix — it's the **trigger** for the "your memory is off,
+here's the receipt" nudge. This is a firm signal, not a squishy one.
+
+### Context Reinstatement now has numbers — and a hard design rule (this is the winner)
+The [VR context-reinstatement study (PMC9732332)](https://pmc.ncbi.nlm.nih.gov/articles/PMC9732332/):
+- **Mental reinstatement ≈ physical** ("nearly as effective as physically returning"). We
+  can't teleport you back, but reconstructing the scene to *imagine* is validated.
+- Congruent-context cue: **+5 pts same-day** (52% vs 47%, p=.009). Distinctive contexts:
+  **+16 pts at one week** (92% vs 76%, p=.002) and **38% fewer intrusions/false memories**.
+- **The hard rule: it only works with "presence"** — the reinstatement must *feel* like
+  inhabiting the place. fMRI: high-fidelity context reinstatement = higher recall.
+- **Engineering translation:** the Context Reinstatement card can't be a text dump. It must
+  vividly rebuild the *moment* (surrounding text, adjacent tabs/app, time, what came
+  before/after) to create presence. Success metric is literally measurable: does showing it
+  improve the user's ability to re-answer vs. a plain snippet? **This is the strongest
+  direction — replicated effect sizes, a clear metric, a known design constraint.**
+
+### Tip-of-the-Tongue rescue — honest downgrade
+The [TOT/FOK paper (PMC12047626)](https://pmc.ncbi.nlm.nih.gov/articles/PMC12047626/) is
+**entirely self-report** — "are you having a TOT? yes/no." There are **no validated
+behavioral markers** for detecting a TOT state from keystrokes/searches. The phenomenon is
+real and predicts recoverable knowledge, but **inferring it from behavior is unstudied.** So
+direction B isn't "apply known science" — it's *net-new research we'd have to do*, with real
+false-positive risk. Still novel and hard (which is what you asked for), but be clear-eyed:
+it's a research bet, not a validated mechanism. Rank it *below* A.
+
+### Screen structure from pixels is now feasible on-device — enriches everything
+[Screen2AX (arXiv 2507.16704)](https://arxiv.org/abs/2507.16704): vision models reconstruct a
+macOS **accessibility tree from a screenshot at 77% F1 — 2.2× better than native AX** (only
+33% of Mac apps expose full AX). Two payoffs for us: (1) capture **structure + roles +
+hierarchy**, not just OCR text — the raw material to make Context Reinstatement *vivid*; (2)
+a path to **fix autofill** (our AX pipeline crashes on Chromium — vision-based structure
+sidesteps it). Latency/on-device specifics unconfirmed — a spike needed.
+
+### Transactive memory: humans keep the *pointer*, not the content — design retrieval around that
+The [Sparrow/Liu/Wegner 2011 experiments (via Wikipedia summary of the Science paper)](https://en.wikipedia.org/wiki/Google_effect):
+Exp 3–4 — when people expect info to be saved, **they remember the *location/retrieval path*,
+not the fact**, and tend to remember **either the fact or where it is, not both.** Rewisp is
+the "where." Design implication: retrieval should key on the **cues people actually retain** —
+*roughly when, which app, what I was doing, the source* — not exact wording (which they've
+offloaded). Rewisp wins by being the **reliable, contextual** transactive partner Google
+isn't. This is *why* Context Reinstatement (rebuild the where/when/what-around) fits how human
+memory actually offloads.
+
+---
+
 ## Part 5 — The one big bet, and what to research next
 
 If I had to name **the** differentiator: **Rewisp models *you*, not your screen** — and the
@@ -191,25 +263,43 @@ already sit on.** Failed searches, reformulations, dwell, re-reads, hesitation �
 material for TOT-rescue (B), the forgetting model (shipped), and even a private "cognitive
 state" read. Cloud tools can't touch this data ethically; we can, locally.
 
-**Main questions to move on (pick a direction and I'll go deep + prototype):**
+**Re-ranked after reading the primary papers** (confidence in parentheses):
 
-1. **Context Reinstatement (A)** — can we reconstruct a coherent, cue-rich "you were here"
-   scene from adjacent OCR captures well enough that it *feels* like being back? (Design +
-   feasibility spike.) *My pick for near-term.*
-2. **TOT-Rescue (B)** — what behavioral signature reliably = "stuck retrieving," and can we
-   detect it locally with an acceptable false-positive rate? (Signal study on your own data.)
-3. **Future-Simulator (D)** — can we mine outcome patterns from history and generate
-   faithful what-ifs without hallucinating? (The moonshot; needs careful scoping.)
-4. **Retrieval Practice on read-content (E)** — narrowest, safest, shippable; bounded by the
-   autobiographical caveat. Good "prove the loop" candidate.
-5. **Behavioral-signal track** — formalize the interaction stream (keystroke/dwell/search
-   telemetry, all local) as the substrate B, D, and the forgetting model all draw on.
+0. **Forgetting-model upgrade** *(highest confidence — do first).* Swap our current
+   forgetting curve for the validated **C-HLR+** form `p = 2^(−(Δt/ĥ)^C)` and feed it our
+   **wisp embeddings** as the per-item features — the exact thing the source paper said it
+   lacked. Low-risk, immediately better, and it's a paper-backed number, not a guess.
+1. **Context Reinstatement (A)** *(strong — validated + measurable).* Reconstruct a vivid,
+   cue-rich "you were here" scene (surrounding text/app/time/before-after). Success is
+   literally testable (recall-improvement vs. a plain snippet). The one non-negotiable:
+   it must create **presence**, or the effect (+5 to +16 pts) doesn't appear. **My near-term pick.**
+2. **Prediction-Error surfacing** *(firm signal — the reconsolidation-backed version of
+   Decision Provenance).* Fire when what you now see/claim **contradicts the record**. Build
+   the *detection*, not the memory-editing (that part is clinically shaky).
+3. **Future-Simulator (D)** *(moonshot — category-defining, hardest).* Mine outcome patterns
+   from history; generate faithful what-ifs. Memory's real purpose. Needs careful scoping.
+4. **Retrieval Practice on read-content (E)** *(safe, shippable — bounded to non-life content).* 
+5. **TOT-Rescue (B)** *(genuine research bet — downgraded).* No behavioral-marker science
+   exists; detecting "stuck" from behavior would be novel work with false-positive risk.
+   Hard and uncommon (as requested), but eyes open: unproven mechanism.
+
+Cross-cutting substrate for 2/3/5: **formalize the local behavioral stream** (dwell,
+search-reformulation, re-reads, hesitation). Cloud tools can't ethically hold it; we can.
 
 **What I would NOT chase:** anything that's just "capture better," anything requiring cloud
 to model the user (kills the moat), and retrieval practice on autobiographical memory (the
 science says it won't work).
 
 ---
+
+## Papers read in full (primary-source deep-dive)
+
+- **Adaptive forgetting curve / half-life regression** (the implementable math): [PMC7334729](https://pmc.ncbi.nlm.nih.gov/articles/PMC7334729/) — `p = 2^(−Δt/h)`, `ĥ = 2^(w·x)`, C-HLR+ `p = 2^(−(Δt/ĥ)^C)`, 4.28M observations; asks for user embeddings (which we have).
+- **Reconsolidation update review**: [PMC5605913](https://pmc.ncbi.nlm.nih.gov/articles/PMC5605913/) — prediction error is the destabilization trigger; ~hours labile window; clinical editing replication-shaky.
+- **VR context reinstatement**: [PMC9732332](https://pmc.ncbi.nlm.nih.gov/articles/PMC9732332/) — mental≈physical; +5 pts same-day, +16 pts/1 week, 38% fewer intrusions; requires "presence."
+- **TOT/FOK metamemory**: [PMC12047626](https://pmc.ncbi.nlm.nih.gov/articles/PMC12047626/) — self-report only; no behavioral markers → B is a research bet.
+- **Screen2AX** (structure from pixels): [arXiv 2507.16704](https://arxiv.org/abs/2507.16704) — 77% F1 AX-tree reconstruction, 2.2× native; only 33% of Mac apps expose full AX.
+- **Sparrow/Liu/Wegner 2011 (Google effect)**: [experiments summary](https://en.wikipedia.org/wiki/Google_effect) — people retain the retrieval-path, not the content; fact-or-location, not both.
 
 ## Sources (representative — the reasoning draws on the full result sets behind each)
 
