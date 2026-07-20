@@ -70,35 +70,10 @@
     <div class="step-row reveal">
       <div class="step-text">
         <div class="step-n">2</div>
-        <h2>Right-click Rewisp, choose Open</h2>
-        <p>In your Applications folder, <b>right-click</b> (or Control-click) Rewisp and pick <b>Open</b>.</p>
-        <p class="warn">Don't double-click the first time. macOS blocks it. Right-click → Open is what gives you the "open anyway" choice.</p>
-      </div>
-      <div class="step-vis">
-        <div class="ctx-scene">
-          <div class="ctx-app">
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="6" fill="#181c2c"/><path d="M 2 15 L 5 18 L 8 16 L 11 10 L 14 7 L 17 9 L 20 14 L 22 16" stroke="#8ea2ff" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
-            <span>Rewisp</span>
-          </div>
-          <div class="ctx-menu">
-            <div class="ctx-item hot">Open</div>
-            <div class="ctx-item">Show Package Contents</div>
-            <div class="ctx-sep"></div>
-            <div class="ctx-item">Move to Trash</div>
-            <div class="ctx-item">Get Info</div>
-          </div>
-          <div class="cursor-dot"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- STEP 3 -->
-    <div class="step-row reveal">
-      <div class="step-text">
-        <div class="step-n">3</div>
-        <h2>Click Open in the warning</h2>
-        <p>macOS says it can't verify the developer. That's expected: Rewisp is open source and not notarized yet. Click <b>Open</b>.</p>
-        <p class="muted">You only do this once. After that it launches normally.</p>
+        <h2>Double-click it. Expect to be blocked.</h2>
+        <p>Open Rewisp from your Applications folder. macOS will refuse and say it can't check the app for malicious software. That's normal and it only happens once.</p>
+        <p class="muted">Rewisp isn't notarized with Apple yet (that needs a paid developer account). The code is public if you'd like to read it first.</p>
+        <p class="warn">On macOS 15 and newer, right-click → Open no longer works. Apple removed that shortcut, so there's no "Open" button hiding in the menu. Step 3 is the way through.</p>
       </div>
       <div class="step-vis">
         <div class="gk-dialog">
@@ -107,11 +82,34 @@
           <div class="gk-body">This software needs to be updated. Contact the developer for more information.</div>
           <div class="gk-btns">
             <button class="gk-btn">Move to Trash</button>
-            <button class="gk-btn">Cancel</button>
-            <button class="gk-btn primary">Open</button>
+            <button class="gk-btn primary">Done</button>
           </div>
         </div>
-        <div class="gk-note">Don't see an <b>Open</b> button? Go to <b>System Settings → Privacy &amp; Security</b>, scroll down, and click <b>Open Anyway</b>.</div>
+        <div class="gk-note">Click <b>Done</b>. Nothing is broken — macOS just wants you to confirm it deliberately, in Settings.</div>
+      </div>
+    </div>
+
+    <!-- STEP 3 -->
+    <div class="step-row reveal">
+      <div class="step-text">
+        <div class="step-n">3</div>
+        <h2>System Settings → Open Anyway</h2>
+        <p>Open <b>System Settings → Privacy &amp; Security</b> and scroll down to the <b>Security</b> section. You'll see a line about Rewisp being blocked, with an <b>Open Anyway</b> button next to it.</p>
+        <p>Click it, confirm with Touch ID or your password, and Rewisp opens.</p>
+        <p class="muted">This button only appears <i>after</i> you've tried to open the app once. If it isn't there, go back and double-click Rewisp, then return here.</p>
+      </div>
+      <div class="step-vis">
+        <div class="sec-pane">
+          <div class="sec-head">Privacy &amp; Security</div>
+          <div class="sec-row">
+            <div class="sec-txt">
+              <b>“Rewisp” was blocked to protect your Mac.</b>
+              <span>macOS could not verify the developer.</span>
+            </div>
+            <button class="gk-btn primary sec-btn">Open Anyway</button>
+          </div>
+        </div>
+        <div class="gk-note">One time only. After this, Rewisp opens like any other app.</div>
       </div>
     </div>
 

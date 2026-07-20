@@ -24,6 +24,7 @@ final class OnboardingController {
             w.center()
             w.contentView = NSHostingView(rootView: OnboardingView { [weak self] in
                 UserDefaults.standard.set(true, forKey: Self.doneKey)
+                UserDefaults.standard.removeObject(forKey: "rewisp.onboardingPage")
                 self?.window?.close()
             })
             window = w
@@ -35,7 +36,10 @@ final class OnboardingController {
 
 struct OnboardingView: View {
     let finish: () -> Void
-    @State private var page = 0
+    // Persisted: granting Screen Recording can involve quitting and reopening,
+    // and restarting people at page 0 (or worse, skipping them past pages they
+    // never saw) is how onboarding silently got lost.
+    @AppStorage("rewisp.onboardingPage") private var page = 0
     @State private var consented: Set<String> = []
     @AppStorage("rewisp.browser") private var preferredBrowser = ""
     @ObservedObject var status = StatusModel.shared
@@ -53,6 +57,7 @@ struct OnboardingView: View {
     @State private var setupRunning = false
     @State private var setupFailed = false
     @State private var permissionWatchArmed = false
+    @State private var requestingPermission = false
     private let pages = 7
     private let browsers: [(name: String, note: String?)] = [
         ("Safari", nil), ("Google Chrome", nil), ("Arc", nil), ("Dia", nil),
@@ -69,8 +74,9 @@ struct OnboardingView: View {
                 case 2: browserPage
                 case 3: localAIPage
                 case 4: vaultPage
-                case 5: permissions
-                default: tutorial
+                case 5: tutorial
+                default: permissions   // last: it sends people to System Settings,
+                                       // and nothing should be waiting behind it
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -332,36 +338,45 @@ struct OnboardingView: View {
         }
     }
 
+    // The last page, deliberately. It is the only step that can send someone out
+    // to System Settings, and burying it mid-flow meant people left, came back,
+    // and found the onboarding window gone with pages they never saw.
     private var permissions: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Two permissions")
+      ScrollView {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Let Rewisp see your screen")
                 .font(.title.weight(.semibold))
-            Text("Rewisp runs a small background helper that reads the screen and listens for the pause hotkey. Everything it needs ships inside the app.")
+            Text("This is the one permission Rewisp genuinely needs. Without it there is nothing to remember.")
                 .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
-            // The helper is a launchd agent the bundled installer sets up. If it
-            // isn't running, this is THE thing that makes the app look broken on
-            // first use ("Could not connect to the server"), so fix it right here
-            // instead of sending people to find a .command file.
-            VStack(alignment: .leading, spacing: 10) {
-                permissionRow(
-                    ok: status.daemonUp,
-                    title: "Background helper running",
-                    detail: status.daemonUp
-                        ? "All set — Rewisp is remembering."
-                        : "Not started yet. One click sets it up.",
-                    anchor: nil, onOpen: nil)
+            // Reassurance, before the ask. "Screen Recording" sounds far more
+            // invasive than what actually happens, and this is the moment people
+            // decide whether to trust the app.
+            VStack(alignment: .leading, spacing: 11) {
+                reassure("eye.slash", "No recording, despite the name",
+                         "macOS calls it Screen Recording. Rewisp never records anything. It reads one still frame, turns it into text, and throws the image away in memory.")
+                reassure("internaldrive", "Nothing leaves this Mac",
+                         "The text goes into a single file in your home folder. No account, no upload, no telemetry.")
+                reassure("hand.raised.fill", "Blind where it matters",
+                         "Messages, WhatsApp, password managers, banking sites and private windows stop capture completely.")
+                reassure("pause.circle", "Off whenever you want",
+                         "Pause from the menu bar, or forget the last 10 minutes with one click.")
+            }
+            .padding(13)
+            .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
 
-                if !status.daemonUp {
+            permissionStateCard
+
+            if !status.daemonUp {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Background helper isn't running")
+                        .font(.callout.weight(.semibold))
                     HStack(spacing: 10) {
                         Button {
                             setupRunning = true
                             setupFailed = false
                             Task {
-                                // In-process, no Terminal: everything needed ships
-                                // in the bundle and user-level launchd agents need
-                                // no password. Opening a Terminal here contradicted
-                                // the whole point of the bundled runtime.
                                 Setup.provisionDaemon()
                                 let ok = await Setup.waitForDaemon(timeout: 30)
                                 await MainActor.run {
@@ -371,41 +386,124 @@ struct OnboardingView: View {
                                 }
                             }
                         } label: {
-                            Label(setupRunning ? "Setting up…" : "Set it up",
+                            Label(setupRunning ? "Starting…" : "Start it",
                                   systemImage: "bolt.badge.checkmark")
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.bordered)
                         .disabled(setupRunning)
-
                         if setupRunning { ProgressView().controlSize(.small) }
                     }
                     if setupFailed {
-                        Text("Setup didn't finish. Reopen Rewisp from your Applications folder and try again — if it keeps failing, use Help → Report a bug.")
+                        Text("Didn't start. Reopen Rewisp from your Applications folder and try again.")
                             .font(.caption).foregroundStyle(.orange)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+                .padding(12)
+                .background(.quaternary.opacity(0.35),
+                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
 
-            permissionRow(
-                ok: status.status?.screen_permission == true,
-                title: "Screen & System Audio Recording",
-                detail: "Lets Rewisp see the screen to remember it. In the list that opens, turn on “Rewisp Backend”.",
-                anchor: "Privacy_ScreenCapture",
-                onOpen: armPermissionWatch)
-
-            permissionRow(
-                ok: nil,
-                title: "Accessibility (optional)",
-                detail: "Only needed for the ⌘⌥P pause hotkey. Skip it if you like.",
-                anchor: "Privacy_Accessibility",
-                onOpen: nil)
-
-            Text(permissionWatchArmed && status.status?.screen_permission != true
-                 ? "Waiting for the permission… this page updates by itself, no need to reopen anything."
-                 : "Status refreshes automatically — grant, then come back.")
+            Text("Optional: **Accessibility** enables the ⌘⌥P pause shortcut. Skip it — everything else works without it.")
                 .font(.caption).foregroundStyle(.tertiary)
-            Spacer()
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.bottom, 8)
+      }
+    }
+
+    /// Live permission state, and the one button that moves it forward.
+    @ViewBuilder
+    private var permissionStateCard: some View {
+        let granted = status.status?.screen_permission == true
+        let pending = status.status?.permission_pending == true
+
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: granted ? "checkmark.circle.fill"
+                                          : (pending ? "arrow.triangle.2.circlepath" : "eye.circle"))
+                    .font(.system(size: 26))
+                    .foregroundStyle(granted ? AnyShapeStyle(.green)
+                                             : AnyShapeStyle(Theme.accent))
+                    .symbolEffect(.pulse, isActive: pending)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(granted ? "Rewisp is remembering"
+                         : (pending ? "Applying it now…" : "Screen access needed"))
+                        .font(.headline)
+                    Text(granted
+                         ? "That's everything. Press ⌘⇧Space anywhere to ask it something."
+                         : (pending
+                            ? "Got it — restarting the helper so macOS applies it. A few seconds."
+                            : "Rewisp will ask macOS for permission. Approve it and this turns green by itself."))
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+            }
+
+            if !granted && !pending {
+                HStack(spacing: 10) {
+                    Button {
+                        requestPermission()
+                    } label: {
+                        Label(requestingPermission ? "Waiting for you…" : "Allow screen access",
+                              systemImage: "lock.open")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(requestingPermission || !status.daemonUp)
+
+                    if requestingPermission { ProgressView().controlSize(.small) }
+                }
+
+                if requestingPermission {
+                    // macOS shows its own prompt the FIRST time only. After that it
+                    // silently does nothing, which looks like a broken button — so
+                    // always offer the manual route alongside.
+                    Text("No prompt appeared? macOS only asks once. Open the list and switch on **Rewisp Backend**.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Open Screen Recording settings") {
+                        NSWorkspace.shared.open(URL(string:
+                            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+                        armPermissionWatch()
+                    }
+                    .controlSize(.small)
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(granted ? AnyShapeStyle(Color.green.opacity(0.12))
+                            : AnyShapeStyle(.quaternary.opacity(0.35)),
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: granted)
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: pending)
+    }
+
+    private func reassure(_ symbol: String, _ title: String, _ detail: String) -> some View {
+        HStack(alignment: .top, spacing: 11) {
+            Image(systemName: symbol)
+                .font(.callout)
+                .frame(width: 20)
+                .foregroundStyle(Theme.accent)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.callout.weight(.semibold))
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Ask macOS for the permission from inside the window. The request has to be
+    /// made by the helper, since that is the process that captures — the UI app
+    /// asking would grant the wrong thing.
+    private func requestPermission() {
+        requestingPermission = true
+        armPermissionWatch()
+        Task { @MainActor in
+            _ = try? await RewispAPI.post("request-permission")
+            StatusModel.shared.refresh()
         }
     }
 

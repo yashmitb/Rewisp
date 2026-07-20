@@ -86,15 +86,27 @@ enum Setup {
         run("/bin/launchctl", ["kickstart", "-k", "gui/\(getuid())/com.rewisp.daemon"])
     }
 
-    /// Watch for the user granting Screen Recording, then restart the helper so it
-    /// actually takes effect. Cheap poll, gives up after a few minutes.
-    static func restartWhenPermissionGranted(timeout: TimeInterval = 300) async {
+    /// Watch for the user granting Screen Recording and make it actually take hold.
+    ///
+    /// The previous version waited for `screen_permission == true` before doing
+    /// anything, which could never happen: macOS caches the answer per process, so
+    /// a helper that started without the grant reports "no permission" for its
+    /// entire life. It sat there forever while the user stared at a switch they had
+    /// already flipped. Now we watch `permission_pending` — a live reading — and
+    /// restart the helper, which is the only thing that makes the grant effective.
+    static func restartWhenPermissionGranted(timeout: TimeInterval = 600) async {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            try? await Task.sleep(for: .seconds(3))
-            guard let s = try? await RewispAPI.get("status", as: RewispAPI.Status.self) else { continue }
-            if s.screen_permission == true {
-                if s.capture_state == "starting" { restartDaemon() }   // grant seen, needs a kick
+            try? await Task.sleep(for: .seconds(2))
+            guard let s = try? await RewispAPI.get("status", as: RewispAPI.Status.self)
+            else { continue }
+
+            if s.screen_permission == true { return }        // already effective
+            if s.permission_pending == true {
+                // The daemon exits on its own when it sees this, but kick it too:
+                // belt and braces, and it makes the UI turn green a beat sooner.
+                restartDaemon()
+                _ = await waitForDaemon(timeout: 30)
                 return
             }
         }

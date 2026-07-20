@@ -32,6 +32,9 @@ struct RewispAPI {
         var paused: Bool
         var capture_state: String?
         var screen_permission: Bool?
+        /// Granted in System Settings, but the helper hasn't restarted into it yet.
+        /// macOS never applies the grant to an already-running process.
+        var permission_pending: Bool?
         var captures_today: Int
         var captures_total: Int
         var db_mb: Double

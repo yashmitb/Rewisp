@@ -332,3 +332,71 @@ footer a:hover { color: var(--text); }
 @keyframes phIn { to { opacity: 1; transform: none; } }
 @media (max-width: 560px) { .ph-badge { right: 12px; bottom: 12px; } .ph-badge img { width: 150px; } }
 @media (prefers-reduced-motion: reduce) { .ph-badge { opacity: 1; transform: none; animation: none; } }
+
+/* ── Why I built this ─────────────────────────────────────────────── */
+.why-wrap{
+  display:grid;
+  grid-template-columns:1.15fr .85fr;
+  gap:56px;
+  align-items:center;
+}
+.why-text p{color:var(--dim);line-height:1.65;margin:0 0 14px;max-width:56ch}
+.why-text .sig{color:var(--muted);font-style:italic;margin-top:22px}
+.why-vis{display:flex;justify-content:center}
+.why-card{
+  width:100%;
+  max-width:360px;
+  background:var(--panel);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:18px;
+  padding:22px;
+  box-shadow:0 22px 60px rgba(0,0,0,.4);
+}
+.why-q{
+  font-size:1.02rem;font-weight:600;margin-bottom:16px;
+  padding-bottom:14px;border-bottom:1px solid rgba(255,255,255,.07);
+}
+.why-a{display:flex;flex-direction:column;gap:9px}
+.why-line{
+  height:9px;border-radius:5px;
+  background:linear-gradient(90deg,rgba(142,162,255,.45),rgba(142,162,255,.12));
+  animation:whyPulse 2.6s ease-in-out infinite;
+}
+.why-line:nth-child(2){animation-delay:.25s}
+.why-line.short{width:58%;animation-delay:.5s}
+@keyframes whyPulse{0%,100%{opacity:.45}50%{opacity:.95}}
+.why-foot{margin-top:18px;font-size:.78rem;color:var(--muted)}
+
+/* ── Grants / contact ─────────────────────────────────────────────── */
+.contact-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+  gap:18px;
+  margin-top:30px;
+}
+.contact-card{
+  background:var(--panel);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:16px;
+  padding:22px;
+}
+.contact-label{
+  font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;
+  color:var(--muted);margin-bottom:8px;
+}
+/* Selectable on purpose: mailto: silently fails for plenty of people, so the
+   address itself has to be readable and copyable, not just a link target. */
+.contact-value{
+  display:block;font-size:1.06rem;font-weight:600;
+  color:var(--fg,#eef1f8);text-decoration:none;
+  user-select:all;word-break:break-all;
+}
+.contact-value:hover{color:#8ea2ff}
+.contact-note{font-size:.82rem;color:var(--muted);margin:10px 0 16px;line-height:1.5}
+.contact-actions{display:flex;flex-wrap:wrap;gap:9px}
+.contact-actions .btn{cursor:pointer;font:inherit}
+
+@media (max-width:860px){
+  .why-wrap{grid-template-columns:1fr;gap:32px}
+  .why-vis{order:-1}
+}

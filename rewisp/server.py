@@ -123,10 +123,16 @@ class Handler(BaseHTTPRequestHandler):
                     (since, until)).fetchone()
                 n_total, = conn.execute("SELECT COUNT(*) FROM captures").fetchone()
                 from . import daemon, screen
+                # usable = this process can capture; pending = the user has
+                # granted it but the daemon hasn't restarted into it yet. Reporting
+                # only the cached preflight made the UI insist permission was
+                # missing long after the user had granted it.
+                usable, pending = screen.permission_state()
                 self._json({
                     "paused": config.PAUSE_FLAG.exists(),
                     "capture_state": daemon.STATE.get("capture", "unknown"),
-                    "screen_permission": screen.has_screen_recording_permission(),
+                    "screen_permission": usable,
+                    "permission_pending": pending,
                     "captures_today": n_today,
                     "captures_total": n_total,
                     "db_mb": round(config.DB_PATH.stat().st_size / 1e6, 1)
@@ -369,6 +375,19 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception:  # noqa: BLE001
                         pass
                 self._json({"ok": True})
+            elif self.path == "/request-permission":
+                # Ask macOS to show its own Screen Recording prompt. It has to come
+                # from the daemon: TCC prompts for the process that wants to
+                # capture, and the UI app never captures anything. This is as close
+                # to "grant it without leaving the window" as macOS allows —
+                # there is no API to flip the switch programmatically.
+                from . import screen
+                usable, pending = screen.permission_state()
+                if not usable and not pending:
+                    screen.request_screen_recording_permission()
+                self._json({"prompted": not usable and not pending,
+                            "screen_permission": usable,
+                            "permission_pending": pending})
             elif self.path == "/pause":
                 config.ensure_dirs()
                 config.PAUSE_FLAG.touch()

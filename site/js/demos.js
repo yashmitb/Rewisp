@@ -191,3 +191,34 @@ function whenVisible(el, fn, { once = false } = {}) {
   go(0);
   start();
 })();
+
+// Copy-email fallback: mailto: does nothing on plenty of setups (no default
+// mail client, webmail-only, locked-down browsers), so the address is always
+// available as plain text you can lift with one click.
+(function () {
+  var btn = document.getElementById("copyEmail");
+  if (!btn) return;
+  btn.addEventListener("click", function () {
+    var email = btn.getAttribute("data-email");
+    var done = function () {
+      var was = btn.textContent;
+      btn.textContent = "Copied";
+      setTimeout(function () { btn.textContent = was; }, 1600);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(email).then(done, fallback);
+    } else {
+      fallback();
+    }
+    function fallback() {
+      var ta = document.createElement("textarea");
+      ta.value = email;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); done(); } catch (e) { /* leave it visible */ }
+      document.body.removeChild(ta);
+    }
+  });
+})();

@@ -10,9 +10,14 @@ leaves the Mac); hard questions and the nightly digest use a stronger engine
 
 ## Installing
 
-Download **Rewisp.dmg**, drag Rewisp into Applications, then right-click it and choose
-**Open** the first time (Rewisp isn't notarized yet, so a plain double-click gets
-blocked). Grant Screen Recording to **Rewisp Backend** when macOS asks.
+Download **Rewisp.dmg** and drag Rewisp into Applications. Grant Screen Recording
+to **Rewisp Backend** when Rewisp asks — it turns green by itself once you do.
+
+**Opening it the first time.** macOS blocks apps it can't verify, and since
+macOS 15 the old right-click → Open trick no longer works. Double-click Rewisp,
+click **Done** on the warning, then open **System Settings → Privacy & Security**,
+scroll to **Security**, and click **Open Anyway** next to the Rewisp line. That
+button only appears after you've tried to open the app once.
 
 **Drag it over before opening it.** If you open Rewisp straight from the disk image,
 it will offer to move itself to Applications and reopen — take it. Rewisp's background

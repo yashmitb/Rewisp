@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.13.0, 2026-07-19):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 143 tests. 18 releases (v0.1.0 → v0.13.0).
+**Current status (v0.14.0, 2026-07-19):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 143 tests. 19 releases (v0.1.0 → v0.14.0).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -169,6 +169,50 @@ Dia (Chromium-based) fully supports Chrome-style AppleScript (`URL of active tab
 10. **GitHub Pages CDN caches assets ~10 min** — a browser cache-reset refetches from the edge, not origin, so a fixed CSS/JS still looked broken. Version the asset URLs (`styles.css?v=…`) to force a fresh fetch.
 
 ---
+
+## v0.14.0 — permissions that tell the truth (2026-07-19)
+
+Reported from real use: "went through the entire process two times and both times
+even though the permission was enabled, it says it wasn't enabled."
+
+**Root cause.** `CGPreflightScreenCaptureAccess()` caches its answer for the life
+of the process. A daemon that started without the grant reports "no permission"
+forever, whatever the user does in System Settings. Worse, the watcher added in
+v0.12 waited for `screen_permission == true` before restarting the daemon — the
+restart being the only thing that could ever make it true. A deadlock: it waited
+for a signal that its own action was required to produce.
+
+- **Live probe** (`screen_recording_granted_live`) reads current state with no
+  caching: macOS redacts `kCGWindowName` for processes without Screen Recording
+  and un-redacts it the instant the grant lands.
+- **The daemon restarts itself.** On seeing the live grant it exits; launchd's
+  KeepAlive brings it back with the permission actually in effect. No UI involved,
+  so it self-heals even if the app is closed.
+- **`/status` gained `permission_pending`** — granted, but not yet applied — so the
+  UI can say "applying it now" instead of insisting permission is missing.
+- **`POST /request-permission`** triggers Apple's own prompt from the daemon (the
+  process that actually captures; the UI app asking would grant the wrong thing).
+  As close to in-window as macOS permits — there is no API to flip the switch.
+
+**Onboarding reworked around it.**
+- Permissions is now its own final page, with reassurance before the ask: macOS
+  calls it "Screen Recording" but nothing is recorded, nothing leaves the Mac,
+  and the kill list makes it blind where it matters. It sat mid-flow before, which
+  meant people left for System Settings with unseen pages behind them.
+- **Onboarding survives leaving and coming back.** Reopening the app used to go
+  straight to the main window with onboarding gone for good. `showFrontDoor()`
+  reopens it while unfinished, and the page index persists, so returning from
+  System Settings lands you where you left off.
+
+**Gatekeeper instructions corrected.** macOS 15+ removed the right-click → Open
+bypass, so the install page was teaching a step that cannot work — matching the
+report that "right-click and open still doesn't show the open anyway button". It
+now documents the real route: try to open, get blocked, then System Settings →
+Privacy & Security → **Open Anyway**.
+
+**Landing page** gained a "Why I built this" section and a grants/contact section
+with the email as selectable text next to the mailto button, since mailto quietly
+fails for anyone without a configured mail client.
 
 ## v0.13.0 — the install actually holds together (2026-07-19)
 

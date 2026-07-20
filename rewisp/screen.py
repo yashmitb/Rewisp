@@ -1,5 +1,7 @@
 """Screen capture (in-memory CGImage, never written to disk), OCR via Vision, dedupe thumbnails."""
 
+import os
+
 import Quartz
 import Vision
 from AppKit import NSRunningApplication
@@ -265,7 +267,52 @@ def ocr_cgimage(cg_image) -> str:
 
 
 def has_screen_recording_permission() -> bool:
+    """Can THIS process actually capture right now?
+
+    CGPreflightScreenCaptureAccess caches its answer for the lifetime of the
+    process, which is correct here: macOS only lets a process capture if it had
+    the grant when it started. Flipping the switch in System Settings does not
+    retroactively empower a running process — it has to be restarted.
+    """
     return bool(Quartz.CGPreflightScreenCaptureAccess())
+
+
+def screen_recording_granted_live() -> bool:
+    """Is the toggle switched on *right now*, regardless of this process's cache?
+
+    Needed because the cached preflight above can never flip to True inside a
+    running daemon, so anything waiting on it waits forever — the daemon reported
+    "permission not granted" indefinitely after the user had granted it.
+
+    Window titles are the tell: macOS redacts kCGWindowName for every process
+    that lacks Screen Recording, and un-redacts it the moment the grant lands.
+    This reads current state with no caching.
+    """
+    try:
+        wins = Quartz.CGWindowListCopyWindowInfo(
+            Quartz.kCGWindowListOptionOnScreenOnly
+            | Quartz.kCGWindowListExcludeDesktopElements,
+            Quartz.kCGNullWindowID) or []
+    except Exception:
+        return False
+    own = os.getpid()
+    for w in wins:
+        # Normal app windows only (layer 0); menu bars and shadows are noise.
+        if w.get("kCGWindowLayer", 1) != 0:
+            continue
+        if w.get("kCGWindowOwnerPID") == own:
+            continue          # our own titles are always visible to us
+        if w.get("kCGWindowName"):
+            return True
+    return False
+
+
+def permission_state() -> tuple[bool, bool]:
+    """(usable_now, granted_but_needs_restart)."""
+    usable = has_screen_recording_permission()
+    if usable:
+        return True, False
+    return False, screen_recording_granted_live()
 
 
 def request_screen_recording_permission() -> bool:

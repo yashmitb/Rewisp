@@ -56,7 +56,7 @@ Nightly Digest (9 PM) → one Claude call → recap · loose threads · memory
 
 ## Install
 
-Download the [latest DMG](https://github.com/yashmitb/Rewisp/releases/latest/download/Rewisp.dmg), drag Rewisp into Applications, right-click → **Open** (it isn't notarized yet), and grant Screen Recording to **Rewisp Backend** when asked.
+Download the [latest DMG](https://github.com/yashmitb/Rewisp/releases/latest/download/Rewisp.dmg), drag Rewisp into Applications, and grant Screen Recording to **Rewisp Backend** when asked.
 
 No Python required and nothing to run in Terminal: since v0.12 the app ships its own CPython runtime and provisions its launchd agents on first launch. Requires macOS 15+ (on-device answers need macOS 26).
 

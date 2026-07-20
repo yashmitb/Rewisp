@@ -46,7 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("com.rewisp.open.main"), object: nil, queue: .main
         ) { _ in
-            Task { @MainActor in MainWindowController.shared.show() }
+            Task { @MainActor in AppDelegate.showFrontDoor() }
         }
 
         GlobalHotkey.register {
@@ -90,8 +90,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // main window (menu-bar-only apps otherwise appear to do nothing).
     func applicationShouldHandleReopen(_ sender: NSApplication,
                                        hasVisibleWindows flag: Bool) -> Bool {
-        MainWindowController.shared.show()
+        AppDelegate.showFrontDoor()
         return true
+    }
+
+    /// Onboarding if it hasn't been finished, otherwise the main window.
+    ///
+    /// Granting Screen Recording sends people out to System Settings, and coming
+    /// back used to land them in the main window with onboarding gone for good —
+    /// they never saw the rest of it, and nothing ever offered it again.
+    @MainActor
+    static func showFrontDoor() {
+        if OnboardingController.shared.needed {
+            OnboardingController.shared.show()
+        } else {
+            MainWindowController.shared.show()
+        }
     }
 
     // Quit confirm as a real alert: confirmationDialog can't present inside

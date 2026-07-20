@@ -2,6 +2,7 @@
 idle guard, kill list, dedupe. Screenshots live only in memory — OCR'd, then released."""
 
 import logging
+import os
 import time
 
 from . import browser, config, db, screen
@@ -224,21 +225,25 @@ class Daemon:
         if not screen.has_screen_recording_permission():
             print(
                 "\nRewisp needs Screen Recording permission to capture your screen.\n\n"
-                "  1. Open System Settings > Privacy & Security > Screen & System Audio Recording\n"
-                "  2. Enable it for the app Rewisp runs as (under launchd this is 'Python';\n"
-                "     add /Library/Frameworks/Python.framework/Versions/3.13/Resources/Python.app\n"
-                "     with the + button if it isn't listed)\n\n"
-                "A system prompt may appear now — 'Allow' works too.\n"
-                "Also enable the same app under Privacy & Security > Accessibility\n"
-                "(needed for the Cmd+Option+P pause hotkey).\n"
-                "Waiting for permission — the daemon will start capturing once granted.\n"
+                "  System Settings > Privacy & Security > Screen & System Audio Recording\n"
+                "  and switch on 'Rewisp Backend'.\n\n"
+                "A system prompt may appear now — 'Allow' does the same thing.\n"
+                "Rewisp restarts itself the moment the switch flips; nothing else to do.\n"
             )
             screen.request_screen_recording_permission()
-            # Stay alive and poll rather than exiting: launchd KeepAlive would
-            # otherwise restart-loop us, and the user may grant it any minute.
-            while not screen.has_screen_recording_permission():
-                time.sleep(30)
-            log.info("screen recording permission granted, starting capture")
+            STATE["capture"] = "needs-permission"
+            # Poll the LIVE state, not the preflight: macOS caches
+            # CGPreflightScreenCaptureAccess per process, so the old
+            # `while not has_screen_recording_permission()` loop could never end.
+            # It waited forever while the user stared at a switch they had already
+            # turned on. And the grant genuinely does not apply to an already
+            # running process, so noticing is only half the job — we have to exit
+            # and let launchd's KeepAlive start us fresh, which is what actually
+            # makes capture work.
+            while not screen.screen_recording_granted_live():
+                time.sleep(3)
+            log.info("screen recording granted — restarting so it takes effect")
+            os._exit(0)   # launchd KeepAlive brings us straight back up
         # Wall clock, not monotonic: mach monotonic time PAUSES while the Mac
         # sleeps, so a monotonic 15-min throttle can defer the digest catch-up
         # for hours of real time after wake (observed 2026-07-08).
