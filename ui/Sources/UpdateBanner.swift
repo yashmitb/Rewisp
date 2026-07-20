@@ -85,22 +85,50 @@ struct UpdateBanner: View {
             }
 
         case .downloading(let fraction):
-            HStack(spacing: 10) {
-                ProgressView().controlSize(.small)
-                Text("Downloading Rewisp \(updates.latestVersion ?? "")…")
-                    .font(.caption.weight(.medium))
-                Spacer()
-                if fraction > 0 {
+            // A real progress bar, not a spinner. 170 MB with no feedback is how
+            // you get someone force-quitting halfway through an update.
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 10) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .foregroundStyle(Theme.accent)
+                    Text("Downloading Rewisp \(updates.latestVersion ?? "")")
+                        .font(.caption.weight(.medium))
+                    Spacer()
                     Text("\(Int(fraction * 100))%")
-                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
                 }
+                ProgressView(value: fraction)
+                    .progressViewStyle(.linear)
+                    .tint(Theme.accent)
             }
 
-        case .installing:
+        case .preparing:
             HStack(spacing: 10) {
                 ProgressView().controlSize(.small)
-                Text("Installing — Rewisp will reopen in a moment")
-                    .font(.caption.weight(.medium))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Preparing the update…")
+                        .font(.caption.weight(.medium))
+                    if expanded {
+                        Text("Unpacking and checking it before anything is replaced.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+            }
+
+        case .restarting:
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .foregroundStyle(Theme.accent)
+                    .symbolEffect(.pulse, isActive: true)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Restarting Rewisp…")
+                        .font(.caption.weight(.medium))
+                    Text("It reopens in a second. Your memories and permissions stay as they are.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Spacer()
             }
 

@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.17.2, 2026-07-20):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 30 releases (v0.1.0 → v0.17.2).
+**Current status (v0.17.3, 2026-07-20):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 31 releases (v0.1.0 → v0.17.3).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,33 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.17.3 — the update stages before it quits (2026-07-20)
+
+The in-place updater worked, but the experience was alarming: "Installing…"
+flashed for a fraction of a second, then the app vanished for fifteen-plus
+seconds with nothing on screen. Indistinguishable from a crash.
+
+The cause was ordering. Everything slow — mounting the disk image, copying
+170 MB, detaching, restarting the helper — happened *after* `NSApp.terminate`,
+which is precisely when there is no UI left to report it. The app quit 400 ms
+after the button press, so the one honest status message was never readable.
+
+Restructured the way [Sparkle](https://sparkle-project.org/documentation/) does
+it: stage while the window is still up.
+
+- **Download reports real bytes.** `URLSession.download(from:)` reports nothing
+  until it completes, so a 170 MB file meant a motionless spinner for a minute.
+  A `URLSessionDownloadDelegate` drives an actual progress bar.
+- **Mount, copy and verify happen before quitting**, with a "Preparing…" state,
+  and the staged bundle is checked for its executable and helper before it is
+  trusted. A truncated download can no longer replace a working app.
+- **The quit-time script is a rename and a launch.** Staging into the temp
+  directory on the same volume makes the swap `mv` rather than a copy, so the
+  window where no Rewisp exists went from ~20 seconds to about one. It still
+  falls back to `cp -R`, and still restores the previous bundle if both fail.
+- **"Restarting Rewisp…" is held for 900 ms** before terminating, so the last
+  thing seen explains what is about to happen.
 
 ## v0.17.2 — the permission finally cannot un-grant itself (2026-07-20)
 

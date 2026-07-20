@@ -27,7 +27,14 @@ final class UpdateChecker: ObservableObject {
 
     private init() {
         check()
-        Timer.scheduledTimer(withTimeInterval: 86_400, repeats: true) { _ in
+        // Every 30 minutes, not daily. A daily timer means an app that was open
+        // when a release went out does not notice for 24 hours, and .task fires
+        // only when a view first appears — so an already-open window never
+        // re-checks either. Between those two, a running app could sit in front
+        // of an available update indefinitely, which is exactly what happened.
+        // 48 requests/day is nothing against GitHub's 60/hour unauthenticated
+        // limit, and the response is tiny.
+        Timer.scheduledTimer(withTimeInterval: 1_800, repeats: true) { _ in
             Task { @MainActor in UpdateChecker.shared.check() }
         }
     }

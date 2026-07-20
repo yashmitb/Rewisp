@@ -1,127 +1,202 @@
 import AppKit
 import Foundation
 
-// In-place updates.
+// In-place updates, staged before quitting.
 //
-// The old flow opened the DMG's download URL in a browser and left you to mount
-// it, drag the app over, approve the Gatekeeper warning, and grant Screen
-// Recording again. That is a reinstall, not an update, and the permission step
-// alone made people think the app had broken.
+// The first version did everything AFTER terminating: mount the disk image, copy
+// 170 MB, detach, restart the helper, reopen. The user saw "Installing…" for a
+// fraction of a second, then the app vanished for fifteen-plus seconds with
+// nothing on screen at all. Indistinguishable from a crash.
 //
-// This replaces the bundle directly. It is safe specifically because the helper
-// binary is byte-identical between releases — `bundle_python.sh` signs it with a
-// fixed identifier from a pinned CPython, so its cdhash is deterministic. macOS
-// matches the Screen Recording grant on that hash, so swapping the app around it
-// keeps the permission. The launchd agents point at /Applications/Rewisp.app by
-// absolute path, which does not change either, so they need no reprovisioning.
+// Sparkle's approach, and now ours: do every slow step while the window is still
+// up and showing progress — download, mount, copy into a staging directory,
+// detach. Only then quit, leaving a script whose entire job is one `mv` and an
+// `open`. The invisible window shrinks from ~20 seconds to about one.
 //
-// The swap itself runs from a detached shell script: a process cannot reliably
-// replace the bundle it is executing out of, so the script waits for us to exit
-// first.
+// Staging into the temp directory on the same volume as /Applications means the
+// swap is a rename rather than a copy. If it ever lands cross-volume, `mv` falls
+// back to copying, which is slower but still correct.
 @MainActor
 enum Updater {
 
     enum Phase: Equatable {
         case idle
-        case downloading(Double)     // 0…1
-        case installing
+        case downloading(Double)      // 0…1, real bytes
+        case preparing                // mounting + staging
+        case restarting               // handing off; app is about to quit
         case failed(String)
     }
 
-    /// Download the DMG, then hand off to a script that swaps the bundle and
-    /// relaunches. Returns only on failure — on success the app terminates.
     static func installUpdate(from url: URL,
                               progress: @escaping (Phase) -> Void) async {
-        progress(.downloading(0))
-
-        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+        let fm = FileManager.default
+        let work = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("rewisp-update-\(UUID().uuidString)")
-        try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
-        let dmg = tmp.appendingPathComponent("Rewisp.dmg")
 
-        do {
-            let (temp, response) = try await URLSession.shared.download(from: url)
-            guard (response as? HTTPURLResponse)?.statusCode ?? 200 < 400 else {
-                progress(.failed("Download failed. Check your connection and try again."))
-                return
-            }
-            try FileManager.default.moveItem(at: temp, to: dmg)
-        } catch {
-            progress(.failed("Couldn't download the update: \(error.localizedDescription)"))
-            return
+        func fail(_ message: String) {
+            try? fm.removeItem(at: work)
+            progress(.failed(message))
         }
 
-        progress(.installing)
+        guard Bundle.main.bundleURL.path.hasPrefix("/Applications/") else {
+            return fail("Move Rewisp to your Applications folder first, then update.")
+        }
+        do { try fm.createDirectory(at: work, withIntermediateDirectories: true) }
+        catch { return fail("Couldn't prepare the update.") }
+
+        // ── 1. download, with real progress ──────────────────────────────────
+        progress(.downloading(0))
+        let dmg = work.appendingPathComponent("Rewisp.dmg")
+        do {
+            try await Downloader.download(url, to: dmg) { fraction in
+                progress(.downloading(fraction))
+            }
+        } catch {
+            return fail("Couldn't download the update. Check your connection and try again.")
+        }
+
+        // ── 2. mount and stage, still on screen ──────────────────────────────
+        progress(.preparing)
+        let staged = work.appendingPathComponent("Rewisp.app")
+        guard let mount = shell("/usr/bin/hdiutil",
+                                ["attach", dmg.path, "-readonly", "-nobrowse",
+                                 "-noverify", "-mountrandom", work.path])?
+                .split(separator: "\n")
+                .compactMap({ $0.components(separatedBy: "\t").last })
+                .first(where: { $0.contains(work.path) })?
+                .trimmingCharacters(in: .whitespaces),
+              fm.fileExists(atPath: mount + "/Rewisp.app")
+        else { return fail("Couldn't open the downloaded update.") }
+
+        defer { _ = shell("/usr/bin/hdiutil", ["detach", mount, "-force", "-quiet"]) }
+
+        do { try fm.copyItem(atPath: mount + "/Rewisp.app", toPath: staged.path) }
+        catch { return fail("Couldn't prepare the new version: \(error.localizedDescription)") }
+
+        // Clear the download quarantine now, while we can still report a problem.
+        _ = shell("/usr/bin/xattr", ["-dr", "com.apple.quarantine", staged.path])
+
+        // Sanity-check what we staged before trusting it with the swap. A
+        // truncated download that still unpacked would otherwise replace a
+        // working app with a broken one.
+        guard fm.fileExists(atPath: staged.path + "/Contents/MacOS/Rewisp"),
+              fm.fileExists(atPath: staged.path + "/Contents/MacOS/RewispBackend.app")
+        else { return fail("The downloaded update looks incomplete. Try again.") }
+
+        // ── 3. hand off: everything left is fast ─────────────────────────────
+        progress(.restarting)
 
         let target = Bundle.main.bundleURL.path
-        guard target.hasPrefix("/Applications/") else {
-            // A copy running from Downloads or a disk image has no stable home to
-            // update into; sending it through InstallLocation is the honest path.
-            progress(.failed("Move Rewisp to your Applications folder first, then update."))
-            return
-        }
-
-        let script = tmp.appendingPathComponent("swap.sh")
+        let script = work.appendingPathComponent("swap.sh")
         let body = """
         #!/bin/zsh
-        # Wait for Rewisp to exit so the bundle isn't in use, then swap it.
-        for i in $(seq 1 50); do
+        # Everything slow already happened. This is a rename and a launch.
+        for i in $(seq 1 60); do
           pgrep -x Rewisp >/dev/null || break
-          sleep 0.2
+          sleep 0.1
         done
 
-        MP=$(hdiutil attach "\(dmg.path)" -readonly -nobrowse -noverify | grep -o '/Volumes/.*' | head -1)
-        if [[ -z "$MP" || ! -d "$MP/Rewisp.app" ]]; then
-          [[ -n "$MP" ]] && hdiutil detach "$MP" -force -quiet
-          open -a Rewisp 2>/dev/null || open "\(target)"
-          exit 1
+        PREV="\(work.path)/Rewisp.app.previous"
+        rm -rf "$PREV"
+        mv "\(target)" "$PREV" 2>/dev/null
+
+        if ! mv "\(staged.path)" "\(target)" 2>/dev/null; then
+          # Cross-volume, or the rename lost a race: fall back to a copy, and put
+          # the old one back if even that fails, so the Mac is never left without
+          # a working Rewisp.
+          if ! cp -R "\(staged.path)" "\(target)" 2>/dev/null; then
+            rm -rf "\(target)"
+            mv "$PREV" "\(target)"
+            open "\(target)"
+            exit 1
+          fi
         fi
 
-        # Keep the old copy until the new one is in place, so a failure mid-copy
-        # doesn't leave the machine with no Rewisp at all.
-        BACKUP="\(tmp.path)/Rewisp.app.previous"
-        rm -rf "$BACKUP"
-        mv "\(target)" "$BACKUP" 2>/dev/null
-        if ! cp -R "$MP/Rewisp.app" /Applications/; then
-          rm -rf "\(target)"
-          mv "$BACKUP" "\(target)"
-          hdiutil detach "$MP" -force -quiet
-          open "\(target)"
-          exit 1
-        fi
-
-        # The download carries a quarantine flag; without clearing it the user
-        # gets Gatekeeper's "unidentified developer" block on an app they already
-        # approved once.
-        xattr -dr com.apple.quarantine "\(target)" 2>/dev/null
-        hdiutil detach "$MP" -force -quiet
-
-        # Restart the helper so it runs the new daemon code. Same path and same
-        # helper hash, so the Screen Recording grant carries over untouched.
+        # Same path and same helper hash as before, so the Screen Recording grant
+        # carries over untouched; the helper only needs to pick up the new code.
         launchctl kickstart -k "gui/$(id -u)/com.rewisp.daemon" 2>/dev/null
 
         open "\(target)"
-        rm -rf "\(tmp.path)"
+        sleep 3
+        rm -rf "\(work.path)"
         """
         do {
             try body.write(to: script, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o755], ofItemAtPath: script.path)
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+            p.arguments = [script.path]
+            try p.run()
         } catch {
-            progress(.failed("Couldn't prepare the update."))
-            return
+            return fail("Couldn't start the update.")
         }
 
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        p.arguments = [script.path]
-        do { try p.run() } catch {
-            progress(.failed("Couldn't start the update."))
-            return
-        }
-
-        // Hand over and get out of the way.
-        try? await Task.sleep(for: .milliseconds(400))
+        // Let "Restarting" actually register before the window disappears.
+        try? await Task.sleep(for: .milliseconds(900))
         NSApp.terminate(nil)
+    }
+
+    @discardableResult
+    private static func shell(_ path: String, _ args: [String]) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: path)
+        p.arguments = args
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return nil }
+        let out = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return String(data: out, encoding: .utf8)
+    }
+}
+
+/// Download with byte-level progress. `URLSession.download(from:)` reports
+/// nothing until it finishes, which on a 170 MB file is a spinner sitting still
+/// for a minute — the exact thing that makes people force-quit.
+private final class Downloader: NSObject, URLSessionDownloadDelegate {
+    private var onProgress: ((Double) -> Void)?
+    private var cont: CheckedContinuation<URL, Error>?
+
+    static func download(_ url: URL, to destination: URL,
+                         progress: @escaping (Double) -> Void) async throws {
+        let d = Downloader()
+        d.onProgress = progress
+        let temp: URL = try await withCheckedThrowingContinuation { c in
+            d.cont = c
+            let session = URLSession(configuration: .default, delegate: d,
+                                     delegateQueue: nil)
+            session.downloadTask(with: url).resume()
+        }
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.moveItem(at: temp, to: destination)
+    }
+
+    func urlSession(_ s: URLSession, downloadTask: URLSessionDownloadTask,
+                    didWriteData bytesWritten: Int64,
+                    totalBytesWritten: Int64,
+                    totalBytesExpectedToWrite: Int64) {
+        guard totalBytesExpectedToWrite > 0 else { return }
+        let f = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        DispatchQueue.main.async { self.onProgress?(min(max(f, 0), 1)) }
+    }
+
+    func urlSession(_ s: URLSession, downloadTask: URLSessionDownloadTask,
+                    didFinishDownloadingTo location: URL) {
+        // The temp file is deleted the moment this returns, so move it first.
+        let keep = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("rewisp-dl-\(UUID().uuidString).dmg")
+        do {
+            try FileManager.default.moveItem(at: location, to: keep)
+            cont?.resume(returning: keep)
+        } catch {
+            cont?.resume(throwing: error)
+        }
+        cont = nil
+    }
+
+    func urlSession(_ s: URLSession, task: URLSessionTask,
+                    didCompleteWithError error: Error?) {
+        if let error { cont?.resume(throwing: error); cont = nil }
     }
 }
