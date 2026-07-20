@@ -123,4 +123,11 @@ assert v is not None
 print("✓ Quartz / Vision / Foundation / AppKit / numpy / model2vec all import")
 EOF
 
+# The verify step above RUNS python, which regenerates __pycache__ inside the
+# bundle. Strip it last so the shipped bundle is pristine: those caches are
+# rebuilt at runtime into ~/Rewisp/.pycache (PYTHONPYCACHEPREFIX) and must never
+# be written back here, since modifying a signed bundle revokes its TCC grants.
+find "$DEST" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+find "$DEST" -name "*.pyc" -delete 2>/dev/null || true
+
 echo "✓ bundled Python: $(du -sh "$DEST" | cut -f1) at $DEST"
