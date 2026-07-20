@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.17.3, 2026-07-20):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 31 releases (v0.1.0 → v0.17.3).
+**Current status (v0.17.4, 2026-07-20):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 32 releases (v0.1.0 → v0.17.4).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,37 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.17.4 — the permission hiccup, stated plainly (2026-07-20)
+
+Accepting a limitation rather than pretending it away.
+
+Rewisp is ad-hoc signed. macOS TCC identifies such an app by its code hash alone,
+which changes with every build, so macOS cannot tell version N+1 is the same app
+as version N and **revokes Screen Recording on every update, by design**
+([Apple forums](https://developer.apple.com/forums/thread/795739)). This is not
+caused by anything in our code, and v0.15.0 and v0.17.2 both misattributed it to
+bugs that were real but unrelated — the bundle's signature is valid and the
+helper's hash has been byte-identical (`21c3050c…`) across every release from
+0.15.0 to 0.17.3.
+
+A Developer ID certificate (99 USD/year) eliminates it outright. Until then:
+
+- `UpdateHandoff` records the version at each launch, so the app knows when it is
+  running for the first time after an update.
+- In that state the permission prompt says so: *"macOS asks again after every
+  update, because Rewisp isn't signed with a paid Apple certificate yet. Nothing
+  is wrong and nothing was lost."* Being asked twice for a permission you already
+  granted reads as a broken app unless someone tells you why.
+- The search panel carries the same explanation, and its button now arms the
+  restart watcher so the state clears itself.
+- A first-ever launch is explicitly not treated as an update, so new users are
+  never told their permission "was reset".
+
+Considered and rejected: installing the helper outside the app bundle at a stable
+path, so updates never touch it. It would work today — but the helper changes the
+moment the bundled CPython is upgraded, and it would then fail in a far more
+confusing way than an honest one-click prompt.
 
 ## v0.17.3 — the update stages before it quits (2026-07-20)
 

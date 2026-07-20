@@ -230,13 +230,13 @@ struct DashboardView: View {
                 .symbolRenderingMode(.hierarchical)
                 .symbolEffect(.pulse, isActive: pending)
 
-            Text(pending ? "Applying your permission…" : "Rewisp needs to see your screen")
+            Text(pending ? "Applying your permission…" : UpdateHandoff.permissionTitle)
                 .font(.callout.weight(.medium))
                 .multilineTextAlignment(.center)
 
             Text(pending
                  ? "Restarting the helper so macOS applies it. A few seconds."
-                 : "It reads text off the screen and forgets the image immediately. Nothing leaves this Mac.")
+                 : UpdateHandoff.permissionExplanation)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -276,7 +276,9 @@ struct DashboardView: View {
 
                 // Pre-v0.12 the helper ran on the system Python, so an old
                 // "Python" row may still be listed. It no longer does anything.
-                Text("Switch on **Rewisp Backend**. An older **Python** entry, if you see one, is stale.")
+                Text(UpdateHandoff.justUpdated
+                     ? "Switch **Rewisp Backend** back on. One click and capture resumes."
+                     : "Switch on **Rewisp Backend**. An older **Python** entry, if you see one, is stale.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)

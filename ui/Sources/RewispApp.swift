@@ -43,6 +43,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // a DMG or a translocated copy bakes a path that vanishes on eject.
         if InstallLocation.enforceIfNeeded() { return }
 
+        // Before any permission UI: an ad-hoc signed app loses Screen Recording
+        // on every update, so we need to know whether this launch follows one.
+        UpdateHandoff.recordLaunch()
+
         DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("com.rewisp.open.main"), object: nil, queue: .main
         ) { _ in

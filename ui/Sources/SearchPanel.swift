@@ -436,11 +436,25 @@ struct SearchPanelView: View {
                 // upgrade too: the helper moved to a bundled runtime, so macOS sees
                 // a new binary and the old "Python" grant no longer counts.
                 if needsPermission {
+                    if UpdateHandoff.justUpdated {
+                        // Being asked for a permission you already gave reads as a
+                        // broken app unless you are told why. Say it plainly.
+                        Text("Updating reset this — macOS does that to apps without a paid Apple certificate. Nothing was lost.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 2)
+                    }
                     Button {
                         NSWorkspace.shared.open(URL(string:
                             "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+                        // Watch for the grant and restart the helper, so this
+                        // clears itself instead of needing another trip back.
+                        Task { await Setup.restartWhenPermissionGranted(); StatusModel.shared.refresh() }
                     } label: {
-                        Label("Turn on Screen Recording for “Rewisp Backend”",
+                        Label(UpdateHandoff.justUpdated
+                              ? "Switch “Rewisp Backend” back on"
+                              : "Turn on Screen Recording for “Rewisp Backend”",
                               systemImage: "eye.trianglebadge.exclamationmark")
                             .font(.callout.weight(.semibold))
                     }
