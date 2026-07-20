@@ -351,5 +351,27 @@
 </a>
 
 <script src="js/demos.js?v=20260719k"></script>
+
+<!-- Analytics: GoatCounter. No cookies, no personal data, no cross-site tracking,
+     nothing that needs a consent banner — which matters here, because a page
+     selling on-device privacy has no business loading a surveillance script.
+     Counts a page view and download clicks, nothing else.
+     Set up at https://www.goatcounter.com and put your code in data-goatcounter. -->
+<script data-goatcounter="https://rewisp.goatcounter.com/count"
+        async src="//gc.zgo.at/count.js"></script>
+<script>
+  // Count download clicks as events. The actual download is served by GitHub, so
+  // GitHub's own release counters remain the source of truth (scripts/stats.sh);
+  // this just shows how many people got as far as clicking.
+  document.addEventListener("click", function (e) {
+    var a = e.target.closest && e.target.closest('a[href*="releases"]');
+    if (!a || !window.goatcounter || !window.goatcounter.count) return;
+    window.goatcounter.count({
+      path: "download-click",
+      title: "Download clicked",
+      event: true,
+    });
+  });
+</script>
 </body>
 </html>
