@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.16.1, 2026-07-19):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 143 tests. 24 releases (v0.1.0 → v0.16.1).
+**Current status (v0.16.2, 2026-07-19):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 143 tests. 25 releases (v0.1.0 → v0.16.2).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -169,6 +169,14 @@ Dia (Chromium-based) fully supports Chrome-style AppleScript (`URL of active tab
 10. **GitHub Pages CDN caches assets ~10 min** — a browser cache-reset refetches from the edge, not origin, so a fixed CSS/JS still looked broken. Version the asset URLs (`styles.css?v=…`) to force a fresh fetch.
 
 ---
+
+## v0.16.2 — release notes without leaving the app (2026-07-19)
+
+- **"What's new" opens a popover instead of a browser tab.** The notes were
+  already in the release JSON the update check fetches, so opening GitHub to read
+  a paragraph was a round trip out of the app for information it already had.
+  `ReleaseNotesPopover` renders them inline — headings, bullets, and inline
+  markdown via `AttributedString`, scrollable, 380pt wide.
 
 ## v0.16.1 — updates that actually update (2026-07-19)
 

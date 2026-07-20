@@ -12,6 +12,7 @@ struct UpdateBanner: View {
 
     @ObservedObject private var updates = UpdateChecker.shared
     @State private var phase: Updater.Phase = .idle
+    @State private var showNotes = false
 
     var body: some View {
         if updates.updateAvailable {
@@ -46,13 +47,19 @@ struct UpdateBanner: View {
                 }
                 Spacer()
                 if expanded {
-                    Button("What's new") {
-                        NSWorkspace.shared.open(URL(string:
-                            "https://github.com/\(UpdateChecker.repo)/releases/latest")!)
-                    }
-                    .buttonStyle(.plain)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    // Shown in a popover, not a browser tab: the notes are already
+                    // in the release JSON we fetched, so leaving the app to read
+                    // them was a round trip for nothing.
+                    Button("What's new") { showNotes.toggle() }
+                        .buttonStyle(.plain)
+                        .font(.caption)
+                        .foregroundStyle(Theme.accent)
+                        .popover(isPresented: $showNotes, arrowEdge: .bottom) {
+                            ReleaseNotesPopover(
+                                version: updates.latestVersion ?? "",
+                                title: updates.releaseTitle,
+                                notes: updates.releaseNotes)
+                        }
                 }
                 Button("Update now") { start() }
                     .buttonStyle(.borderedProminent)

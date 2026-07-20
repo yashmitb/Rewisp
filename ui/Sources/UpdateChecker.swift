@@ -11,6 +11,10 @@ final class UpdateChecker: ObservableObject {
 
     @Published var latestVersion: String?
     @Published var downloadURL: URL?
+    /// The release notes themselves. Already in the JSON we fetch, so sending
+    /// people to a browser to read them was a pointless round trip.
+    @Published var releaseNotes: String?
+    @Published var releaseTitle: String?
 
     var updateAvailable: Bool {
         guard let latest = latestVersion else { return false }
@@ -38,6 +42,9 @@ final class UpdateChecker: ObservableObject {
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let tag = obj["tag_name"] as? String else { return }
             latestVersion = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+            releaseNotes = (obj["body"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            releaseTitle = obj["name"] as? String
             if let assets = obj["assets"] as? [[String: Any]],
                let dmg = assets.first(where: { ($0["name"] as? String)?.hasSuffix(".dmg") == true }),
                let urlStr = dmg["browser_download_url"] as? String {
