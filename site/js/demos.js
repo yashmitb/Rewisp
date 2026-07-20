@@ -222,3 +222,66 @@ function whenVisible(el, fn, { once = false } = {}) {
     }
   });
 })();
+
+/* ── promises ──────────────────────────────────────────────────────────────
+   Three beats, looping: the commitment is typed and caught, it's held while
+   days pass, then it comes back on the morning it's due. Leads the grid
+   because it's the one thing a plain screen recorder can't do. */
+(function promiseDemo() {
+  const root = document.getElementById("promise-demo");
+  if (!root) return;
+
+  const steps = [...root.querySelectorAll(".pr-step")];
+  const typed = root.querySelector("#pr-typed");
+  const t     = typed && typed.querySelector(".t");
+  const caught= root.querySelector("#pr-caught");
+  const due   = root.querySelector("#pr-due");
+  const days  = [...root.querySelectorAll("#pr-days span")];
+  const LINE  = "yeah I'll send it Friday";
+
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  const show = (i) => steps.forEach((s, n) => s.classList.toggle("on", n === i));
+
+  function reset() {
+    if (t) t.textContent = "";
+    typed && typed.classList.remove("done");
+    caught && caught.classList.remove("on");
+    due && due.classList.remove("hot");
+    days.forEach(d => d.classList.remove("now"));
+    show(0);
+  }
+
+  async function play() {
+    reset();
+    await wait(700);
+
+    // 1 — typed, then noticed. The pause before "caught" matters: it reads as
+    // Rewisp watching rather than Rewisp being told.
+    for (let i = 1; i <= LINE.length; i++) {
+      if (t) t.textContent = LINE.slice(0, i);
+      await wait(38);
+    }
+    typed && typed.classList.add("done");
+    await wait(500);
+    caught && caught.classList.add("on");
+    await wait(1500);
+
+    // 2 — held, days ticking by
+    show(1);
+    await wait(700);
+    for (let i = 0; i < days.length; i++) {
+      days.forEach((d, n) => d.classList.toggle("now", n === i));
+      if (i === days.length - 1) due && due.classList.add("hot");
+      await wait(620);
+    }
+    await wait(700);
+
+    // 3 — it comes back
+    show(2);
+    await wait(3600);
+
+    play();
+  }
+
+  whenVisible(root, play);
+})();

@@ -448,3 +448,138 @@ footer a:hover { color: var(--text); }
   .live-stats { gap: 14px; padding: 12px 16px; }
   .live-stats .ls-item b { font-size: 17px; }
 }
+
+/* ── promise demo ──────────────────────────────────────────────────────── */
+/* Leads the demo grid because catching a spoken-in-passing commitment is the
+   thing no other screen recorder does. Three beats: said, held, returned. */
+.panel.wide { grid-column: 1 / -1; }
+
+.pr-stage {
+  position: relative;
+  min-height: 208px;              /* fixed: the steps swap, the page must not move */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pr-step {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity .45s ease, transform .45s ease;
+  pointer-events: none;
+}
+.pr-step.on { opacity: 1; transform: none; }
+
+/* 1 — the conversation */
+.pr-chat { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 7px; }
+.pr-msg {
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .05);
+  color: var(--dim, #93a0bb);
+  position: relative;
+}
+.pr-msg .who {
+  display: block;
+  font-size: 10.5px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  opacity: .55;
+  margin-bottom: 2px;
+}
+.pr-msg.you { background: rgba(126, 141, 255, .13); color: var(--text, #eef1f8); align-self: stretch; }
+.pr-msg.you .t::after {
+  content: "";
+  display: inline-block;
+  width: 2px; height: 13px;
+  background: var(--accent, #8ea2ff);
+  margin-left: 2px;
+  vertical-align: -2px;
+  animation: prCaret .9s steps(2) infinite;
+}
+.pr-msg.you.done .t::after { display: none; }
+@keyframes prCaret { 50% { opacity: 0; } }
+
+.pr-caught {
+  font-size: 11.5px;
+  color: var(--accent, #8ea2ff);
+  display: flex; align-items: center; gap: 6px;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity .4s ease, transform .4s ease;
+}
+.pr-caught.on { opacity: 1; transform: none; }
+.pr-eye { font-size: 13px; }
+
+/* 2 — the held promise */
+.pr-card {
+  width: 100%; max-width: 380px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(126, 141, 255, .22);
+  background: rgba(126, 141, 255, .07);
+}
+.pr-card-top { display: flex; align-items: center; gap: 9px; font-size: 14px; color: var(--text, #eef1f8); }
+.pr-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent, #8ea2ff);
+  box-shadow: 0 0 0 4px rgba(126, 141, 255, .16);
+  flex: none;
+}
+.pr-meta { margin-top: 7px; font-size: 11.5px; color: var(--dim, #93a0bb); display: flex; gap: 7px; }
+.pr-sep { opacity: .5; }
+.pr-due {
+  margin-top: 9px;
+  display: inline-block;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .06);
+  color: var(--dim, #93a0bb);
+  transition: background .4s ease, color .4s ease;
+}
+.pr-due.hot { background: rgba(255, 176, 87, .16); color: #ffb057; }
+
+.pr-days { display: flex; gap: 8px; font-size: 11px; color: var(--dim, #93a0bb); }
+.pr-days span {
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .04);
+  transition: all .35s ease;
+}
+.pr-days span.now { background: rgba(126, 141, 255, .18); color: var(--text, #eef1f8); }
+.pr-days span.hot.now { background: rgba(255, 176, 87, .2); color: #ffb057; }
+
+/* 3 — the nudge */
+.pr-nudge {
+  width: 100%; max-width: 380px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  background: rgba(20, 24, 40, .85);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, .45);
+}
+.pr-nudge-head { font-size: 11px; color: var(--accent, #8ea2ff); display: flex; align-items: center; gap: 6px; }
+.pr-nudge-body { margin-top: 7px; font-size: 14px; color: var(--text, #eef1f8); line-height: 1.45; }
+.pr-nudge-actions { margin-top: 12px; display: flex; gap: 8px; }
+.pr-btn {
+  font-size: 11.5px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .06);
+  color: var(--dim, #93a0bb);
+}
+.pr-btn.done { background: rgba(126, 141, 255, .2); color: #cdd6ff; }
+
+@media (max-width: 560px) {
+  .pr-stage { min-height: 236px; }
+  .pr-nudge, .pr-card, .pr-chat { max-width: 100%; }
+}

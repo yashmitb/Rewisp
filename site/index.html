@@ -6,7 +6,7 @@
 <title>Rewisp — an ambient memory for your Mac</title>
 <meta name="description" content="Rewisp remembers the text of everything you see on your Mac, so you can ask about it later. Private by construction — screenshots never touch disk.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23181c2c'/%3E%3Cpath d='M 1.44 14.80 L 1.97 15.86 L 2.50 16.79 L 3.02 17.55 L 3.55 18.13 L 4.08 18.52 L 4.61 18.71 L 5.14 18.69 L 5.66 18.48 L 6.19 18.07 L 6.72 17.50 L 7.25 16.78 L 7.78 15.93 L 8.30 14.98 L 8.83 13.96 L 9.36 12.91 L 9.89 11.86 L 10.42 10.84 L 10.94 9.87 L 11.47 8.99 L 12.00 8.23 L 12.53 7.59 L 13.06 7.10 L 13.58 6.77 L 14.11 6.60 L 14.64 6.60 L 15.17 6.76 L 15.70 7.07 L 16.22 7.52 L 16.75 8.09 L 17.28 8.75 L 17.81 9.50 L 18.34 10.30 L 18.86 11.13 L 19.39 11.96 L 19.92 12.77 L 20.45 13.52 L 20.98 14.21 L 21.50 14.82 L 22.03 15.32 L 22.56 15.70' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Ccircle cx='22.56' cy='15.70' r='1.0' fill='%23fff'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="css/styles.css?v=20260720a">
+<link rel="stylesheet" href="css/styles.css?v=20260720b">
 </head>
 <body>
 
@@ -78,6 +78,58 @@
     <p class="lead reveal d2">No screenshots below — these are live, running in your browser. The real app does the same on your Mac.</p>
 
     <div class="demos">
+      <!-- promises — first, because it's the thing nothing else does -->
+      <div class="panel reveal wide" id="promise-demo">
+        <div class="ph"><span class="tag">Promises</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div class="pr-stage">
+
+          <!-- 1. the moment it's said -->
+          <div class="pr-step" data-step="0">
+            <div class="pr-chat">
+              <div class="pr-msg them"><span class="who">Priya</span>can you get me the Q3 numbers?</div>
+              <div class="pr-msg you" id="pr-typed"><span class="who">You</span><span class="t"></span></div>
+            </div>
+            <div class="pr-caught" id="pr-caught">
+              <span class="pr-eye">◍</span> Rewisp noticed a commitment
+            </div>
+          </div>
+
+          <!-- 2. it's held, and time passes -->
+          <div class="pr-step" data-step="1">
+            <div class="pr-card">
+              <div class="pr-card-top">
+                <span class="pr-dot"></span>
+                <b>Send Priya the Q3 numbers</b>
+              </div>
+              <div class="pr-meta">
+                <span>said Tuesday, 2:14pm</span>
+                <span class="pr-sep">·</span>
+                <span>Slack</span>
+              </div>
+              <div class="pr-due" id="pr-due">due Friday</div>
+            </div>
+            <div class="pr-days" id="pr-days">
+              <span>Tue</span><span>Wed</span><span>Thu</span><span class="hot">Fri</span>
+            </div>
+          </div>
+
+          <!-- 3. it comes back before you're burned -->
+          <div class="pr-step" data-step="2">
+            <div class="pr-nudge">
+              <div class="pr-nudge-head"><span class="pr-eye">◍</span> Friday, 9:02am</div>
+              <div class="pr-nudge-body">You told Priya you'd send the Q3 numbers today.</div>
+              <div class="pr-nudge-actions">
+                <span class="pr-btn done">Done</span>
+                <span class="pr-btn">Snooze</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <h3>It remembers what you promised</h3>
+        <p class="cap">You said it once, in passing, and moved on. Rewisp caught the commitment as it scrolled by, held it, and brought it back the morning it was due — without you writing anything down.</p>
+      </div>
+
       <!-- form autofill -->
       <div class="panel reveal" id="form-demo">
         <div class="ph"><span class="tag">Autofill</span><span class="dots"><i></i><i></i><i></i></span></div>
@@ -361,7 +413,7 @@
   <img alt="Rewisp — an ambient memory for your Mac - See it once. Ask forever. | Product Hunt" width="250" height="54" loading="lazy" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1199790&theme=dark&t=1784448393504">
 </a>
 
-<script src="js/demos.js?v=20260719k"></script>
+<script src="js/demos.js?v=20260720a"></script>
 
 <!-- Analytics: GoatCounter. No cookies, no personal data, no cross-site tracking,
      nothing that needs a consent banner — which matters here, because a page
