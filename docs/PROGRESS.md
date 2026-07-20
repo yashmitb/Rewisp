@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.16.0, 2026-07-19):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 143 tests. 23 releases (v0.1.0 → v0.16.0).
+**Current status (v0.16.1, 2026-07-19):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 143 tests. 24 releases (v0.1.0 → v0.16.1).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -169,6 +169,30 @@ Dia (Chromium-based) fully supports Chrome-style AppleScript (`URL of active tab
 10. **GitHub Pages CDN caches assets ~10 min** — a browser cache-reset refetches from the edge, not origin, so a fixed CSS/JS still looked broken. Version the asset URLs (`styles.css?v=…`) to force a fresh fetch.
 
 ---
+
+## v0.16.1 — updates that actually update (2026-07-19)
+
+"It makes me reinstall Rewisp all over again." Correct: the old "Get update"
+button opened the DMG's download URL in a browser and left the user to mount it,
+drag the app across, clear Gatekeeper, and re-grant Screen Recording. That is a
+reinstall wearing an update's clothes, and the permission step made it look like
+the app had broken.
+
+- **`Updater.installUpdate`** downloads the DMG, then hands off to a detached
+  script that waits for Rewisp to exit, swaps the bundle, clears the download
+  quarantine flag, restarts the helper, and reopens the app. One click, nothing
+  to drag.
+- **The permission survives**, which is the whole reason this is safe:
+  `bundle_python.sh` signs the helper with a fixed identifier from a pinned
+  CPython, so its cdhash is identical between releases (verified: `21c3050c…`
+  across a full rebuild). macOS hangs the Screen Recording grant on that hash, and
+  the launchd agents reference an absolute path that does not change either.
+- **Keeps the old copy** until the new one is in place, so a failure mid-copy
+  restores rather than leaving the machine with no Rewisp.
+- **Refuses to update a bundle outside /Applications** — a copy running from
+  Downloads or a mounted image has no stable home to update into.
+- **`UpdateBanner`** is now shared between the menu bar popover and the main
+  window, with live download/install state and a manual-download fallback.
 
 ## v0.16.0 — uninstall from inside the app (2026-07-19)
 

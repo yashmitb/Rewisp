@@ -66,23 +66,31 @@ struct MainWindowContent: View {
         HStack(spacing: 0) {
             Sidebar(selection: $state.tab)
             Divider().opacity(0.4)
-            ZStack {
-                switch state.tab {
-                case .today: TodayTab()
-                case .chat: ChatTab()
-                case .vault: VaultTab()
-                case .memory: MemoryTab()
-                case .connect: ConnectTab()
-                case .help: HelpTab()
-                case .settings: SettingsTab()
+            VStack(spacing: 0) {
+                // Sits above every tab: an available update is worth seeing
+                // wherever you happen to be in the app, not just the popover.
+                UpdateBanner(expanded: true)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 14)
+
+                ZStack {
+                    switch state.tab {
+                    case .today: TodayTab()
+                    case .chat: ChatTab()
+                    case .vault: VaultTab()
+                    case .memory: MemoryTab()
+                    case .connect: ConnectTab()
+                    case .help: HelpTab()
+                    case .settings: SettingsTab()
+                    }
                 }
+                .id(state.tab)
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .offset(y: 10)),
+                    removal: .opacity))
+                .animation(Theme.spring, value: state.tab)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .id(state.tab)
-            .transition(.asymmetric(
-                insertion: .opacity.combined(with: .offset(y: 10)),
-                removal: .opacity))
-            .animation(Theme.spring, value: state.tab)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 800, minHeight: 540)
         .background(.background)

@@ -26,19 +26,7 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 16) {
             searchBar
 
-            if updates.updateAvailable {
-                HStack(spacing: 8) {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .foregroundStyle(.tint)
-                    Text("Rewisp \(updates.latestVersion ?? "") is available")
-                        .font(.caption.weight(.medium))
-                    Spacer()
-                    Button("Get update") { updates.openDownload() }
-                        .controlSize(.small)
-                }
-                .padding(10)
-                .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
+            UpdateBanner()
 
             if asking || result != nil || askError != nil {
                 answerCard
