@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.16.3, 2026-07-19):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 143 tests. 26 releases (v0.1.0 → v0.16.3).
+**Current status (v0.16.4, 2026-07-20):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 143 tests. 27 releases (v0.1.0 → v0.16.4).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -169,6 +169,27 @@ Dia (Chromium-based) fully supports Chrome-style AppleScript (`URL of active tab
 10. **GitHub Pages CDN caches assets ~10 min** — a browser cache-reset refetches from the edge, not origin, so a fixed CSS/JS still looked broken. Version the asset URLs (`styles.css?v=…`) to force a fresh fetch.
 
 ---
+
+## v0.16.4 — custom APIs blocked by Cloudflare (2026-07-20)
+
+First bug report from someone who isn't me. A user's custom API returned
+`403: error code: 1010` against several different models.
+
+1010 is a **Cloudflare** code, not the provider's: "banned based on your
+browser's signature". Rewisp sent no `User-Agent`, so urllib supplied
+`Python-urllib/3.13`, which plenty of providers behind Cloudflare reject
+outright. The request never reached the provider, which is why changing models
+made no difference and why it looked like an auth problem.
+
+- Every outbound call now identifies itself as
+  `Rewisp/<version> (macOS; +github url)` — five call sites, since Gemini, the
+  local model and Ollama had the same blind spot.
+- 403/1010, 401 and 404 now produce specific guidance instead of a raw status
+  dump: the 404 case in particular tells people their base URL needs to end in
+  `/v1`, which is the other common way this is misconfigured.
+- Also this release: the repo finally has a `LICENSE`. The README had claimed MIT
+  since the first commit while the absent file left it legally
+  all-rights-reserved.
 
 ## v0.16.3 — the banner that never appeared (2026-07-19)
 

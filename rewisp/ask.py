@@ -597,8 +597,10 @@ def _call_gemini(prompt: str) -> str:
     def _post(api: str) -> tuple[int, str]:
         url = (f"https://generativelanguage.googleapis.com/{api}/models/"
                f"{model}:generateContent?key={key}")
-        req = urllib.request.Request(url, data=payload,
-                                     headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(
+            url, data=payload,
+            headers={"Content-Type": "application/json",
+                     "User-Agent": _user_agent()})
         try:
             with urllib.request.urlopen(req, timeout=60, context=_ssl_context()) as resp:
                 return 200, resp.read().decode()
@@ -669,7 +671,8 @@ def _call_local(prompt: str) -> str:
                "chat_template_kwargs": {"enable_thinking": False}}
     req = urllib.request.Request(
         f"http://127.0.0.1:{localmodel.PORT}/v1/chat/completions",
-        data=_json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
+        data=_json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json", "User-Agent": _user_agent()})
     with urllib.request.urlopen(req, timeout=240) as resp:
         data = _json.loads(resp.read())
     msg = data["choices"][0].get("message", {})
@@ -679,6 +682,19 @@ def _call_local(prompt: str) -> str:
     # Strip any <think>…</think> block some reasoning models inline into content.
     text = re.sub(r"(?is)<think>.*?</think>", "", text).strip()
     return text
+
+
+def _user_agent() -> str:
+    """Identify ourselves on outbound API calls.
+
+    urllib defaults to "Python-urllib/3.x", which a lot of providers sitting
+    behind Cloudflare reject outright — it comes back as HTTP 403 with
+    "error code: 1010" ("banned based on your browser's signature"). The key and
+    model are fine; the request never reaches the provider at all. Reported by a
+    user whose custom API failed against several different models.
+    """
+    from . import __version__
+    return f"Rewisp/{__version__} (macOS; +https://github.com/yashmitb/Rewisp)"
 
 
 def _call_custom(prompt: str) -> str:
@@ -697,13 +713,29 @@ def _call_custom(prompt: str) -> str:
                "temperature": 0.2, "max_tokens": 400}
     req = urllib.request.Request(
         base + "/chat/completions", data=_json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
+        headers={"Content-Type": "application/json",
+                 "Authorization": f"Bearer {key}",
+                 "Accept": "application/json",
+                 "User-Agent": _user_agent()})
     try:
         with urllib.request.urlopen(req, timeout=120, context=_ssl_context()) as resp:
             data = _json.loads(resp.read())
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"Custom API failed ({e.code}): "
-                           f"{e.read().decode(errors='replace')[:150]}") from e
+        body = e.read().decode(errors="replace")
+        if e.code in (403, 503) and "1010" in body:
+            raise RuntimeError(
+                "Custom API blocked by Cloudflare (error 1010). The provider is "
+                "rejecting the request before it reaches them. Check the base URL "
+                "is the API endpoint (usually ending in /v1) and not a dashboard "
+                "or proxy page.") from e
+        if e.code == 401:
+            raise RuntimeError("Custom API rejected the key (401). Check the API "
+                               "key and that it has access to this model.") from e
+        if e.code == 404:
+            raise RuntimeError(f"Custom API returned 404. Check the base URL — it "
+                               f"should end in /v1, and Rewisp appends "
+                               f"/chat/completions.") from e
+        raise RuntimeError(f"Custom API failed ({e.code}): {body[:150]}") from e
     return data["choices"][0]["message"]["content"].strip()
 
 
@@ -718,7 +750,7 @@ def _call_ollama(prompt: str) -> str:
         "http://127.0.0.1:11434/api/generate",
         data=_json.dumps({"model": model, "prompt": prompt,
                           "stream": False, "options": {"temperature": 0.2}}).encode(),
-        headers={"Content-Type": "application/json"})
+        headers={"Content-Type": "application/json", "User-Agent": _user_agent()})
     try:
         with urllib.request.urlopen(req, timeout=600) as resp:
             return _json.loads(resp.read())["response"].strip()
