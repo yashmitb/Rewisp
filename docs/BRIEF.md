@@ -8,6 +8,8 @@ Owner: Yashmit. Single user, his Mac only. Nothing leaves the machine except the
 
 The arc so far: v0.8 shipped the "intelligent memory" cycle (semantic search, delta, promises, numbers, precognition, dream/reinforcement, nudges); v0.9 was the precision cycle, closing the promise loop with due-day reminders and failed-search near-miss rescue; v0.10 added the Forgetting Model; v0.11 exposed the whole memory to external agents over MCP; v0.12 made it installable by someone who isn't a developer — the app bundles its own Python runtime and provisions its background helper on first launch, so there is nothing to run and no system dependency.
 
+**Launched** on Product Hunt 2026-07-20: **#5 product of the day, 187 upvotes**. First outside contribution ([#1](https://github.com/yashmitb/Rewisp/pull/1)) merged the same day.
+
 > This file describes what Rewisp *is today*. For the build timeline and per-task history, see `PROGRESS.md`. For the manual, `MANUAL.md`. For the threat model, `SECURITY.md`.
 
 ---

@@ -170,6 +170,29 @@ Dia (Chromium-based) fully supports Chrome-style AppleScript (`URL of active tab
 
 ---
 
+## Launch — Product Hunt, 2026-07-20
+
+**#5 product of the day, 187 upvotes.** First release into the world beyond one
+Mac.
+
+What it actually produced, in order of usefulness:
+
+- **A real bug report from a stranger** — a custom API failing with
+  `403: error code: 1010`, which turned out to be Cloudflare rejecting our
+  missing `User-Agent`. Fixed in v0.16.4. Worth more than the ranking.
+- **The first outside PR** ([#1](https://github.com/yashmitb/Rewisp/pull/1)),
+  fixing two bugs I'd shipped: the `PYTHONHOME` leak into child virtualenvs, and
+  Codex detection failing under a GUI LaunchAgent's minimal `PATH`. Shipped as
+  v0.17.0.
+- **Questions that forced honesty.** Where the boundary of "reads your screen"
+  sits (spoken words are invisible), whether the database is encrypted at rest
+  (it isn't — FileVault and file permissions are the protection), and how six
+  months of screen text stays searchable in one SQLite file. The README now has
+  an "honest about the boundaries" section because of these.
+- **135 downloads** in the first two days, two clear spikes.
+- Five vendor emails, none of which mentioned anything not already on the
+  landing page. Worth ignoring as a class.
+
 ## v0.17.0 — first outside contribution (2026-07-20)
 
 [#1](https://github.com/yashmitb/Rewisp/pull/1) from **@yannisxu**, fixing two
