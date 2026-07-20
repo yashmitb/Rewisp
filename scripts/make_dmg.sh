@@ -49,6 +49,23 @@ mkdir -p "$STAGE/.background"
 python3 scripts/dmg_background.py "$STAGE/.background/bg" >/dev/null 2>&1 || \
   echo "  (background render skipped)"
 
+# Combine the 1x and 2x renders into one HiDPI TIFF. Finder scales a plain PNG
+# background to the window size in POINTS, so on a Retina display a 720x480 PNG
+# gets upscaled 2x and every word drawn into it turns fuzzy — while the icon
+# labels, which Finder draws itself, stay sharp. A multi-representation TIFF is
+# the documented way to give Finder the pixels it actually needs.
+BG="$STAGE/.background/bg.png"
+if [[ -f "$STAGE/.background/bg@2x.png" ]] && \
+   tiffutil -cathidpicheck "$STAGE/.background/bg.png" "$STAGE/.background/bg@2x.png" \
+            -out "$STAGE/.background/bg.tiff" >/dev/null 2>&1; then
+  BG="$STAGE/.background/bg.tiff"
+  rm -f "$STAGE/.background/bg.png" "$STAGE/.background/bg@2x.png"
+  echo "  ✓ HiDPI background (retina-sharp text)"
+else
+  echo "  (tiffutil unavailable — shipping 1x background)"
+fi
+BG_NAME="$(basename "$BG")"
+
 RW="dist/.rewisp-rw.dmg"
 rm -f "$RW"
 hdiutil create -volname "Rewisp" -srcfolder "$STAGE" -ov -format UDRW -fs HFS+ "$RW" >/dev/null
@@ -64,15 +81,18 @@ tell application "Finder"
     set current view of container window to icon view
     set toolbar visible of container window to false
     set statusbar visible of container window to false
-    set the bounds of container window to {200, 120, 860, 562}
+    set the bounds of container window to {180, 110, 900, 590}
     set opts to the icon view options of container window
     set arrangement of opts to not arranged
-    set icon size of opts to 128
+    set icon size of opts to 118
     set text size of opts to 13
     -- POSIX path: the "file .background:bg.png" form errors with -10006 here.
-    set background picture of opts to POSIX file "$MP/.background/bg.png"
-    set position of item "Rewisp.app" of container window to {170, 250}
-    set position of item "Applications" of container window to {490, 250}
+    set background picture of opts to POSIX file "$MP/.background/$BG_NAME"
+    set position of item "Rewisp.app" of container window to {190, 205}
+    set position of item "Applications" of container window to {530, 205}
+    -- Clear the selection before saving: Finder stores it in .DS_Store, and a
+    -- highlighted icon shows up as a grey box behind the app on first open.
+    select {}
     update without registering applications
     delay 2
     close

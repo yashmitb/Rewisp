@@ -230,7 +230,13 @@ class Daemon:
                 "A system prompt may appear now — 'Allow' does the same thing.\n"
                 "Rewisp restarts itself the moment the switch flips; nothing else to do.\n"
             )
-            screen.request_screen_recording_permission()
+            # Deliberately NOT calling request_screen_recording_permission() here.
+            # The daemon starts the moment the app launches, so asking from here
+            # threw macOS's permission dialog in the user's face during the
+            # welcome page — before anything had explained what it was for or
+            # promised that nothing leaves the Mac. macOS only ever shows that
+            # prompt once, so spending it on a confused "Deny" is expensive.
+            # The onboarding permission page asks instead, via /request-permission.
             STATE["capture"] = "needs-permission"
             # Poll the LIVE state, not the preflight: macOS caches
             # CGPreflightScreenCaptureAccess per process, so the old

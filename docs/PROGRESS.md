@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.15.0, 2026-07-19):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 143 tests. 21 releases (v0.1.0 → v0.15.0).
+**Current status (v0.15.1, 2026-07-19):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 143 tests. 22 releases (v0.1.0 → v0.15.1).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -169,6 +169,28 @@ Dia (Chromium-based) fully supports Chrome-style AppleScript (`URL of active tab
 10. **GitHub Pages CDN caches assets ~10 min** — a browser cache-reset refetches from the edge, not origin, so a fixed CSS/JS still looked broken. Version the asset URLs (`styles.css?v=…`) to force a fresh fetch.
 
 ---
+
+## v0.15.1 — the permission prompt waits its turn (2026-07-19)
+
+- **macOS's permission dialog no longer ambushes the welcome page.** The daemon
+  called `request_screen_recording_permission()` the moment it started, which is
+  at app launch — so the system prompt appeared before anything had explained what
+  the access was for or that nothing leaves the Mac. macOS shows that dialog once
+  per machine, so spending it on a confused "Deny" is expensive. The daemon no
+  longer asks at all; the final onboarding page does, via `/request-permission`.
+- **DMG window redesigned** (option C of four): a white card holding both icons on
+  a lavender-grey field, caption below.
+  - The old dark background was unusable: **Finder draws icon labels in black**
+    regardless of the background image, so "Applications" was black-on-black.
+    Light palette is a constraint, not a preference.
+  - Caption used to collide with the icon labels — an icon's Finder position is
+    its *centre* and the label hangs ~75px under it.
+  - **Retina text.** Finder scales a PNG background to window size in points, so a
+    720x480 PNG was upscaled 2x and every word drawn into it went fuzzy while
+    Finder's own labels stayed sharp. `tiffutil -cathidpicheck` now combines the
+    1x and 2x renders into an HiDPI TIFF.
+  - `select {}` before saving the layout, so Finder doesn't persist a highlighted
+    icon that shows up as a grey box behind the app on first open.
 
 ## v0.15.0 — the permission finally holds (2026-07-19)
 
