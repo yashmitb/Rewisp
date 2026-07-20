@@ -6,7 +6,7 @@
 <title>Rewisp — an ambient memory for your Mac</title>
 <meta name="description" content="Rewisp remembers the text of everything you see on your Mac, so you can ask about it later. Private by construction — screenshots never touch disk.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23181c2c'/%3E%3Cpath d='M 1.44 14.80 L 1.97 15.86 L 2.50 16.79 L 3.02 17.55 L 3.55 18.13 L 4.08 18.52 L 4.61 18.71 L 5.14 18.69 L 5.66 18.48 L 6.19 18.07 L 6.72 17.50 L 7.25 16.78 L 7.78 15.93 L 8.30 14.98 L 8.83 13.96 L 9.36 12.91 L 9.89 11.86 L 10.42 10.84 L 10.94 9.87 L 11.47 8.99 L 12.00 8.23 L 12.53 7.59 L 13.06 7.10 L 13.58 6.77 L 14.11 6.60 L 14.64 6.60 L 15.17 6.76 L 15.70 7.07 L 16.22 7.52 L 16.75 8.09 L 17.28 8.75 L 17.81 9.50 L 18.34 10.30 L 18.86 11.13 L 19.39 11.96 L 19.92 12.77 L 20.45 13.52 L 20.98 14.21 L 21.50 14.82 L 22.03 15.32 L 22.56 15.70' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Ccircle cx='22.56' cy='15.70' r='1.0' fill='%23fff'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="css/styles.css?v=20260719k">
+<link rel="stylesheet" href="css/styles.css?v=20260720a">
 </head>
 <body>
 
@@ -43,6 +43,17 @@
       <a class="btn ghost" href="https://github.com/yashmitb/Rewisp">View source</a>
     </div>
     <p class="hint">macOS 15+ · Apple Silicon · summon anywhere with <code>⌘⇧Space</code></p>
+
+    <!-- Live counts, straight from the GitHub API. Hidden until the numbers
+         arrive, so a rate-limited or offline visitor sees nothing rather than
+         a row of dashes. -->
+    <div class="live-stats" id="live-stats" hidden>
+      <div class="ls-item"><b id="ls-downloads">—</b><span>downloads</span></div>
+      <div class="ls-sep"></div>
+      <div class="ls-item"><b id="ls-stars">—</b><span>GitHub stars</span></div>
+      <div class="ls-sep"></div>
+      <div class="ls-item"><b id="ls-version">—</b><span>latest</span></div>
+    </div>
 
     <div class="demo">
       <div class="bar"><span class="spark">✦</span> <span class="q" id="q"></span></div>
@@ -372,6 +383,41 @@
       event: true,
     });
   });
+</script>
+
+<script>
+  // Real numbers on the page, fetched from GitHub's public API. No key, no
+  // tracking, and it fails silently: if GitHub rate-limits (60/hr per IP) the
+  // block just stays hidden rather than showing broken placeholders.
+  (function () {
+    var REPO = "yashmitb/Rewisp";
+    var box = document.getElementById("live-stats");
+    if (!box) return;
+
+    function show(id, value) { document.getElementById(id).textContent = value; }
+
+    fetch("https://api.github.com/repos/" + REPO + "/releases?per_page=100")
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+      .then(function (releases) {
+        var total = 0;
+        releases.forEach(function (rel) {
+          (rel.assets || []).forEach(function (a) { total += a.download_count; });
+        });
+        if (!total) return Promise.reject();
+        show("ls-downloads", total.toLocaleString());
+        var latest = releases.find(function (r) { return !r.draft && !r.prerelease; });
+        if (latest) show("ls-version", latest.tag_name);
+        return fetch("https://api.github.com/repos/" + REPO);
+      })
+      .then(function (r) { return r && r.ok ? r.json() : Promise.reject(); })
+      .then(function (repo) { show("ls-stars", repo.stargazers_count); })
+      .catch(function () { /* leave hidden */ })
+      .finally(function () {
+        if (document.getElementById("ls-downloads").textContent !== "—") {
+          box.hidden = false;
+        }
+      });
+  })();
 </script>
 </body>
 </html>

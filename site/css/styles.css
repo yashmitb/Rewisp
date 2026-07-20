@@ -400,3 +400,51 @@ footer a:hover { color: var(--text); }
   .why-wrap{grid-template-columns:1fr;gap:32px}
   .why-vis{order:-1}
 }
+
+/* ── live stats strip (hero) ───────────────────────────────────────────── */
+/* Real download and star counts pulled from the GitHub API at page load.
+   Hidden by default and only revealed once the numbers land, so a rate-limited
+   visitor never sees empty placeholders. */
+.live-stats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  margin: 22px auto 0;
+  padding: 14px 22px;
+  width: fit-content;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .03);
+  backdrop-filter: blur(8px);
+  animation: lsIn .5s ease both;
+}
+@keyframes lsIn { from { opacity: 0; transform: translateY(6px); } }
+.live-stats .ls-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  line-height: 1.1;
+}
+.live-stats .ls-item b {
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -.02em;
+  color: var(--text, #eef1f8);
+  font-variant-numeric: tabular-nums;
+}
+.live-stats .ls-item span {
+  font-size: 11.5px;
+  color: var(--dim, #93a0bb);
+  letter-spacing: .01em;
+}
+.live-stats .ls-sep {
+  width: 1px;
+  height: 26px;
+  background: rgba(255, 255, 255, .1);
+}
+@media (max-width: 520px) {
+  .live-stats { gap: 14px; padding: 12px 16px; }
+  .live-stats .ls-item b { font-size: 17px; }
+}
