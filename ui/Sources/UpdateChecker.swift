@@ -32,7 +32,20 @@ final class UpdateChecker: ObservableObject {
         }
     }
 
+    private var lastCheck: Date?
+
+    /// Check again if it's been a while. Called whenever update UI could appear.
+    ///
+    /// Launch-plus-daily was not enough on its own: an app opened before a release
+    /// went out cached "you're current" and would not look again for 24 hours, so
+    /// the banner never appeared no matter how many times you opened the window.
+    func checkIfStale(minInterval: TimeInterval = 900) {
+        if let last = lastCheck, Date().timeIntervalSince(last) < minInterval { return }
+        check()
+    }
+
     func check() {
+        lastCheck = Date()
         Task { @MainActor in
             var req = URLRequest(url: URL(string:
                 "https://api.github.com/repos/\(Self.repo)/releases/latest")!)

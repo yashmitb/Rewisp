@@ -15,12 +15,20 @@ struct UpdateBanner: View {
     @State private var showNotes = false
 
     var body: some View {
-        if updates.updateAvailable {
-            content
-                .padding(expanded ? 14 : 10)
-                .background(background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .animation(.spring(response: 0.35, dampingFraction: 0.85), value: phase)
+        // The Group matters: the banner draws nothing when no update exists, and
+        // a view that draws nothing never gets to ask whether one has appeared.
+        // Hanging .task out here means opening the window is itself a check.
+        Group {
+            if updates.updateAvailable {
+                content
+                    .padding(expanded ? 14 : 10)
+                    .background(background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .transition(.opacity.combined(with: .offset(y: -6)))
+            }
         }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: phase)
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: updates.updateAvailable)
+        .task { updates.checkIfStale() }
     }
 
     private var background: some ShapeStyle {

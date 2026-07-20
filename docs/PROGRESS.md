@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.16.2, 2026-07-19):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 143 tests. 25 releases (v0.1.0 → v0.16.2).
+**Current status (v0.16.3, 2026-07-19):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 143 tests. 26 releases (v0.1.0 → v0.16.3).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -169,6 +169,26 @@ Dia (Chromium-based) fully supports Chrome-style AppleScript (`URL of active tab
 10. **GitHub Pages CDN caches assets ~10 min** — a browser cache-reset refetches from the edge, not origin, so a fixed CSS/JS still looked broken. Version the asset URLs (`styles.css?v=…`) to force a fresh fetch.
 
 ---
+
+## v0.16.3 — the banner that never appeared (2026-07-19)
+
+Reported: "the banner doesn't show", with an update genuinely published.
+
+`UpdateChecker` checked at launch and then once every 24 hours. An app opened
+*before* a release went out therefore cached "you're current" and would not look
+again for a day — reopening the window changed nothing, because the check was
+tied to process launch, not to the UI.
+
+Worse, `UpdateBanner` rendered nothing when no update was known, and a view that
+renders nothing never appears, so it could never trigger a check itself. The one
+piece of UI whose whole job was noticing updates was structurally incapable of
+looking for them.
+
+- `checkIfStale(minInterval:)` re-checks when the update UI could appear,
+  throttled to 15 minutes so opening the window repeatedly isn't a request storm.
+- `UpdateBanner` wraps its condition in a `Group` and hangs `.task` outside it, so
+  opening the main window or the popover *is* a check, whether or not a banner
+  ends up being drawn. The banner then animates in.
 
 ## v0.16.2 — release notes without leaving the app (2026-07-19)
 
