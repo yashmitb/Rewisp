@@ -6,8 +6,36 @@ import re
 import shutil
 import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 
 from . import config, db, timeparse
+
+
+def _fallback_cli_paths(name: str) -> tuple[Path, ...]:
+    """CLI locations a GUI LaunchAgent cannot see through its minimal PATH."""
+    home = Path.home()
+    paths = [
+        home / ".local" / "bin" / name,
+        home / ".npm-global" / "bin" / name,
+        Path("/opt/homebrew/bin") / name,
+        Path("/usr/local/bin") / name,
+    ]
+    if name == "codex":
+        paths[:0] = [
+            Path("/Applications/ChatGPT.app/Contents/Resources/codex"),
+            home / "Applications" / "ChatGPT.app" / "Contents" / "Resources" / "codex",
+        ]
+    return tuple(paths)
+
+
+def cli_path(name: str) -> str | None:
+    """Resolve a subscription CLI consistently for detection and invocation."""
+    if found := shutil.which(name):
+        return found
+    for candidate in _fallback_cli_paths(name):
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
 
 STOPWORDS = {
     "a", "an", "the", "i", "me", "my", "was", "is", "are", "were", "what", "which",
@@ -519,13 +547,14 @@ def _call_claude(prompt: str) -> str:
         raise RuntimeError(
             "ANTHROPIC_API_KEY is set — this would bill the API instead of your "
             "Claude subscription. Unset it and retry.")
-    if not shutil.which("claude"):
+    claude = cli_path("claude")
+    if not claude:
         raise RuntimeError("Claude Code CLI not found. Install it and run `claude` once to sign in.")
     # Speed: skip the MCP servers, project settings, and CLAUDE.md the CLI would
     # otherwise spawn/load on every call (that overhead is most of the latency).
     # Run from a neutral cwd for the same reason. Keychain auth is untouched.
     out = subprocess.run(
-        ["claude", "-p", "--output-format", "text",
+        [claude, "-p", "--output-format", "text",
          "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
          "--setting-sources", "user"],
         input=prompt, capture_output=True, text=True, timeout=120,
@@ -546,10 +575,11 @@ def _call_codex(prompt: str) -> str:
         raise RuntimeError(
             "OPENAI_API_KEY is set — this would bill the OpenAI API instead of your "
             "ChatGPT subscription. Unset it and retry.")
-    if not shutil.which("codex"):
+    codex = cli_path("codex")
+    if not codex:
         raise RuntimeError("Codex CLI not found. `npm i -g @openai/codex`, then `codex` once to sign in.")
     out = subprocess.run(
-        ["codex", "exec", "--skip-git-repo-check", "-"],
+        [codex, "exec", "--skip-git-repo-check", "-"],
         input=prompt, capture_output=True, text=True, timeout=180,
     )
     if out.returncode != 0:

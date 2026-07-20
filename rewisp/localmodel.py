@@ -49,13 +49,45 @@ _SERVER_PID = config.DATA_DIR / ".mlx_server.pid"
 def _venv_python() -> Path:
     return VENV_DIR / "bin" / "python"
 
+
+def _venv_env() -> dict:
+    """Environment for a child virtualenv.
+
+    The packaged daemon needs PYTHONHOME to find its bundled standard library,
+    but a virtualenv must discover its *own* prefix.  Passing the daemon's
+    PYTHONHOME/PYTHONPATH into the child makes imports resolve against two
+    different runtimes (and can fail as early as ``import encodings``).
+    """
+    env = dict(os.environ)
+    env.pop("PYTHONHOME", None)
+    env.pop("PYTHONPATH", None)
+    return env
+
+
+def _base_python() -> Path:
+    """Interpreter that owns the real stdlib, not the nested helper executable."""
+    import sys
+    candidate = Path(sys.base_prefix) / "bin" / "python3"
+    return candidate if candidate.exists() else Path(sys.executable)
+
+
+def _python_works(python: Path) -> bool:
+    if not python.exists():
+        return False
+    try:
+        r = subprocess.run([str(python), "-c", "import encodings"],
+                           env=_venv_env(), capture_output=True, timeout=30)
+        return r.returncode == 0
+    except Exception:  # noqa: BLE001
+        return False
+
 # Download progress, polled by the UI via /local/status.
 _dl = {"running": False, "model": None, "pct": 0, "error": None, "done": False}
 
 
 def _hf_env() -> dict:
     """Keep all downloads inside ~/Rewisp/models so delete is contained."""
-    env = dict(os.environ)
+    env = _venv_env()
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     env["HF_HOME"] = str(MODELS_DIR)
     env["HF_HUB_DISABLE_TELEMETRY"] = "1"
@@ -64,11 +96,11 @@ def _hf_env() -> dict:
 
 def mlx_installed() -> bool:
     py = _venv_python()
-    if not py.exists():
+    if not _python_works(py):
         return False
     try:
         r = subprocess.run([str(py), "-c", "import mlx_lm"],
-                           capture_output=True, timeout=60)
+                           env=_venv_env(), capture_output=True, timeout=60)
         return r.returncode == 0
     except Exception:  # noqa: BLE001
         return False
@@ -81,19 +113,23 @@ def ensure_mlx() -> tuple[bool, str | None]:
     if mlx_installed():
         return True, None
     try:
-        import sys
+        if _venv_python().exists() and not _python_works(_venv_python()):
+            # A failed ensurepip leaves a directory whose python symlink exists
+            # but cannot import even the stdlib. Rebuild it instead of repeatedly
+            # trying pip inside a permanently broken environment.
+            shutil.rmtree(VENV_DIR, ignore_errors=True)
         if not _venv_python().exists():
-            subprocess.run([sys.executable, "-m", "venv", str(VENV_DIR)],
-                           check=True, timeout=180)
+            subprocess.run([str(_base_python()), "-m", "venv", str(VENV_DIR)],
+                           env=_venv_env(), check=True, timeout=180)
         py = str(_venv_python())
         subprocess.run([py, "-m", "pip", "install", "--quiet", "--upgrade", "pip"],
-                       timeout=300)
+                       env=_venv_env(), check=True, timeout=300)
         # mlx-lm 0.31.3 supports the 2026 models (gemma4, qwen3.5) but crashes on
         # transformers 5.10+ (register() regression) and older mlx-lm doesn't know
         # gemma4. transformers 5.0–5.9 is the window that both imports and loads them.
         subprocess.run([py, "-m", "pip", "install", "--quiet",
                         "mlx-lm==0.31.3", "transformers>=5.0,<5.10", "huggingface_hub"],
-                       check=True, timeout=2400)
+                       env=_venv_env(), check=True, timeout=2400)
         return (True, None) if mlx_installed() else (False, "mlx-lm install did not take")
     except subprocess.CalledProcessError as e:
         return False, f"MLX runtime install failed: {str(e)[:150]}"
@@ -157,8 +193,8 @@ def download_async(model_id: str) -> dict:
             # snapshot_download pulls the whole repo into HF_HOME cache.
             subprocess.run(
                 [str(_venv_python()), "-c",
-                 "from huggingface_hub import snapshot_download;"
-                 f"snapshot_download('{repo}')"],
+                 "from huggingface_hub import snapshot_download; import sys;"
+                 "snapshot_download(sys.argv[1])", repo],
                 env=_hf_env(), check=True, timeout=7200)
             stop.set()
             _dl.update(pct=100, done=True)

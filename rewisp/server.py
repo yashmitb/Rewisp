@@ -41,7 +41,6 @@ _digest = {"running": False, "error": None}
 
 
 def _engine_availability() -> dict:
-    import shutil as _sh
     import urllib.request
     ollama = False
     try:
@@ -51,9 +50,9 @@ def _engine_availability() -> dict:
         pass
     s = config.load_settings()
     c = s.get("custom_api") or {}
-    from . import localmodel
-    return {"claude": bool(_sh.which("claude")),
-            "codex": bool(_sh.which("codex")),
+    from . import ask, localmodel
+    return {"claude": bool(ask.cli_path("claude")),
+            "codex": bool(ask.cli_path("codex")),
             "gemini": bool((s.get("gemini_api_key") or "").strip()),
             "custom": bool(c.get("base_url") and c.get("api_key") and c.get("model")),
             "local": localmodel.active_model() is not None,

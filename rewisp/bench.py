@@ -46,14 +46,13 @@ def _norm(s: str | None) -> str:
 
 def _available() -> list[str]:
     """Engines this harness can call right now. Apple first — it's the one on trial."""
-    import shutil
     import urllib.request
     out = []
     if os.path.exists(APPLE_BIN):
         out.append("apple")
-    if shutil.which("claude"):
+    if ask.cli_path("claude"):
         out.append("claude")
-    if shutil.which("codex"):
+    if ask.cli_path("codex"):
         out.append("codex")
     from . import localmodel
     if localmodel.active_model():
@@ -131,8 +130,7 @@ _JUDGE = {"engine": None}
 
 def judge_engine() -> str | None:
     if _JUDGE["engine"] is None:
-        import shutil
-        if shutil.which("claude"):
+        if ask.cli_path("claude"):
             _JUDGE["engine"] = "claude"
         elif (config.load_settings().get("gemini_api_key") or "").strip():
             _JUDGE["engine"] = "gemini"
