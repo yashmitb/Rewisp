@@ -32,7 +32,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleIdentifier</key><string>com.yashmit.rewisp</string>
     <key>CFBundleExecutable</key><string>Rewisp</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.17.1</string>
+    <key>CFBundleShortVersionString</key><string>0.17.2</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
@@ -87,6 +87,14 @@ elif [[ "$1" == "--install" || -d /Applications/Rewisp.app ]]; then
         rm -rf "$DEST/rewisp"
         cp -R "$(dirname "$0")/../rewisp" "$DEST/rewisp"
         find "$DEST" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+        # Recompile with the same unchecked-hash mode the release build uses.
+        # Those caches are trusted WITHOUT comparing against the source, so a dev
+        # refresh that dropped in new .py files and left stale .pyc behind would
+        # silently keep running the old code. Cheap insurance against a very
+        # confusing afternoon.
+        PY313="/Applications/Rewisp.app/Contents/Resources/python/bin/python3"
+        [[ -x "$PY313" ]] && "$PY313" -m compileall -q -f \
+            --invalidation-mode unchecked-hash "$DEST/rewisp" >/dev/null 2>&1 || true
         # Never --deep here: it re-signs Resources/python/bin/"Rewisp Backend"
         # and resets its identifier to "-", silently revoking the user's Screen
         # Recording grant on every rebuild.

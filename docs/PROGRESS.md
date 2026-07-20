@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.17.1, 2026-07-20):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 29 releases (v0.1.0 → v0.17.1).
+**Current status (v0.17.2, 2026-07-20):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 30 releases (v0.1.0 → v0.17.2).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,46 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.17.2 — the permission finally cannot un-grant itself (2026-07-20)
+
+"It was working well yesterday, something is fundamentally wrong." Correct, and
+v0.15.0 only fixed half of it.
+
+v0.15.0 identified the mechanism — Python writing `__pycache__` inside the signed
+bundle invalidates the signature, and macOS then withdraws the Screen Recording
+grant — and fixed it with `PYTHONPYCACHEPREFIX` in the launchd plist. That covers
+the daemon and nothing else. **Any** process invoking the bundled interpreter
+without that variable re-breaks the seal for everyone. Observed live: a
+diagnostic script run with only `PYTHONHOME` set wrote 132 `.pyc` files and
+silently revoked a grant the user had just given.
+
+The deeper cause was worse. `.pyc` files are validated against the source's
+**mtime** by default, and copying the app — Finder drag, `cp -R`, the in-app
+updater — gives every `.py` a fresh mtime. So every installation invalidated
+every cache, guaranteeing a rewrite on first import. The app broke its own
+signature as a matter of course, on every machine, every install.
+
+Three layers now, none of which depend on the environment:
+
+1. **Hash-based caches** (`compileall --invalidation-mode unchecked-hash`).
+   [PEP 552](https://peps.python.org/pep-0552/) — validity comes from the source
+   hash, never a timestamp, so copying the bundle no longer invalidates anything.
+   `unchecked-hash` (not `checked-hash`) because the source in a signed bundle
+   cannot change, and `checked-hash` would regenerate on mismatch, which is the
+   write we are trying to prevent.
+2. **Everything pre-compiled and sealed in**, so nothing wants writing. An earlier
+   change stripped the caches, which guaranteed the opposite.
+3. **`sitecustomize` sets `sys.dont_write_bytecode`** for every invocation of this
+   interpreter, whatever the environment.
+
+Verified against the actual failure: copy the app with `cp -R` (resetting every
+mtime), run the interpreter with only `PYTHONHOME` set, import a pile of stdlib —
+`codesign --verify --deep` still passes. Previously that sequence produced three
+modified files and a dead permission.
+
+`ui/build.sh` recompiles after refreshing the daemon, since unchecked-hash caches
+are trusted without consulting the source and would otherwise run stale code.
 
 ## v0.17.1 — the update check still never ran (2026-07-20)
 

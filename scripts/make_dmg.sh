@@ -19,6 +19,11 @@ rm -rf "$RES"
 mkdir -p "$RES"
 cp -R rewisp "$RES/rewisp"
 find "$RES" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+# Seal the daemon's bytecode in too, for the same reason as the runtime: anything
+# written inside the bundle at runtime invalidates the signature and macOS then
+# withdraws the Screen Recording grant. Pre-compiled here, never written later.
+ui/Rewisp.app/Contents/Resources/python/bin/python3 -m compileall -q -f \
+    --invalidation-mode unchecked-hash "$RES/rewisp" >/dev/null 2>&1 || true
 cp scripts/install.sh "$RES/install.sh"
 chmod +x "$RES/install.sh"
 # NOT --deep: it re-signs the bundled helper and strips its identifier back to

@@ -123,11 +123,48 @@ assert v is not None
 print("✓ Quartz / Vision / Foundation / AppKit / numpy / model2vec all import")
 EOF
 
-# The verify step above RUNS python, which regenerates __pycache__ inside the
-# bundle. Strip it last so the shipped bundle is pristine: those caches are
-# rebuilt at runtime into ~/Rewisp/.pycache (PYTHONPYCACHEPREFIX) and must never
-# be written back here, since modifying a signed bundle revokes its TCC grants.
-find "$DEST" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
-find "$DEST" -name "*.pyc" -delete 2>/dev/null || true
+# ── make the runtime incapable of modifying its own bundle ─────────────────
+#
+# Writing anything inside a signed .app invalidates its signature, and macOS then
+# refuses to honour the helper's Screen Recording grant — the switch reads ON
+# while the process is denied. Python writes __pycache__ next to every module it
+# imports, so by default this app destroys its own permissions minutes after
+# first run.
+#
+# Relying on PYTHONPYCACHEPREFIX in the launchd plist was not enough: it only
+# covers the daemon. ANY other process invoking this interpreter without that
+# variable re-breaks the seal for everyone (observed live — a diagnostic script
+# run with only PYTHONHOME set wrote 132 .pyc files and revoked the grant).
+#
+# Two layers instead:
+#   1. sitecustomize refuses bytecode writes for every invocation of this
+#      interpreter, whatever the environment.
+#   2. Everything is pre-compiled and sealed in, so nothing WANTS writing.
+#      (An earlier version stripped the caches, which guaranteed Python would try
+#      to regenerate them on every import — precisely backwards.)
+SITE="$DEST/lib/python3.13/site-packages/sitecustomize.py"
+cat > "$SITE" <<'SITECUSTOMIZE'
+"""Never write bytecode into the app bundle.
+
+Rewisp's runtime lives inside Rewisp.app. Anything written in there invalidates
+the bundle's code signature, and macOS responds by silently withdrawing the
+helper's Screen Recording permission. The caches are pre-built and shipped, so
+there is nothing to gain by writing more.
+"""
+
+import sys
+
+sys.dont_write_bytecode = True
+SITECUSTOMIZE
+
+echo "── pre-compiling (sealed in, so nothing is written at runtime) ──"
+# --invalidation-mode unchecked-hash is the load-bearing flag. By default a .pyc
+# is validated against its source file's MTIME, and copying the app (Finder drag,
+# cp -R, the updater) gives every .py a fresh mtime — so every cache looks stale
+# and Python rewrites the lot on first import, breaking the signature before the
+# user has done anything. Hash-based caches carry the source hash instead and are
+# trusted without a timestamp check, so a copied bundle stays valid.
+"$DEST/bin/python3" -m compileall -q -f --invalidation-mode unchecked-hash \
+    "$DEST/lib/python3.13" >/dev/null 2>&1 || true
 
 echo "✓ bundled Python: $(du -sh "$DEST" | cut -f1) at $DEST"
