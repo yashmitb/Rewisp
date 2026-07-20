@@ -43,7 +43,11 @@ echo "── 3/4 swift build ──"
 if [[ -n "$SKIP_BUILD" ]]; then
     echo "skipped (no ui/ changes)"
 else
-    (cd ui && ./build.sh --no-install 2>/dev/null || ./build.sh) | grep -q "built" || fail "swift build"
+    # REWISP_NO_INSTALL, not "--no-install": that flag never existed, so build.sh
+    # fell through to its "install if already installed" branch and the quality
+    # gate silently upgraded /Applications on every push — including onto machines
+    # mid-test, which quietly invalidated whatever version was being tested.
+    (cd ui && REWISP_NO_INSTALL=1 ./build.sh) | grep -q "built" || fail "swift build"
     echo "ok — Rewisp.app builds"
 fi
 
