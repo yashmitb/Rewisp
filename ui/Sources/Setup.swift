@@ -109,6 +109,44 @@ enum Setup {
         return allOK
     }
 
+    /// Remove Rewisp's Screen Recording entries entirely, so the next grant
+    /// creates a fresh one.
+    ///
+    /// This is the step that actually works, and it is not obvious. After an
+    /// update the row in System Settings still says "Rewisp Backend" and still
+    /// looks switched on, but it is bound to the OLD code hash — ad-hoc signing
+    /// means every build is a different identity to macOS. Toggling that row off
+    /// and on re-grants the dead identity, so nothing changes and the user
+    /// concludes the app is broken. `tccutil reset` deletes the row; the next
+    /// grant then binds to the hash that is actually running.
+    ///
+    /// No admin rights needed — a process may reset its own bundle identifiers.
+    /// The app must still exist on disk, since tccutil resolves identifiers by
+    /// looking them up (it answers -10814 otherwise).
+    @discardableResult
+    static func resetScreenPermission() -> Bool {
+        var ok = false
+        for id in ["com.yashmit.rewisp.backend", "com.yashmit.rewisp"] {
+            if run("/usr/bin/tccutil", ["reset", "ScreenCapture", id]) { ok = true }
+        }
+        return ok
+    }
+
+    /// The full sequence that reliably restores capture after an update:
+    /// clear the stale grant, restart the helper so it asks as the new identity,
+    /// ask macOS for the permission, then put System Settings in front of the
+    /// user. Mirrors exactly what works by hand.
+    static func repairScreenPermission() async {
+        resetScreenPermission()
+        restartDaemon()
+        try? await Task.sleep(for: .seconds(2))
+        _ = try? await RewispAPI.post("request-permission")
+        NSWorkspace.shared.open(URL(string:
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
+        await restartWhenPermissionGranted()
+        await MainActor.run { StatusModel.shared.refresh() }
+    }
+
     /// Restart the helper. macOS only applies a Screen Recording grant when the
     /// process restarts, so granting permission does nothing visible until this
     /// runs — users otherwise sit on "permission needed" forever after granting it.

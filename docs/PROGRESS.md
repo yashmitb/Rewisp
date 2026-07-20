@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.17.4, 2026-07-20):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 32 releases (v0.1.0 → v0.17.4).
+**Current status (v0.18.0, 2026-07-20):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 33 releases (v0.1.0 → v0.18.0).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,39 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.18.0 — the update handoff, done properly (2026-07-20)
+
+v0.17.4 explained the post-update permission loss but still left the user to fix
+it, and the instruction it gave did not work: *switch Rewisp Backend back on*.
+
+**The row in System Settings is stale, not off.** After an update it still reads
+"Rewisp Backend" and still appears enabled, but it is bound to the previous
+build's code hash. Toggling it re-grants a dead identity, so nothing happens —
+which is precisely why it kept looking broken no matter what the user did. The
+only thing that works is what I had been doing by hand every time:
+
+    tccutil reset ScreenCapture com.yashmit.rewisp.backend   # delete the row
+    launchctl kickstart -k …/com.rewisp.daemon               # restart as the new identity
+    POST /request-permission                                 # ask fresh
+    open System Settings                                     # grant
+
+Rewisp now does that itself.
+
+- `Setup.resetScreenPermission()` deletes the stale entries. No admin rights
+  needed — a process may reset its own bundle identifiers.
+- `Setup.repairScreenPermission()` runs the whole sequence and then watches for
+  the grant, restarting the helper the moment it lands.
+- **A dedicated window** opens on the first launch after an update, but only when
+  access is genuinely missing. It says what happened, why macOS does it, that
+  nothing was lost, and offers one button: *Fix it for me*. It turns green by
+  itself once capture resumes.
+- **What's new is on the same screen**, expandable, from the release notes the
+  update check already fetched — so the moment reads as "here is your new
+  version" rather than purely as a chore.
+
+Still ad-hoc signing at the root; a Developer ID certificate removes the whole
+situation. This makes the interim honest and one click.
 
 ## v0.17.4 — the permission hiccup, stated plainly (2026-07-20)
 

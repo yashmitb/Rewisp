@@ -77,6 +77,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if OnboardingController.shared.needed {
             OnboardingController.shared.show()
+        } else {
+            // First launch after an update: macOS will have dropped screen access,
+            // and the leftover row in System Settings is stale rather than simply
+            // switched off. Explain it and fix it in one place.
+            PermissionRepairController.shared.showIfNeeded()
         }
         // Local-only automation hook (see .rewispTestAsk). Triggers UI, not data.
         DistributedNotificationCenter.default().addObserver(
