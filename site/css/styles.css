@@ -583,3 +583,29 @@ footer a:hover { color: var(--text); }
   .pr-stage { min-height: 236px; }
   .pr-nudge, .pr-card, .pr-chat { max-width: 100%; }
 }
+
+/* ── standing fix notice ───────────────────────────────────────────────── */
+/* For people who arrive by searching the symptom rather than looking for an
+   update: a pre-0.17.2 Rewisp that lost its screen permission just looks broken,
+   and nothing in the app tells them a newer version fixes it. */
+.notice {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 18px 20px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 176, 87, .28);
+  background: rgba(255, 176, 87, .08);
+}
+.notice-ico { font-size: 20px; line-height: 1.2; color: #ffb057; flex: none; }
+.notice b { color: var(--text, #eef1f8); font-size: 15px; }
+.notice p {
+  margin: 5px 0 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--dim, #93a0bb);
+}
+.notice a { color: #ffb057; }
+@media (max-width: 560px) { .notice { padding: 15px 16px; gap: 11px; } }
