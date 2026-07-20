@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.16.4, 2026-07-20):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 143 tests. 27 releases (v0.1.0 → v0.16.4).
+**Current status (v0.17.0, 2026-07-20):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 28 releases (v0.1.0 → v0.17.0).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -169,6 +169,30 @@ Dia (Chromium-based) fully supports Chrome-style AppleScript (`URL of active tab
 10. **GitHub Pages CDN caches assets ~10 min** — a browser cache-reset refetches from the edge, not origin, so a fixed CSS/JS still looked broken. Version the asset URLs (`styles.css?v=…`) to force a fresh fetch.
 
 ---
+
+## v0.17.0 — first outside contribution (2026-07-20)
+
+[#1](https://github.com/yashmitb/Rewisp/pull/1) from **@yannisxu**, fixing two
+real bugs. Merged as submitted.
+
+- **The bundled runtime broke local-model setup.** v0.12 put `PYTHONHOME` in the
+  launchd plist so the packaged daemon could find its own stdlib. Child processes
+  inherit it, so the MLX virtualenv resolved imports against Rewisp's runtime
+  instead of its own and died at `import encodings` — leaving a directory with a
+  `python` symlink that could not import anything, which `ensure_mlx` then
+  retried `pip` inside forever. Child environments are now sanitised, a broken
+  venv is rebuilt rather than retried, and `_base_python()` resolves the real
+  interpreter instead of `sys.executable` (which under our bundle is the nested
+  `RewispBackend` helper).
+- **ChatGPT Plus users were told they had no ChatGPT.** GUI LaunchAgents run with
+  a minimal `PATH`, so `shutil.which("codex")` failed even with ChatGPT installed
+  and signed in. A single `cli_path()` now checks GUI-safe fallbacks including
+  the Codex binary inside `ChatGPT.app`, and — the subtler half — detection,
+  invocation and benchmarks all use it, so the UI can no longer claim an engine
+  is available while the call fails.
+- **Injection closed:** the Hugging Face repo name was interpolated into a Python
+  string passed to `-c`. It is now `sys.argv[1]`.
+- 4 new tests covering both failure modes. 143 → 147.
 
 ## v0.16.4 — custom APIs blocked by Cloudflare (2026-07-20)
 
@@ -500,7 +524,7 @@ Two packaging bugs found the hard way, both worth remembering:
 
 - **MCP connector** — `python3 -m rewisp mcp` speaks the Model Context Protocol over stdio, so Claude Desktop / Claude Code / Cursor / VS Code / Windsurf / Gemini CLI can query your screen memory as five read-only tools (search_memory, get_context, get_day_summary, get_promises, get_page_changes). Read-only, fully local (no network listener), never spends your subscriptions, Vault excluded by default.
 - **Connect agents** is a top-level sidebar page: a live "Connected" banner (heartbeat when an agent queries), an animated demo, and per-client setup — one-click "Add to Claude Desktop" (writes the config), plus copy/download for every other client. Honest note that ChatGPT connectors are remote-only.
-- **Numbers precision fix** — the "Tracked" card was charting garbage (ad prices, file sizes, progress bars). Now the label must BE a personal metric (weight, grade, steps, heart rate…); money/counts and noise surfaces (streaming/search/AI/Finder) are excluded. Purged 291 junk rows. 143 tests.
+- **Numbers precision fix** — the "Tracked" card was charting garbage (ad prices, file sizes, progress bars). Now the label must BE a personal metric (weight, grade, steps, heart rate…); money/counts and noise surfaces (streaming/search/AI/Finder) are excluded. Purged 291 junk rows. 147 tests.
 
 ## v0.10.0 — it learns how you forget (2026-07-18)
 
