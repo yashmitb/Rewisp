@@ -18,7 +18,18 @@ struct UpdateBanner: View {
         // The Group matters: the banner draws nothing when no update exists, and
         // a view that draws nothing never gets to ask whether one has appeared.
         // Hanging .task out here means opening the window is itself a check.
-        Group {
+        // The zero-height Color is load-bearing. Attaching .task to a Group whose
+        // body is empty does NOT reliably fire — SwiftUI can skip lifecycle
+        // modifiers on a view that renders nothing, which is exactly the state
+        // this view is in before it knows about an update. So the check hung off a
+        // view that only existed once the check had already succeeded.
+        // An always-present zero-height view gives .task something real to attach
+        // to, so opening the window is genuinely a check.
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(height: 0)
+                .task { updates.checkIfStale() }
+
             if updates.updateAvailable {
                 content
                     .padding(expanded ? 14 : 10)
@@ -28,7 +39,6 @@ struct UpdateBanner: View {
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: phase)
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: updates.updateAvailable)
-        .task { updates.checkIfStale() }
     }
 
     private var background: some ShapeStyle {

@@ -94,6 +94,9 @@ struct MainWindowContent: View {
         }
         .frame(minWidth: 800, minHeight: 540)
         .background(.background)
+        // Opening the window is a check, independent of whether the banner is
+        // currently rendering anything.
+        .task { UpdateChecker.shared.checkIfStale() }
     }
 }
 

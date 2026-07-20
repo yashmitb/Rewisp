@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.17.0, 2026-07-20):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 28 releases (v0.1.0 → v0.17.0).
+**Current status (v0.17.1, 2026-07-20):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 29 releases (v0.1.0 → v0.17.1).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,25 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.17.1 — the update check still never ran (2026-07-20)
+
+v0.16.3 claimed to fix "the banner never appears". It did not.
+
+The fix attached `.task { checkIfStale() }` to a `Group` whose body is empty when
+no update is known — and SwiftUI does not reliably run lifecycle modifiers on a
+view that renders nothing. So the check hung off a view that only existed once
+the check had already succeeded: the same chicken-and-egg, one layer down, and it
+looked fixed because the code read as though it were.
+
+- The banner now keeps an always-present zero-height `Color.clear` and hangs
+  `.task` on that, so there is a real view to attach to regardless of state.
+- `MainWindow` also checks on appear, so opening the window is a check even if
+  the banner never renders at all.
+
+Worth remembering: "the modifier is on the view" is not the same as "the modifier
+runs". If a conditional view can be empty, put lifecycle work on something that
+is always there.
 
 ## v0.17.0 — first outside contribution (2026-07-20)
 
