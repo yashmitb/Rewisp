@@ -184,6 +184,20 @@ def api_token() -> str:
         if tok:
             return tok
     tok = secrets.token_hex(16)
-    TOKEN_PATH.write_text(tok)
-    TOKEN_PATH.chmod(0o600)
+    # Create with 0600 already set, rather than writing then chmod-ing. That
+    # sequence leaves the secret world-readable for the moment in between, and
+    # this token is the only thing standing between another process and the
+    # entire screen history. O_EXCL so a pre-placed file cannot be hijacked.
+    import os
+    try:
+        fd = os.open(TOKEN_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        # Raced with another writer; theirs is as good as ours.
+        existing = TOKEN_PATH.read_text().strip()
+        if existing:
+            return existing
+        os.chmod(TOKEN_PATH, 0o600)
+        fd = os.open(TOKEN_PATH, os.O_WRONLY | os.O_TRUNC)
+    with os.fdopen(fd, "w") as f:
+        f.write(tok)
     return tok

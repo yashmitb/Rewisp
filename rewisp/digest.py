@@ -188,7 +188,13 @@ def run(day: datetime | None = None, force: bool = False) -> dict | None:
 
     conn = db.connect()
     text = build_input(conn, day)
-    prompt = f"{PROMPT_RULES}\n\n{text}"
+    # A whole day of screen text, going to a cloud engine. Highest-volume path
+    # for attacker-controlled content in the app, so it gets the same treatment.
+    from . import sanitize
+    fence = sanitize.new_fence()
+    prompt = (f"{PROMPT_RULES}\n\n{sanitize.TRUST_NOTICE}\n\n"
+              f"# CAPTURED [begin {fence}]\n{sanitize.scrub(text, fence)}\n"
+              f"[end {fence}]")
     log.info("digest: calling engine chain for %s (%d chars input)", date_str, len(prompt))
     # Engine CHAIN, not Claude-only: when Claude's session limit is hit at 9 PM
     # the digest used to fail all night even with Gemini available. Still exactly

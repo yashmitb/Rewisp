@@ -534,8 +534,17 @@ def build_prompt(question: str, compact: bool = False) -> tuple[str, dict]:
             meta["fact"] = fact
         now_local = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %A")
         rules = COMPACT_SYSTEM_RULES if compact else SYSTEM_RULES
-        prompt = (f"{rules}\n\nUser's local time now: {now_local} ({_local_offset()})\n\n"
-                  f"# CONTEXT\n{context}\n\n# QUESTION\n{question}")
+        # Fence the retrieved text and say plainly that it is data. Rewisp reads
+        # pages an attacker may control, so the context is genuinely untrusted
+        # input to a model that can also see the Vault — indirect prompt
+        # injection, OWASP LLM01. See rewisp/sanitize.py for the reasoning.
+        from . import sanitize
+        fence = sanitize.new_fence()
+        safe_context = sanitize.scrub(context, fence)
+        prompt = (f"{rules}\n\n{sanitize.TRUST_NOTICE}\n\n"
+                  f"User's local time now: {now_local} ({_local_offset()})\n\n"
+                  f"# CONTEXT [begin {fence}]\n{safe_context}\n[end {fence}]\n\n"
+                  f"# QUESTION\n{question}")
         return prompt, meta
     finally:
         conn.close()
@@ -910,8 +919,14 @@ def ask(question: str, save: bool = True) -> tuple[str, dict]:
     if not context.strip():
         return "Not found in your memory. (No matching captures.)", meta
     now_local = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %A")
-    prompt = (f"{SYSTEM_RULES}\n\nUser's local time now: {now_local} ({_local_offset()})\n\n"
-              f"# Context\n{context}\n\n# Question\n{question}")
+    # Same fencing as build_prompt. This is the path that reaches CLOUD engines,
+    # so leaving it raw would have been the more exposed of the two.
+    from . import sanitize
+    fence = sanitize.new_fence()
+    prompt = (f"{SYSTEM_RULES}\n\n{sanitize.TRUST_NOTICE}\n\n"
+              f"User's local time now: {now_local} ({_local_offset()})\n\n"
+              f"# CONTEXT [begin {fence}]\n{sanitize.scrub(context, fence)}\n"
+              f"[end {fence}]\n\n# QUESTION\n{question}")
     raw, engine = call_llm(prompt)
     fields = parse_answer(raw)
     # Failed re-find -> show the nearest moments instead of a dead end (the user

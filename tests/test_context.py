@@ -7,6 +7,14 @@ import unittest.mock as mock
 from rewisp import ask, db
 
 
+# TODAY was flaky for one hour a night: run the suite at 00:30 and a wisp an
+# hour old belongs to YESTERDAY in local time, so a "what did I do today" query
+# correctly excluded it and the test failed on a product that was working. These
+# tests are about the time WINDOW, not about clock arithmetic, so today-wisps are
+# pinned to the current minute — always inside today, whenever the suite runs.
+TODAY = "-1 minutes"
+
+
 def _wisp(conn, text, ago, app="Dia"):
     conn.execute("INSERT INTO captures (ts, app, window_title, url, ocr_text, page_key) "
                  "VALUES (datetime('now', ?), ?, NULL, NULL, ?, 'k')", (ago, app, text))
@@ -23,14 +31,14 @@ class TestActivityQuestions:
 
     def test_today_context_excludes_old_captures(self, conn):
         _wisp(conn, "OLD project meeting notes alpha", "-6 days")
-        _wisp(conn, "TODAY editing the rewisp landing page", "-1 hours")
+        _wisp(conn, "TODAY editing the rewisp landing page", TODAY)
         with mock.patch("rewisp.embed.embed_vec", return_value=None):
             ctx, meta = ask.build_context(conn, "what did I do today?", compact=True)
         assert "TODAY editing" in ctx and "OLD project" not in ctx
 
     def test_summarize_my_day_gets_today_window(self, conn):
         _wisp(conn, "OLD thing beta", "-6 days")
-        _wisp(conn, "TODAY thing gamma", "-1 hours")
+        _wisp(conn, "TODAY thing gamma", TODAY)
         with mock.patch("rewisp.embed.embed_vec", return_value=None):
             ctx, meta = ask.build_context(conn, "summarize my day", compact=True)
         assert meta["since"] is not None          # defaulted to today
@@ -39,7 +47,7 @@ class TestActivityQuestions:
     def test_activity_question_skips_vault(self, conn):
         conn.execute("INSERT INTO vault_files (path, content, mtime) VALUES "
                      "('portfolio.pdf', 'my work on GradeHQ project', 0)")
-        _wisp(conn, "TODAY writing tests", "-1 hours")
+        _wisp(conn, "TODAY writing tests", TODAY)
         conn.commit()
         with mock.patch("rewisp.embed.embed_vec", return_value=None):
             ctx, _ = ask.build_context(conn, "what did I work on today", compact=True)
