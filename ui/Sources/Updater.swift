@@ -45,7 +45,15 @@ enum Updater {
         // hold a full copy of the app each, so they are not small.
         if let stale = try? fm.contentsOfDirectory(atPath: NSTemporaryDirectory()) {
             for name in stale where name.hasPrefix("rewisp-update-") {
-                try? fm.removeItem(atPath: NSTemporaryDirectory() + "/" + name)
+                let dir = NSTemporaryDirectory() + "/" + name
+                // Detach first: a leftover mount inside makes the directory
+                // undeletable, so removing it blind reclaims nothing.
+                if let inner = try? fm.contentsOfDirectory(atPath: dir) {
+                    for sub in inner where sub.hasPrefix("dmg.") {
+                        _ = shell("/usr/bin/hdiutil", ["detach", dir + "/" + sub, "-force", "-quiet"])
+                    }
+                }
+                try? fm.removeItem(atPath: dir)
             }
         }
         do { try fm.createDirectory(at: work, withIntermediateDirectories: true) }
@@ -89,6 +97,13 @@ enum Updater {
         guard fm.fileExists(atPath: staged.path + "/Contents/MacOS/Rewisp"),
               fm.fileExists(atPath: staged.path + "/Contents/MacOS/RewispBackend.app")
         else { return fail("The downloaded update looks incomplete. Try again.") }
+
+        // Detach explicitly, here, rather than trusting the `defer` above.
+        // NSApp.terminate never returns, so on the SUCCESS path that defer never
+        // ran: every completed update left its disk image mounted and ~213 MB of
+        // staging on disk, accumulating silently (three were found live).
+        // The app is already copied out, so the mount has served its purpose.
+        _ = shell("/usr/bin/hdiutil", ["detach", mount, "-force", "-quiet"])
 
         // ── 3. hand off: everything left is fast ─────────────────────────────
         progress(.restarting)

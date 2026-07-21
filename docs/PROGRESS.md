@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.18.4, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 37 releases (v0.1.0 → v0.18.4).
+**Current status (v0.18.5, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 38 releases (v0.1.0 → v0.18.5).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,28 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.18.5 — every successful update leaked 213 MB (2026-07-21)
+
+Found while clearing the staging directories left by the v0.18.4 bug: they could
+not be deleted, because each still had a **mounted disk image inside it**.
+
+`installUpdate` detached the image with `defer`. That covers every early return,
+and it is exactly wrong for the success path — `NSApp.terminate` never returns,
+so the deferred detach never executed. Every *successful* update therefore left
+its disk image attached and roughly 213 MB of staging on disk, permanently and
+silently. Three were found live on one machine, about 640 MB.
+
+- The image is detached explicitly before the handoff, once the app has been
+  copied out and the mount has served its purpose. The `defer` stays for the
+  early-return paths.
+- The stale-staging sweep detaches any leftover mounts before deleting, since a
+  mount point inside a directory makes it undeletable and blind removal reclaims
+  nothing.
+
+Worth remembering: `defer` and `NSApp.terminate` do not compose. Anything that
+must happen before the process exits has to be written before the exit, not
+deferred to a scope unwind that will never come.
 
 ## v0.18.4 — the updater was killing its own helper (2026-07-21)
 
