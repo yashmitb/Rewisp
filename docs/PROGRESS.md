@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.20.1, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 44 releases (v0.1.0 → v0.20.1).
+**Current status (v0.21.0, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 45 releases (v0.1.0 → v0.21.0).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,44 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.21.0 — one click to connect any agent (2026-07-21)
+
+A friend hit the Gemini CLI card and asked *"do I have to run this in my
+terminal?"* Reasonable: a grey monospace block with a Copy button looks exactly
+like a command, and the only thing saying otherwise was tertiary-grey text
+underneath it, half cut off.
+
+Researched each client's config location and schema first
+([Cursor](https://www.nxcode.io/resources/news/cursor-mcp-servers-complete-guide-2026)
+`~/.cursor/mcp.json`, Windsurf `~/.codeium/windsurf/mcp_config.json`, Gemini CLI
+`~/.gemini/settings.json`, VS Code uniquely using `servers` rather than
+`mcpServers`), then built and tested the writer against scratch files before
+letting it near the app.
+
+- **"Set up X for me"** now appears for Cursor, Windsurf and Gemini CLI, joining
+  the Claude Desktop button. Rewisp writes the config itself.
+- **VS Code stays manual on purpose** — its config is per-project, so there is no
+  single correct file to write. The card says so instead of pretending.
+- **Every code block now states what it is, above it**: "Paste into ~/.gemini/
+  settings.json" with a document icon, or "Run this in Terminal" with a terminal
+  icon. The distinction is now unmissable rather than inferred.
+
+**A data-loss bug in the existing Claude Desktop installer**, found while
+generalising it: on a config file that failed to parse it fell back to `{}` and
+wrote that, **silently destroying every other MCP server the user had
+configured**. It now backs the file up, refuses, and explains why — destroying
+someone's editor config to add ourselves is never the right trade. Writes go
+through a temp file and an atomic replace, so a crash mid-write cannot leave a
+half-written config either.
+
+Ten tests cover the damaging cases specifically: malformed JSON, a non-object
+root, a non-object `mcpServers`, other servers present, unrelated top-level keys
+(Gemini's `settings.json` holds far more than MCP config), idempotent reinstall,
+and no temp files left behind. Verified against a realistic Gemini config with an
+existing filesystem server — theme, auth and that server all survived.
+
+194 tests.
 
 ## v0.20.1 — recall is 4x faster, and one bad byte no longer breaks search (2026-07-21)
 

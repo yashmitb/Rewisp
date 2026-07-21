@@ -109,9 +109,12 @@ struct RewispAPI {
         var text: String
         var location: String
         var note: String
+        /// Client id when Rewisp can write the config itself; nil when it can't
+        /// (VS Code keeps its config per-project).
+        var install: String?
         var id: String { name }
         enum CodingKeys: String, CodingKey {
-            case name, icon, kind, text, note
+            case name, icon, kind, text, note, install
             case location = "where"
         }
     }

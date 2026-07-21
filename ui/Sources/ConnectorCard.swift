@@ -21,6 +21,8 @@ struct ConnectorSection: View {
     @State private var status: RewispAPI.MCPStatus?
     @State private var selected = "Claude Desktop"
     @State private var installedFlash = false
+    @State private var installing: String?
+    @State private var installResult: [String: Any]?
     @State private var exposeVault = false
 
     private var clients: [RewispAPI.MCPClient] { status?.clients ?? [] }
@@ -158,16 +160,82 @@ struct ConnectorSection: View {
             }
         case "cli":
             VStack(alignment: .leading, spacing: 10) {
+                Label {
+                    Text("Run this in Terminal").font(.caption.weight(.medium))
+                } icon: {
+                    Image(systemName: "terminal.fill").foregroundStyle(Theme.accent)
+                }
                 codeBox(c.text, tall: false)
                 copyButton(c.text)
                 if !c.note.isEmpty { Text(c.note).font(.caption).foregroundStyle(.tertiary) }
                 fileHint(c)
             }
         default:  // "config"
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
+                // One click where we know the file. A friend hit the manual path
+                // and asked "do I have to run this in my terminal?" — the code
+                // block looks like a command, and the only thing saying otherwise
+                // was grey text below it.
+                if let target = c.install {
+                    Button {
+                        installing = target
+                        Task { @MainActor in
+                            let data = try? await RewispAPI.post(
+                                "mcp/install", body: ["client": target])
+                            installResult = data.flatMap {
+                                try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
+                            }
+                            installing = nil
+                        }
+                    } label: {
+                        Label(installing == target
+                              ? "Setting up…" : "Set up \(c.name) for me",
+                              systemImage: "wand.and.stars")
+                            .frame(maxWidth: .infinity).padding(.vertical, 4)
+                    }
+                    .controlSize(.large).buttonStyle(.borderedProminent)
+                    .disabled(installing != nil)
+
+                    if let r = installResult, installing == nil {
+                        if r["ok"] as? Bool == true {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Label("Added to \(c.name)", systemImage: "checkmark.circle.fill")
+                                    .font(.caption).foregroundStyle(.green)
+                                if let kept = r["kept"] as? [String], !kept.isEmpty {
+                                    Text("Your other servers were left alone: \(kept.joined(separator: ", "))")
+                                        .font(.caption2).foregroundStyle(.tertiary)
+                                }
+                                Text(c.note).font(.caption2).foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Label((r["error"] as? String) ?? "Couldn't set it up automatically.",
+                                  systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption).foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    Text("Or do it yourself:")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                }
+
+                // Say what this IS before showing it. The label sits above the
+                // block because that is where people look before acting.
+                Label {
+                    Text(c.install != nil
+                         ? "Paste into \(c.location)"
+                         : "Paste this into \(c.location) — it's a file, not a command")
+                        .font(.caption.weight(.medium))
+                } icon: {
+                    Image(systemName: "doc.text.fill").foregroundStyle(Theme.accent)
+                }
+
                 codeBox(c.text, tall: true)
                 manualButtons(c)
-                if !c.note.isEmpty { Text(c.note).font(.caption).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true) }
+                if !c.note.isEmpty {
+                    Text(c.note).font(.caption).foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 fileHint(c)
             }
         }

@@ -439,6 +439,12 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/mcp/install-desktop":
                 from . import mcp as _mcp
                 self._json(_mcp.install_to_desktop())
+            elif self.path == "/mcp/install":
+                # One-click setup for any client whose config file we can locate.
+                # VS Code is deliberately absent: its config is workspace-relative,
+                # so there is no single correct file to write.
+                from . import mcp as _mcp
+                self._json(_mcp.install_for(body.get("client", "")))
             elif self.path == "/nudge/test":
                 # Enqueue a demo nudge so the pill UI can be seen while nudges are
                 # still disabled. Points at the most recent real wisp if there is one.

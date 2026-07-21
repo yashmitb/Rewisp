@@ -28,7 +28,7 @@ from . import config, db
 log = logging.getLogger("rewisp")
 
 PROTOCOL_VERSION = "2024-11-05"
-SERVER_INFO = {"name": "rewisp", "version": "0.20.1"}
+SERVER_INFO = {"name": "rewisp", "version": "0.21.0"}
 
 # The MCP server runs as a separate short-lived process spawned by the client, so
 # the menu-bar app can't see it directly. It records a heartbeat here on every
@@ -315,24 +315,29 @@ def client_setups() -> list[dict]:
          "where": "Run in Terminal.",
          "note": "Then just talk to Claude Code — it'll use the tools automatically."},
         {"name": "Cursor", "icon": "cursorarrow.rays", "kind": "config",
-         "text": mcp_json, "where": f"{home}/.cursor/mcp.json",
-         "note": "Create/merge this file, then reload Cursor. Also visible in Cursor → Settings → MCP."},
+         "text": mcp_json, "where": f"{home}/.cursor/mcp.json", "install": "cursor",
+         "note": "Then quit and reopen Cursor. You'll see Rewisp under Settings → MCP."},
         {"name": "Windsurf", "icon": "wind", "kind": "config",
          "text": mcp_json, "where": f"{home}/.codeium/windsurf/mcp_config.json",
-         "note": "Create/merge this file, then reload Windsurf."},
+         "install": "windsurf",
+         "note": "Then quit and reopen Windsurf."},
         {"name": "VS Code", "icon": "chevron.left.forwardslash.chevron.right", "kind": "config",
          "text": json.dumps({"servers": {"rewisp": {"type": "stdio", **entry}}}, indent=2),
-         "where": ".vscode/mcp.json (in your workspace)",
-         "note": "VS Code uses `servers` + a stdio type. Needs GitHub Copilot / Agent mode."},
+         "where": ".vscode/mcp.json (inside your project folder)",
+         "note": "VS Code keeps this per-project, so Rewisp can't place it for you. "
+                 "Make a .vscode folder in your project, put this in mcp.json, reload "
+                 "VS Code. Needs GitHub Copilot in Agent mode."},
         {"name": "Gemini CLI", "icon": "sparkle", "kind": "config",
          "text": mcp_json, "where": f"{home}/.gemini/settings.json",
-         "note": "Merge into your Gemini CLI settings under mcpServers."},
+         "install": "gemini-cli",
+         "note": "Then close and reopen Gemini CLI. Ask it \"what tools do you have?\" to check."},
         {"name": "ChatGPT", "icon": "bubble.left.and.bubble.right", "kind": "note",
          "text": "", "where": "",
          "note": "ChatGPT's connectors accept only REMOTE MCP servers (a public https URL). Rewisp is local by design (your memory never leaves the Mac), so it can't be added to ChatGPT without exposing a server to the internet — not recommended."},
         {"name": "Other client", "icon": "curlybraces", "kind": "config",
-         "text": mcp_json, "where": "your client's MCP config",
-         "note": "Any client that reads an `mcpServers` block will work with this."},
+         "text": mcp_json, "where": "your client's MCP config file",
+         "note": "Any client that reads an mcpServers block works. Paste this into "
+                 "its config file (not a terminal), then restart it."},
     ]
 
 
@@ -351,20 +356,78 @@ def desktop_installed() -> bool:
         return False
 
 
-def install_to_desktop() -> dict:
-    """Merge the rewisp server into Claude Desktop's config (creating it if
-    needed). Non-destructive — preserves any other configured servers."""
-    p = desktop_config_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    cfg = {}
-    if p.exists():
+# Where each client keeps its MCP config, and which root key it uses. VS Code is
+# the odd one out: `servers`, not `mcpServers`, and its file is workspace-relative
+# so there is no single path to write.
+INSTALL_TARGETS = {
+    "claude-desktop": {"path": lambda: desktop_config_path(), "key": "mcpServers"},
+    "cursor":         {"path": lambda: config.HOME / ".cursor" / "mcp.json",
+                       "key": "mcpServers"},
+    "windsurf":       {"path": lambda: config.HOME / ".codeium" / "windsurf" / "mcp_config.json",
+                       "key": "mcpServers"},
+    "gemini-cli":     {"path": lambda: config.HOME / ".gemini" / "settings.json",
+                       "key": "mcpServers"},
+}
+
+
+def install_for(client: str) -> dict:
+    """Merge the rewisp server into a client's config file.
+
+    Non-destructive, and defensively so: these files belong to the user's editor,
+    not to us. A previous version parsed the file and fell back to `{}` when the
+    JSON was malformed, which silently overwrote every other MCP server they had
+    configured. Now a file we cannot parse is backed up and refused, because
+    destroying someone's editor config to add ourselves is never the right trade.
+    """
+    target = INSTALL_TARGETS.get(client)
+    if not target:
+        return {"ok": False, "error": f"No automatic setup for {client!r}."}
+
+    p = target["path"]()
+    key = target["key"]
+    cfg: dict = {}
+
+    if p.exists() and p.stat().st_size:
+        raw = p.read_text()
         try:
-            cfg = json.loads(p.read_text())
-        except ValueError:
-            cfg = {}
-    cfg.setdefault("mcpServers", {})["rewisp"] = server_entry()
-    p.write_text(json.dumps(cfg, indent=2))
-    return {"ok": True, "path": str(p)}
+            cfg = json.loads(raw)
+            if not isinstance(cfg, dict):
+                raise ValueError("top level is not an object")
+        except ValueError as e:
+            backup = p.with_suffix(p.suffix + ".rewisp-backup")
+            try:
+                backup.write_text(raw)
+            except OSError:
+                pass
+            return {"ok": False, "path": str(p), "backup": str(backup),
+                    "error": f"That file isn't valid JSON ({e}), so Rewisp didn't "
+                             f"touch it — editing it automatically could have wiped "
+                             f"your other servers. A copy is saved alongside it."}
+
+    existing = cfg.get(key)
+    if existing is not None and not isinstance(existing, dict):
+        return {"ok": False, "path": str(p),
+                "error": f"'{key}' in that file isn't an object, so Rewisp left it alone."}
+
+    others = sorted(k for k in (existing or {}) if k != "rewisp")
+    cfg.setdefault(key, {})["rewisp"] = server_entry()
+
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        # Write via a temp file in the same directory, then replace: a crash
+        # mid-write must not leave a half-written config behind.
+        tmp = p.with_suffix(p.suffix + ".rewisp-tmp")
+        tmp.write_text(json.dumps(cfg, indent=2) + "\n")
+        tmp.replace(p)
+    except OSError as e:
+        return {"ok": False, "path": str(p), "error": f"Couldn't write it: {e}"}
+
+    return {"ok": True, "path": str(p), "kept": others}
+
+
+def install_to_desktop() -> dict:
+    """Kept for the existing Claude Desktop button."""
+    return install_for("claude-desktop")
 
 
 def _reply(msg_id, result=None, error=None):
