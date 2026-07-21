@@ -4,6 +4,32 @@ Audited 2026-07-08. Threat model: Rewisp stores everything the user sees on scre
 
 ## Data at rest
 
+**Encrypted** since v0.23.0: SQLCipher, AES-256, 256,000 KDF iterations. The WAL
+and shared-memory sidecars carry no plaintext either — verified specifically,
+since encrypting only the main file would be theatre.
+
+The key is 256 bits from `secrets`, stored in the login Keychain and read via
+`/usr/bin/security`. That indirection is deliberate: Keychain ACLs bind to the
+calling binary's code identity, Rewisp is ad-hoc signed, and its identity changes
+every release — binding the item to our own binary would produce a prompt or a
+denial after every update, exactly the failure that made Screen Recording so
+painful. `security` is Apple-signed and stable.
+
+**What this defends against:** a stolen or imaged disk, a Time Machine or other
+backup, `~/Rewisp` copied or synced anywhere, and any other account on the Mac.
+
+**What it does not:** a process already running as your user. It can read the same
+Keychain item, or simply call the local API. Touch ID gating would not close this
+either — the capture daemon must hold the key continuously to work at all, so the
+only thing gating would add is a gap in the timeline after every reboot.
+
+Migration from a plaintext database is automatic and refuses to lose data: it
+exports to a new file, verifies row counts per table *and* runs a real FTS query
+against the copy, and only then swaps. The original is kept as
+`rewisp.plaintext-backup`. Any failure leaves the plaintext file byte-identical.
+
+## Historical: plaintext at rest (before v0.23.0)
+
 - `~/Rewisp/` is `chmod 700` (enforced on every daemon start).
 - Screenshots are **never written to disk** — `CGDisplayCreateImage` → Vision OCR in memory → released. Only text rows exist.
 - Captures/chats auto-delete after ~6 months (`RETENTION_DAYS`).

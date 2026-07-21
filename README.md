@@ -86,7 +86,7 @@ Nightly digest (9 PM) → one call → recap · loose threads · things worth re
 ### Honest about the boundaries
 
 - Rewisp only reads **text rendered on screen**. A promise made out loud on a call is invisible to it unless it appears as a caption, a transcript, or something you type.
-- The database is **plaintext SQLite**. FileVault and your account permissions are what protect it at rest. App-level encryption is on the roadmap. If your threat model includes someone with access to your unlocked session, Rewisp does not defend against that today.
+- The database is **encrypted at rest** (SQLCipher, AES-256). The key lives in your login Keychain and unlocks automatically, because the capture daemon has to run before you've touched the machine. That protects the file itself: a stolen disk, a backup, a copied folder, another account. It does **not** protect against a process already running as you — that process can read the same Keychain item. Touch ID gating wouldn't change that, since the daemon must hold the key to keep capturing.
 - Answers are only as good as what was on screen. "Not found in your memory" means it genuinely wasn't there.
 
 ## Contributing
@@ -99,7 +99,7 @@ Contributions are welcome, and the first outside PR ([#1](https://github.com/yas
 git clone https://github.com/yashmitb/Rewisp.git
 cd Rewisp
 pip3 install pyobjc model2vec pytest    # model2vec powers semantic search; optional
-python3 -m pytest tests/ -q             # 203 tests, should be green
+python3 -m pytest tests/ -q             # 214 tests, should be green
 python3 -m rewisp daemon                # grant Screen Recording when prompted
 cd ui && ./build.sh --install           # builds + installs /Applications/Rewisp.app
 ```

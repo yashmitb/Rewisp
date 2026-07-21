@@ -29,6 +29,9 @@ DEPS=(
   "pyobjc-framework-ApplicationServices"
   "numpy"
   "model2vec"
+  # Encryption at rest. Self-contained wheel with SQLCipher statically linked,
+  # so there is no system library to find and nothing for the user to install.
+  "sqlcipher3"
 )
 
 if [[ ! -d "ui/Rewisp.app" ]]; then
@@ -118,9 +121,13 @@ echo "✓ helper bundle: Contents/MacOS/RewispBackend.app (com.yashmit.rewisp.ba
 echo "── verifying ──"
 "$PY" - <<'EOF'
 import Quartz, Vision, Foundation, AppKit, numpy, model2vec
+from sqlcipher3 import dbapi2 as _sq
+_c = _sq.connect(":memory:"); _c.execute("PRAGMA key = 'x'")
+_c.execute("CREATE VIRTUAL TABLE f USING fts5(b)")   # FTS5 must survive encryption
 v = Vision.VNRecognizeTextRequest.alloc().init()
 assert v is not None
-print("✓ Quartz / Vision / Foundation / AppKit / numpy / model2vec all import")
+print("✓ Quartz / Vision / Foundation / AppKit / numpy / model2vec import")
+print("✓ SQLCipher works and FTS5 survives encryption")
 EOF
 
 # ── make the runtime incapable of modifying its own bundle ─────────────────

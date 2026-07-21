@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.22.0, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 47 releases (v0.1.0 → v0.22.0).
+**Current status (v0.23.0, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 48 releases (v0.1.0 → v0.23.0).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,60 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.23.0 — the database is encrypted at rest (2026-07-21)
+
+Asked for publicly by two people on launch day, and answered honestly at the time
+with "FileVault is the encryption at rest, app-level is the obvious next step".
+This is that step.
+
+**Research first, because the last check was wrong.** An earlier session
+concluded SQLCipher was unavailable, having queried `sqlcipher3-binary` — the
+wrong package name. `sqlcipher3` 0.6.2 ships a self-contained
+`cp313-macosx_11_0_arm64` wheel with SQLCipher statically linked. Everything was
+then verified before a line of production code was written:
+
+| | |
+|---|---|
+| FTS5 under encryption | works — the make-or-break, since search *is* the product |
+| WAL / SHM sidecars | no plaintext leak, checked specifically |
+| Search cost | 1.19x |
+| Write cost / size | 1.43x / +3% |
+| Crypto | SQLCipher 4.12, AES-256, 256,000 KDF iterations |
+| Migration of the real 78 MB / 12,390-wisp database | 0.7s, counts identical, 4,347 FTS hits, all embeddings |
+| Keychain from a launch agent | reads silently, no prompt |
+
+**Key custody, and what it honestly buys.** The daemon must capture before anyone
+has touched the machine, so the key unlocks automatically from the login
+Keychain. That protects the file at rest — a stolen disk, a backup, a copied
+folder, another account. It does **not** protect against a process already
+running as you, which can read the same item. Touch ID gating would not fix that,
+because the daemon still has to hold the key; it would only add a hole in the
+timeline after every reboot. Documented as such rather than quietly upgrading the
+claim.
+
+Read through `/usr/bin/security` rather than the Security framework: Keychain
+ACLs bind to the calling binary's code identity, and ad-hoc signing changes ours
+every release. Binding to our own binary would mean a prompt or denial after each
+update — the Screen Recording failure, repeated.
+
+**Zero extra steps.** New installs are born encrypted. Existing databases convert
+on the next start, in about a second, with no prompt.
+
+**Every failure mode falls back to working.** No SQLCipher, no Keychain, a key
+that fails a round trip, or any exception at all, and Rewisp stays on the
+plaintext database. Encryption must never be why someone cannot open their own
+memory. The one case that raises instead of falling back is an already-encrypted
+database whose key is missing — returning a fresh empty database there would look
+exactly like losing everything.
+
+Migration verifies row counts per table **and** runs a real FTS query against the
+copy before swapping, because a file that opens is not the same as a file that
+works. Proven against a genuinely plaintext database: an induced failure leaves
+the original byte-identical, all rows readable, no debris, and a later attempt
+succeeds with `rewisp.plaintext-backup` kept.
+
+214 tests.
 
 ## v0.22.0 — the fast answer stops being thrown away (2026-07-21)
 

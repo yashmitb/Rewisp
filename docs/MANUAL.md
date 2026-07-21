@@ -8,6 +8,23 @@ leaves the Mac); hard questions and the nightly digest use a stronger engine
 
 ---
 
+## Your data is encrypted
+
+The database is encrypted with SQLCipher (AES-256). You don't set this up and
+there's nothing to remember: the key is generated on first run and kept in your
+login Keychain, and Rewisp unlocks it automatically.
+
+If you were using Rewisp before this, it converts your existing database the next
+time it starts. That takes about a second, keeps a copy of the old file next to it
+until everything checks out, and needs nothing from you.
+
+What this protects: the file itself. Someone who takes the disk, restores a
+backup, or copies `~/Rewisp` gets ciphertext.
+
+What it doesn't: a program already running as you, which can read the same
+Keychain entry. That's the honest limit of automatic unlocking, and the daemon
+needs automatic unlocking to capture at all.
+
 ## A note on the Vault and Touch ID
 
 The Vault tab is gated by Touch ID, and that is a UI gate: it stops someone

@@ -1,6 +1,7 @@
 """SQLite store: captures + FTS5, summaries, chats, entities. WAL mode, UTC timestamps."""
 
 import logging
+import pathlib
 import sqlite3
 from datetime import datetime, timezone
 
@@ -166,13 +167,125 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.commit()
 
 
+def _driver():
+    """SQLCipher when it is available, plain sqlite3 otherwise.
+
+    The API is identical, so everything above this line is unaffected either way.
+    """
+    try:
+        from sqlcipher3 import dbapi2 as driver
+        return driver
+    except ImportError:
+        return sqlite3
+
+
 def connect() -> sqlite3.Connection:
     config.ensure_dirs()
-    conn = sqlite3.connect(config.DB_PATH)
+    from . import crypto
+
+    driver = _driver()
+    key = None
+    if driver is not sqlite3:
+        # Encrypt automatically, with no step for the user. If anything about the
+        # key is unavailable we stay on the plaintext database rather than
+        # failing: encryption must never be the reason someone cannot open their
+        # own memory.
+        try:
+            key = crypto.get_key(create=True)
+            if key:
+                _encrypt_in_place_if_needed(driver, key)
+        except Exception:  # noqa: BLE001
+            log.exception("encryption setup failed — continuing unencrypted")
+            key = None
+
+    # A database already encrypted on disk MUST be opened with the key, even if
+    # something above went wrong; opening it without one would look like
+    # corruption and could tempt a caller into recreating it.
+    if key is None and crypto.is_encrypted(config.DB_PATH):
+        key = crypto.get_key(create=False)
+        if key is None:
+            raise RuntimeError(
+                "The Rewisp database is encrypted but its key could not be read "
+                "from the Keychain. Nothing has been changed.")
+
+    conn = driver.connect(config.DB_PATH)
+    if key:
+        conn.execute(f"PRAGMA key = \"x'{key}'\"")
+        conn.execute("SELECT count(*) FROM sqlite_master")   # fails fast on a bad key
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
     _migrate(conn)
     return conn
+
+
+def _encrypt_in_place_if_needed(driver, key: str) -> None:
+    """Convert an existing plaintext database, once, safely.
+
+    Deliberately paranoid about ordering, because the input is months of the
+    user's memory and there is no second copy:
+
+      1. export into a NEW file, leaving the original untouched
+      2. verify the copy independently — row counts per table AND a real FTS
+         query, since a file that opens is not the same as a file that works
+      3. only then move the original aside and swap the new one in
+      4. keep the original until the next clean start
+
+    Any failure leaves the plaintext database exactly where it was.
+    """
+    from . import crypto
+    path = pathlib.Path(config.DB_PATH)
+    if not path.exists() or path.stat().st_size == 0:
+        return                       # fresh install: created encrypted below
+    if crypto.is_encrypted(path):
+        return                       # already done
+
+    tmp = path.with_suffix(".encrypting")
+    tmp.unlink(missing_ok=True)
+    log.info("encryption: converting the database (%.0f MB)", path.stat().st_size / 1e6)
+
+    tables = [r[0] for r in sqlite3.connect(path).execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
+    before = {}
+    src = sqlite3.connect(path)
+    for t in tables:
+        try:
+            before[t] = src.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+        except sqlite3.DatabaseError:
+            pass                     # virtual/shadow tables aren't all countable
+    src.close()
+
+    conn = driver.connect(str(path))          # plaintext source takes no key
+    conn.execute(f"ATTACH DATABASE '{tmp}' AS enc KEY \"x'{key}'\"")
+    conn.execute("SELECT sqlcipher_export('enc')")
+    conn.execute("DETACH DATABASE enc")
+    conn.close()
+
+    check = driver.connect(str(tmp))
+    check.execute(f"PRAGMA key = \"x'{key}'\"")
+    after = {}
+    for t in before:
+        after[t] = check.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+    # Opening is not the same as working: prove the search index came across.
+    try:
+        check.execute("SELECT COUNT(*) FROM captures_fts "
+                      "WHERE captures_fts MATCH 'the'").fetchone()
+    except Exception as e:  # noqa: BLE001
+        check.close(); tmp.unlink(missing_ok=True)
+        raise RuntimeError(f"encrypted copy failed its search check: {e}") from e
+    check.close()
+
+    if after != before:
+        tmp.unlink(missing_ok=True)
+        raise RuntimeError(f"row counts differ after conversion: {before} vs {after}")
+
+    backup = path.with_suffix(".plaintext-backup")
+    backup.unlink(missing_ok=True)
+    path.replace(backup)              # original preserved, not deleted
+    tmp.replace(path)
+    # WAL/SHM belong to the old file; leaving them would confuse the new one.
+    for suffix in ("-wal", "-shm"):
+        path.with_name(path.name + suffix).unlink(missing_ok=True)
+    log.info("encryption: done — previous database kept at %s", backup.name)
 
 
 def insert_capture(conn: sqlite3.Connection, app: str, window_title: str | None,
