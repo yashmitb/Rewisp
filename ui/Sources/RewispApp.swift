@@ -78,10 +78,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if OnboardingController.shared.needed {
             OnboardingController.shared.show()
         } else {
-            // First launch after an update: macOS will have dropped screen access,
-            // and the leftover row in System Settings is stale rather than simply
-            // switched off. Explain it and fix it in one place.
+            // After an update macOS will have dropped screen access, and the
+            // leftover row in System Settings is stale rather than merely off.
+            // Checked on EVERY launch, not just login ones: the update relaunches
+            // the app itself, which is a user-initiated launch, and that is
+            // precisely when the repair page is needed.
             PermissionRepairController.shared.showIfNeeded()
+
+            // Opening a menu-bar app otherwise does nothing visible: the icon is
+            // already in the bar, so clicking Rewisp in Finder, Spotlight or the
+            // Dock appeared to do nothing whatsoever. Worst right after an
+            // update, when the app relaunches itself and leaves the user hunting
+            // for the window that would explain what just happened.
+            //
+            // Skipped for a login launch: a window appearing every morning would
+            // be a bigger nuisance than the one this fixes.
+            if !launchedAsLoginItem {
+                MainWindowController.shared.show()
+            }
         }
         // Local-only automation hook (see .rewispTestAsk). Triggers UI, not data.
         DistributedNotificationCenter.default().addObserver(
@@ -93,6 +107,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NotificationCenter.default.post(name: .rewispTestAsk, object: note.object)
             }
         }
+    }
+
+    /// True when macOS started us at login rather than the user opening us.
+    ///
+    /// The launch Apple event carries `keyAELaunchedAsLogInItem`; there is no
+    /// simpler signal, and guessing from the parent process does not work because
+    /// `open` also reparents to launchd.
+    private var launchedAsLoginItem: Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent else { return false }
+        return event.eventID == AEEventID(kAEOpenApplication)
+            && event.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?
+                .enumCodeValue == AEKeyword(keyAELaunchedAsLogInItem)
     }
 
     // Spotlight / Finder launch while already running lands here — open the

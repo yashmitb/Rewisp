@@ -230,6 +230,23 @@ def _merge_boxes(primary: list, extra: list) -> list:
                 and (key in full or key[:10] == full[:10])
                 for py, full in by_row):
             continue
+        # The reverse of the case above: the TILE read a longer span that
+        # swallows a box the whole-frame pass already produced ("Finder" from the
+        # whole pass, "Finder File" from the tile). Neither is a duplicate of the
+        # other by text, so both used to survive and the row rendered as
+        # "Finder  Finder File". Measured on live data: 59% of captures carried
+        # doubling like this. Keep the longer read and drop the shorter, since
+        # the tile sees small text at full resolution.
+        superseded = [
+            i for i, (my2, x2, t2) in enumerate(merged)
+            if abs(mid_y - my2) < 0.015
+            and len(norm(t2)) >= 3
+            and norm(t2) != key
+            and norm(t2) in key
+        ]
+        for i in reversed(superseded):
+            merged.pop(i)
+
         seen.setdefault(key, []).append((mid_y, x))
         by_row.append((mid_y, key))
         merged.append((mid_y, x, text))
@@ -252,6 +269,24 @@ def ocr_cgimage(cg_image) -> str:
         boxes = _merge_boxes(boxes, _tile_boxes(cg_image, width, height))
     if not boxes:
         return ""
+
+    # Drop the macOS menu bar. Every capture on every Mac begins with it —
+    # measured at 100% of 500 live captures — and it is never content: the app
+    # name, its menus, the clock, the battery. Storing it costs space in the
+    # database, room in the prompt, and precision in search, where "File Edit
+    # View Window Help" matches everything and distinguishes nothing.
+    #
+    # Vision's y origin is bottom-left, so the bar sits at the TOP of the range.
+    # The threshold is generous enough for the notch and tall menu bars, and
+    # applies only to the thin strip: a box that merely starts up there but
+    # extends down is real content and stays.
+    # Computed from the frame, not a constant: the bar is a fixed ~24 logical
+    # points, so its share of the screen depends on the display. A hardcoded
+    # fraction is right on one Mac and wrong on the next.
+    menubar_pt = config.OCR_MENUBAR_POINTS
+    logical_h = max(height / 2, 1)          # Retina frames are 2x
+    cutoff = 1.0 - (menubar_pt / logical_h)
+    boxes = [b for b in boxes if b[0] < cutoff]
 
     boxes.sort(key=lambda b: -b[0])  # top of screen first
     ROW_TOLERANCE = 0.012  # ~1% of screen height counts as the same visual row

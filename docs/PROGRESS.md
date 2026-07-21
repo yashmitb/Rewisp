@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.24.0, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 50 releases (v0.1.0 → v0.24.0).
+**Current status (v0.25.0, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 51 releases (v0.1.0 → v0.25.0).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,56 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.25.0 — the text extraction was duplicating itself (2026-07-21)
+
+Reported as "text extraction isn't working well". Diagnosed on live data before
+changing anything, and it turned out not to be an accuracy or model problem.
+
+**59% of captures contained doubled text.** Real examples from the database:
+
+    Finder  Finder File  File  Edit  View  Go  Go Window  Window  Help
+    producthunt.com  C  producthunt.com
+    O. Search (8 + k)  O. Search ( 96 + k)
+
+The cause is the 2×2 tile pass that exists to catch small text the whole-frame
+pass under-resolves. Its dedupe dropped a tile box when a **longer** primary box
+contained it, but not the reverse: when the tile read a longer span that
+swallowed a primary box ("Finder" from the whole pass, "Finder File" from the
+tile), neither matched the other by text and both survived. The longer read now
+supersedes the shorter one on the same row. Measured on a live frame: doubled
+word pairs **12 → 2**, text 7% smaller.
+
+**Every capture began with the macOS menu bar** — 100% of 500 sampled. The app
+name, its menus, the clock, the battery, stored forever and searched every time,
+where "File Edit View Window Help" matches everything and distinguishes nothing.
+Now excluded, with the cutoff computed per frame from the bar's fixed ~26pt
+height rather than a hardcoded fraction, which would be right on one display and
+wrong on the next. (First attempt used a constant 0.985 and silently kept the
+bar, which sits at 0.983 — caught by measuring instead of assuming.)
+
+**Ruled out, so the next person doesn't chase them:** reading order is sound (0%
+fragment lines across 400 captures); cross-capture boilerplate is only 3% of
+lines; truncated tab titles like "Product Hunt - The be" are the *browser*
+truncating them visually, read correctly by Vision.
+
+**On newer models:** macOS 26 ships `VNRecognizeDocumentsRequest`, which returns
+paragraphs and tables rather than lines, and it *is* reachable from pyobjc
+(checked). It is a genuine structural improvement and worth evaluating on its
+own merits — but it would not have fixed any of the above, which was our merge
+logic, so it is deliberately left for a separate, measured piece of work.
+
+**Also in this release: opening Rewisp opens Rewisp.** Launching a menu-bar app
+did nothing visible, so clicking it in Finder, Spotlight or the Dock appeared to
+do nothing — worst right after an update, when the app relaunches itself and
+leaves the user hunting for the window explaining what happened. The main window
+now opens on launch, and the post-update repair check runs on every launch rather
+than only login ones. Login launches deliberately stay silent: a window every
+morning would be a worse nuisance than the one this fixes. Detected via the
+launch Apple event's `keyAELaunchedAsLogInItem`, since parent-process guessing
+fails — `open` also reparents to launchd.
+
+223 tests.
 
 ## v0.24.0 — the deeper answer types itself out (2026-07-21)
 

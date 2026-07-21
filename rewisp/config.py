@@ -86,6 +86,14 @@ IDLE_GUARD_SECONDS = 300  # 5 min no input -> stop capturing
 DEDUPE_THUMB_SIZE = 32  # NxN grayscale thumbnail for pixel diff
 DEDUPE_CHANGED_FRACTION = 0.05  # <5% pixels changed -> discard
 DEDUPE_PIXEL_DELTA = 24  # per-pixel gray delta (0-255) counted as "changed"
+# Height of the macOS menu bar in logical points. Text sitting inside it is
+# never content — the app name, its menus, the clock, the battery — and it
+# appeared in 100% of 500 sampled captures, costing database space, prompt room,
+# and search precision ("File Edit View Window Help" matches everything and
+# distinguishes nothing). Converted to a normalized cutoff per frame, because
+# the bar's share of the screen differs by display.
+OCR_MENUBAR_POINTS = 26
+
 MAX_OCR_CHARS = 25_000  # dense pages hit 10k and got truncated mid-content
 OCR_TILING = True        # second OCR pass over 2x2 overlapping tiles for small text
 OCR_TILE_MIN_WIDTH = 1600  # skip tiling for small frames — whole pass suffices

@@ -99,7 +99,7 @@ Contributions are welcome, and the first outside PR ([#1](https://github.com/yas
 git clone https://github.com/yashmitb/Rewisp.git
 cd Rewisp
 pip3 install pyobjc model2vec pytest    # model2vec powers semantic search; optional
-python3 -m pytest tests/ -q             # 216 tests, should be green
+python3 -m pytest tests/ -q             # 223 tests, should be green
 python3 -m rewisp daemon                # grant Screen Recording when prompted
 cd ui && ./build.sh --install           # builds + installs /Applications/Rewisp.app
 ```
