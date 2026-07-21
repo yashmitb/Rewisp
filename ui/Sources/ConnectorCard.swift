@@ -196,6 +196,22 @@ struct ConnectorSection: View {
                     .controlSize(.large).buttonStyle(.borderedProminent)
                     .disabled(installing != nil)
 
+                    // Say what the button touches BEFORE it is pressed. Writing
+                    // into someone else's config file is a reasonable thing to
+                    // be cautious about, even though this only ever adds a key:
+                    // anything it cannot safely parse is backed up and refused
+                    // rather than rewritten.
+                    Label {
+                        Text("Adds Rewisp to \(c.location). Anything already in that "
+                             + "file is kept — if it can't be read safely, Rewisp "
+                             + "makes a backup and stops.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } icon: {
+                        Image(systemName: "info.circle").font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
                     if let r = installResult, installing == nil {
                         if r["ok"] as? Bool == true {
                             VStack(alignment: .leading, spacing: 3) {
