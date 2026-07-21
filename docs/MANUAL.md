@@ -90,6 +90,20 @@ GitHub issue (nothing from your history is attached — only what you type).
 **Onboarding** (first launch) now asks for your main browser and triggers the
 one-time macOS automation consent for it right there.
 
+### How fast an answer arrives
+
+Rewisp answers on-device first — usually a couple of seconds, free, nothing
+leaving the Mac. If that answer is enough, you're done.
+
+If you want more, click **Think longer** underneath it. That sends the same
+question to your stronger engine (Claude, ChatGPT, Gemini, whichever you've set
+up) and replaces the answer when it arrives, typically in another ten seconds or
+so. The on-device answer stays on screen while it works.
+
+Previously Rewisp made that decision for you and threw the on-device answer away,
+which meant waiting for both. If you'd always rather go straight to the strong
+engine, turn off "Apple on-device first" in Settings → Answers.
+
 ### Pause capture
 - **Cmd+Option+P** — global pause/resume toggle (works anywhere)
 - Menu bar → **Pause** button (icon switches to the pause badge)

@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.21.1, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 46 releases (v0.1.0 → v0.21.1).
+**Current status (v0.22.0, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 47 releases (v0.1.0 → v0.22.0).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,48 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.22.0 — the fast answer stops being thrown away (2026-07-21)
+
+Reported: *"What did I do today?" took almost 26 seconds.* Measured, and almost
+none of it was ours.
+
+    build_prompt          1.0s
+    claude CLI startup    ~3s      (8.7s for a two-word prompt, cold)
+    generation            8-14s    on a 17.7 KB prompt
+
+**The real waste was upstream of all that.** Rewisp already answered on-device
+first, in a couple of seconds — then discarded it. The whiff rule escalated any
+activity answer under 45 words or lacking a bullet list, which the small model
+routinely fails. So the user paid for the on-device answer, never saw it, and
+waited another ~14s for Claude. Going on-device first made things *slower*.
+
+- **The on-device answer is now shown**, with a **Think longer** button beneath
+  it. Escalation becomes the user's call, the quick answer stays visible while
+  the strong engine works, and the work already done is worth something.
+- **The whiff rule now only catches genuine failures** — empty, question echoed
+  back, "not found in your memory". Thin-but-real answers are shown.
+- **Context deduplication**: captures overlap by design (app-switch,
+  scroll-settle and heartbeat all catch the same page), so 27% of context lines
+  were duplicates — 3.5 KB of 14.8 KB sent on every question. Prompt 17.7 KB →
+  14.2 KB, paid twice over in latency and in the bias repetition creates.
+- **"Test connection"** in Connect launches the server exactly as a client does,
+  with a clean environment, and reports which tools answered. Two users hit
+  "Server disconnected" with no way to tell setup from failure; this answers it
+  in five seconds. It deliberately launches from the generated config, because
+  testing the server directly with a helpful environment is precisely what hid
+  the v0.21.1 bug.
+
+**Researched and rejected:** `--bare` cuts CLI startup from 3.1s to 0.7s but
+[requires `ANTHROPIC_API_KEY`](https://code.claude.com/docs/en/headless), which
+violates the never-bill-an-API-key rule. Haiku measured no faster than the
+default on this workload, so the cost is prompt size and server variance rather
+than model speed. Streaming (`--output-format stream-json`) is real and
+documented, but deferred: with the on-device answer arriving in seconds it only
+improves the escalation path, and it needs chunked HTTP through both daemon and
+app. Better shipped deliberately than bolted on.
+
+203 tests.
 
 ## v0.21.1 — the MCP config could never have worked (2026-07-21)
 

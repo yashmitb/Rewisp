@@ -23,6 +23,8 @@ struct ConnectorSection: View {
     @State private var installedFlash = false
     @State private var installing: String?
     @State private var installResult: [String: Any]?
+    @State private var testing = false
+    @State private var testResult: [String: Any]?
     @State private var exposeVault = false
 
     private var clients: [RewispAPI.MCPClient] { status?.clients ?? [] }
@@ -102,6 +104,8 @@ struct ConnectorSection: View {
     private var methodCard: some View {
         Card {
             CardHeader(title: "Set it up", symbol: "wrench.and.screwdriver.fill")
+            connectionTest
+            Divider().opacity(0.4).padding(.vertical, 2)
             Text("Pick your app:").font(.callout).foregroundStyle(.secondary)
             // Wrapping grid of client chips (Claude Desktop, Cursor, VS Code…).
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], spacing: 8) {
@@ -123,6 +127,50 @@ struct ConnectorSection: View {
             }
 
             if let c = current { clientSetup(c) }
+        }
+    }
+
+    /// Answers "is it actually working?" without leaving the app. Two users hit
+    /// "Server disconnected" and had no way to tell setup from failure.
+    @ViewBuilder var connectionTest: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Button {
+                    testing = true
+                    Task { @MainActor in
+                        let data = try? await RewispAPI.post("mcp/test")
+                        testResult = data.flatMap {
+                            try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
+                        }
+                        testing = false
+                    }
+                } label: {
+                    Label(testing ? "Testing…" : "Test connection",
+                          systemImage: "stethoscope")
+                        .font(.callout.weight(.medium))
+                }
+                .buttonStyle(.bordered).controlSize(.small).disabled(testing)
+
+                if let r = testResult, !testing {
+                    if r["ok"] as? Bool == true {
+                        Label("Working — \((r["count"] as? Int) ?? 0) tools available",
+                              systemImage: "checkmark.circle.fill")
+                            .font(.caption).foregroundStyle(.green)
+                    } else {
+                        Label("Not working", systemImage: "xmark.circle.fill")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                }
+            }
+            if let r = testResult, !testing, r["ok"] as? Bool != true,
+               let msg = r["error"] as? String {
+                Text(msg).font(.caption2).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Starts the server the way your AI tool does and reports what it finds. "
+                 + "This checks Rewisp's side only — your tool also needs restarting after setup.")
+                .font(.caption2).foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

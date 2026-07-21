@@ -29,7 +29,7 @@ from . import config, db
 log = logging.getLogger("rewisp")
 
 PROTOCOL_VERSION = "2024-11-05"
-SERVER_INFO = {"name": "rewisp", "version": "0.21.1"}
+SERVER_INFO = {"name": "rewisp", "version": "0.22.0"}
 
 # The MCP server runs as a separate short-lived process spawned by the client, so
 # the menu-bar app can't see it directly. It records a heartbeat here on every
@@ -451,6 +451,51 @@ def install_for(client: str) -> dict:
         return {"ok": False, "path": str(p), "error": f"Couldn't write it: {e}"}
 
     return {"ok": True, "path": str(p), "kept": others}
+
+
+def test_connection() -> dict:
+    """Launch the server exactly as a client would and report what came back.
+
+    Two separate users reported "Server disconnected" and had no way to tell
+    whether setup had worked. The answer lived in a handshake nobody could run.
+    Critically this launches from the CONFIG we generate, with a clean
+    environment, because the bug that caused both reports was a config that
+    looked right and pointed at an interpreter that could not start — testing the
+    server directly, with a helpful environment, is what hid it.
+    """
+    import os
+    import subprocess
+
+    entry = server_entry()
+    env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "TMPDIR", "USER")}
+    env.update(entry.get("env") or {})
+    handshake = json.dumps({
+        "jsonrpc": "2.0", "id": 1, "method": "initialize",
+        "params": {"protocolVersion": PROTOCOL_VERSION, "capabilities": {},
+                   "clientInfo": {"name": "rewisp-selftest", "version": "1"}}})
+    listing = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    try:
+        p = subprocess.run([entry["command"]] + entry["args"],
+                           input=handshake + "\n" + listing + "\n",
+                           capture_output=True, text=True, timeout=45, env=env)
+    except (OSError, subprocess.SubprocessError) as e:
+        return {"ok": False, "error": f"Couldn't start the server: {e}"}
+
+    tools: list[str] = []
+    for line in (p.stdout or "").splitlines():
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            continue
+        if msg.get("id") == 2 and isinstance(msg.get("result"), dict):
+            tools = [t["name"] for t in msg["result"].get("tools", [])]
+
+    if tools:
+        return {"ok": True, "tools": tools, "count": len(tools)}
+    err = (p.stderr or "").strip().splitlines()
+    detail = err[-1] if err else "the server exited without responding"
+    return {"ok": False, "exit_code": p.returncode,
+            "error": f"The server didn't answer: {detail}"}
 
 
 def install_to_desktop() -> dict:

@@ -247,6 +247,10 @@ enum HelpContent {
     ]
 
     static let troubleshooting: [QA] = [
+        .init(q: "Answers take too long",
+              a: "Rewisp answers on-device first, in a couple of seconds. If you want a deeper answer, click **Think longer** underneath it and your stronger engine takes over — the quick answer stays visible while it works. If you'd always rather go straight to the strong engine, turn off **Apple on-device first** in Settings → Answers."),
+        .init(q: "An AI tool says “Server disconnected”",
+              a: "Open **Connect** and click **Test connection**. It starts the server the way your tool does and tells you what it found. If that works but your tool still complains, quit and reopen the tool — it only reads the config at startup. Versions before 0.21.1 wrote a config that could never start; press the setup button again to replace it."),
         .init(q: "Capture stopped right after I updated",
               a: "Expected, and one click. macOS recognises apps by an exact signature, so an updated Rewisp looks like a different app and loses screen access. Rewisp opens a page after updating that fixes it. Nothing is lost — your wisps are all still there."),
         .init(q: "It says “Could not connect to the server”",

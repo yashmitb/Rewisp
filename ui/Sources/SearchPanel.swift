@@ -207,6 +207,9 @@ struct SearchPanelView: View {
     @State private var writingForm = false
     @State private var writeResult: String?
     @State private var needsSetup = false
+    /// The question behind the answer on screen, so "Think longer" can re-ask it.
+    @State private var answeredQuestion = ""
+    @State private var thinkingLonger = false
     @State private var needsPermission = false
     @State private var fixingSetup = false
     @State private var setupFixFailed = false
@@ -459,6 +462,48 @@ struct SearchPanelView: View {
                     .tint(.orange)
                     .controlSize(.large)
                     .padding(.top, 2)
+                }
+
+                // The on-device model answered in a couple of seconds. Rather than
+                // discarding that and making the user wait ~14s for Claude — which
+                // is what used to happen invisibly — show it and let them decide
+                // whether it was enough.
+                if r.model == "Apple on-device", !answeredQuestion.isEmpty {
+                    Button {
+                        thinkingLonger = true
+                        let q = answeredQuestion
+                        Task { @MainActor in
+                            var better: RewispAPI.AskResult
+                            do { better = try await RewispAPI.ask(q) }
+                            catch {
+                                better = RewispAPI.AskResult(
+                                    answer: "⚠︎ \(error.localizedDescription)")
+                            }
+                            withAnimation(spring) { result = better }
+                            thinkingLonger = false
+                        }
+                    } label: {
+                        HStack(spacing: 7) {
+                            if thinkingLonger {
+                                ProgressView().controlSize(.small)
+                                Text("Thinking…")
+                            } else {
+                                Image(systemName: "brain")
+                                Text("Think longer")
+                            }
+                        }
+                        .font(.callout.weight(.medium))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(thinkingLonger)
+                    .padding(.top, 2)
+
+                    if !thinkingLonger {
+                        Text("Answered on-device, instantly. Think longer sends it to your stronger engine.")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
 
                 // First-run: the background helper was never installed. Offer the
@@ -718,6 +763,7 @@ struct SearchPanelView: View {
         guard !q.isEmpty, !asking else { return }
         SearchPanelState.shared.busy = true
         withAnimation(spring) { asking = true; result = nil }
+        answeredQuestion = q
         Task { @MainActor in
             var r: RewispAPI.AskResult
             do { r = try await AskEngine.ask(q) }

@@ -75,10 +75,17 @@ enum AskEngine {
         if a.isEmpty { return true }
         // Thin answer to an activity question -> escalate for the detailed one.
         let ql = question.lowercased()
-        if activityQ.firstMatch(in: ql, range: NSRange(ql.startIndex..., in: ql)) != nil {
-            let words = a.split(separator: " ").count
-            if words < 45 && !a.contains("\n- ") { return true }
-        }
+        // Deliberately NOT escalating a thin-but-real activity answer any more.
+        //
+        // This used to demand 45+ words or a bullet list, which the small model
+        // routinely fails. The result: it answered in a few seconds, the answer
+        // was thrown away unseen, and the user waited another ~14s for Claude —
+        // paying for both and seeing only the slower one. That is why asking
+        // "what did I do today" took 26 seconds.
+        //
+        // A short answer is now shown immediately with a "Think longer" button,
+        // so the work already done is worth something and escalation becomes the
+        // user's call. Only genuine failures below still escalate on their own.
         // Echoing the question back verbatim = total failure (seen on the small model).
         let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "?."))

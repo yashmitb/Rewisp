@@ -439,6 +439,9 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/mcp/install-desktop":
                 from . import mcp as _mcp
                 self._json(_mcp.install_to_desktop())
+            elif self.path == "/mcp/test":
+                from . import mcp as _mcp
+                self._json(_mcp.test_connection())
             elif self.path == "/mcp/install":
                 # One-click setup for any client whose config file we can locate.
                 # VS Code is deliberately absent: its config is workspace-relative,
