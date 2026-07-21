@@ -1,6 +1,9 @@
 """Screen capture (in-memory CGImage, never written to disk), OCR via Vision, dedupe thumbnails."""
 
+import json
 import os
+import subprocess
+from pathlib import Path
 
 import Quartz
 import Vision
@@ -152,50 +155,83 @@ def is_duplicate(thumb: bytes, prev_thumb: bytes | None) -> bool:
 
 # --- OCR --------------------------------------------------------------------
 
-def _document_boxes(cg_image) -> list[tuple[float, float, str]] | None:
-    """Text boxes from macOS 26's document recogniser, or None if unavailable.
+_ocr_helper_cache: str | None | bool = False  # False = not yet resolved
 
-    Measured against VNRecognizeTextRequest on real screens: ~4x faster (398ms vs
-    1556ms), zero doubled words where the tiled pass produced six, and slightly
-    BETTER recall — the words only the old path found were OCR errors
-    ('avlual', 'cations', 'vorks'), while the new one additionally read text the
-    old one missed.
 
-    Its flat `transcript` is not usable directly: reading order puts menu items on
-    separate lines and interleaves chrome mid-document. But `blocks` yields
-    VNRecognizedTextBlockObservation with transcript AND boundingBox, the same
-    shape the existing row-assembly consumes, so we keep our reading order and
-    menu-bar handling and take only the better recognition.
+def _locate_ocr_helper() -> str | None:
+    """Path to the bundled Swift OCR helper (Resources/rewisp-ocr), or None.
 
-    Reached through KVC because the Swift-native API does not bridge to pyobjc.
-    That is the fragile part, so every step is guarded and any failure falls back
-    to the previous engine rather than losing a capture.
+    Resolved once and cached: the daemon calls OCR on every capture and the
+    binary's location never changes within a run.
     """
-    if not hasattr(Vision, "VNRecognizeDocumentsRequest"):
+    global _ocr_helper_cache
+    if _ocr_helper_cache is not False:
+        return _ocr_helper_cache  # type: ignore[return-value]
+    found: str | None = None
+    if config.OCR_HELPER_BIN and os.path.exists(config.OCR_HELPER_BIN):
+        found = config.OCR_HELPER_BIN
+    else:
+        here = Path(__file__).resolve()
+        # Bundled: .../Contents/Resources/daemon/rewisp/screen.py
+        #                       parents[2] = Resources
+        # Dev repo: .../Rewisp/rewisp/screen.py -> parents[1] = repo root
+        for cand in (here.parents[2] / "rewisp-ocr",
+                     here.parents[1] / "ui" / "Rewisp.app" / "Contents"
+                     / "Resources" / "rewisp-ocr"):
+            if cand.exists():
+                found = str(cand)
+                break
+    _ocr_helper_cache = found
+    return found
+
+
+def _cgimage_to_png(cg_image) -> bytes | None:
+    """Encode a CGImage to PNG bytes in memory. Nothing touches disk — the bytes
+    are piped to the OCR helper over stdin."""
+    data = Quartz.CFDataCreateMutable(None, 0)
+    dest = Quartz.CGImageDestinationCreateWithData(data, "public.png", 1, None)
+    if dest is None:
+        return None
+    Quartz.CGImageDestinationAddImage(dest, cg_image, None)
+    if not Quartz.CGImageDestinationFinalize(dest):
+        return None
+    return bytes(data)
+
+
+def _document_boxes_swift(cg_image) -> list[tuple[float, float, str]] | None:
+    """Text boxes from macOS 26's document recogniser via the bundled Swift
+    helper, or None if unavailable/failed.
+
+    The recogniser (RecognizeDocumentsRequest) is Swift-only and does not bridge
+    to pyobjc, so it runs in a separate signed binary: we PNG-encode the frame in
+    memory, pipe it in, and read back line-level boxes as JSON. Line granularity
+    avoids the word/line/paragraph doubling the old flat pyobjc `blocks` array
+    gave (130 doubled pairs vs 6), and the boxes are normalized bottom-left —
+    identical to _ocr_boxes — so the menu-bar cutoff and reading-order assembly in
+    ocr_cgimage consume them unchanged.
+
+    Every failure mode (no binary, pre-26 macOS, decode error, bad JSON) returns
+    None so ocr_cgimage falls back to the tiled path — a capture is never lost.
+    """
+    helper = _locate_ocr_helper()
+    if not helper:
+        return None
+    png = _cgimage_to_png(cg_image)
+    if not png:
         return None
     try:
-        handler = Vision.VNImageRequestHandler.alloc().initWithCGImage_options_(
-            cg_image, None)
-        request = Vision.VNRecognizeDocumentsRequest.alloc().init()
-        ok, _err = handler.performRequests_error_([request], None)
-        if not ok:
-            return None
-        results = request.results() or []
-        if not results:
-            return None
-        blocks = results[0].valueForKey_("blocks")
-        if not blocks:
-            return None
-        boxes = []
-        for blk in blocks:
-            text = blk.valueForKey_("transcript")
-            if not text:
-                continue
-            bb = blk.boundingBox()
-            boxes.append((bb.origin.y + bb.size.height / 2, bb.origin.x, str(text)))
-        return boxes or None
-    except Exception:  # noqa: BLE001 — never lose a capture to an unbridged API
+        proc = subprocess.run([helper], input=png, capture_output=True, timeout=15)
+    except Exception:  # noqa: BLE001 — subprocess/timeout: fall back, never crash capture
         return None
+    if proc.returncode != 0 or not proc.stdout:
+        return None
+    try:
+        rows = json.loads(proc.stdout)
+        boxes = [(float(r["y"]), float(r["x"]), str(r["t"]))
+                 for r in rows if r.get("t")]
+    except Exception:  # noqa: BLE001 — malformed output: fall back
+        return None
+    return boxes or None
 
 
 def _ocr_boxes(cg_image) -> list[tuple[float, float, str]]:
@@ -299,30 +335,26 @@ def _merge_boxes(primary: list, extra: list) -> list:
     return merged
 
 
-def ocr_cgimage(cg_image) -> str:
-    """OCR a CGImage with Apple Vision. Local, free.
+def _boxes_tiled(cg_image, width: int, height: int) -> list[tuple[float, float, str]]:
+    """The established engine: whole-frame Vision pass + (for large frames) a 2x2
+    overlapping tile pass merged in to catch small text the whole pass
+    under-resolves."""
+    boxes = _ocr_boxes(cg_image)
+    if config.OCR_TILING and width >= config.OCR_TILE_MIN_WIDTH:
+        boxes = _merge_boxes(boxes, _tile_boxes(cg_image, width, height))
+    return boxes
 
-    Recall strategy: whole-frame pass + (for large frames) a 2x2 overlapping
-    tile pass merged in — catches small text the whole pass under-resolves.
+
+def _assemble(boxes: list[tuple[float, float, str]], height: int) -> str:
+    """Menu-bar cutoff + reading-order assembly. Shared by both engines so an A/B
+    comparison differs only in recognition, not in post-processing.
+
     Vision returns observations in detection order, which on dense multi-column
-    pages (Canvas, docs) is scrambled. Reassemble reading order: group boxes
-    into visual rows by y, sort rows top-to-bottom and boxes left-to-right.
+    pages (Canvas, docs) is scrambled. Group boxes into visual rows by y, sort
+    rows top-to-bottom and boxes left-to-right.
     """
-    width = Quartz.CGImageGetWidth(cg_image)
-    height = Quartz.CGImageGetHeight(cg_image)
-
-    # Prefer the document recogniser: faster, no duplicate text, and it reads
-    # small text well enough that the 2x2 tile pass — the source of the doubling
-    # — is unnecessary. Falls back to the older request wherever it is
-    # unavailable or returns nothing.
-    boxes = _document_boxes(cg_image) if config.OCR_USE_DOCUMENTS else None
-    if boxes is None:
-        boxes = _ocr_boxes(cg_image)
-        if config.OCR_TILING and width >= config.OCR_TILE_MIN_WIDTH:
-            boxes = _merge_boxes(boxes, _tile_boxes(cg_image, width, height))
     if not boxes:
         return ""
-
     # Drop the macOS menu bar. Every capture on every Mac begins with it —
     # measured at 100% of 500 live captures — and it is never content: the app
     # name, its menus, the clock, the battery. Storing it costs space in the
@@ -330,12 +362,8 @@ def ocr_cgimage(cg_image) -> str:
     # View Window Help" matches everything and distinguishes nothing.
     #
     # Vision's y origin is bottom-left, so the bar sits at the TOP of the range.
-    # The threshold is generous enough for the notch and tall menu bars, and
-    # applies only to the thin strip: a box that merely starts up there but
-    # extends down is real content and stays.
     # Computed from the frame, not a constant: the bar is a fixed ~24 logical
-    # points, so its share of the screen depends on the display. A hardcoded
-    # fraction is right on one Mac and wrong on the next.
+    # points, so its share of the screen depends on the display.
     menubar_pt = config.OCR_MENUBAR_POINTS
     logical_h = max(height / 2, 1)          # Retina frames are 2x
     cutoff = 1.0 - (menubar_pt / logical_h)
@@ -350,8 +378,89 @@ def ocr_cgimage(cg_image) -> str:
             rows.append([])
             row_y = mid_y
         rows[-1].append((x, text))
-    lines = ["  ".join(t for _, t in sorted(row, key=lambda b: b[0])) for row in rows]
-    return "\n".join(lines)
+    return "\n".join("  ".join(t for _, t in sorted(row, key=lambda b: b[0]))
+                     for row in rows)
+
+
+def ocr_cgimage(cg_image, app: str | None = None) -> str:
+    """OCR a CGImage with Apple Vision. Local, free.
+
+    Uses the document recogniser (Swift helper) when OCR_USE_DOCUMENTS is set,
+    otherwise the tiled engine; either falls back to the tiled path if it yields
+    nothing. When OCR_SHADOW_AB is on, both engines run and their metrics are
+    logged (no screen text is written) so the two can be compared on real
+    captures before the default is switched — see _log_ocr_ab.
+    """
+    width = Quartz.CGImageGetWidth(cg_image)
+    height = Quartz.CGImageGetHeight(cg_image)
+
+    boxes = _document_boxes_swift(cg_image) if config.OCR_USE_DOCUMENTS else None
+    if boxes is None:
+        boxes = _boxes_tiled(cg_image, width, height)
+    text = _assemble(boxes, height)
+
+    if config.OCR_SHADOW_AB:
+        try:
+            _log_ocr_ab(cg_image, width, height, app)
+        except Exception:  # noqa: BLE001 — measurement must never affect a capture
+            pass
+    return text
+
+
+# --- shadow A/B measurement (opt-in, metrics only) --------------------------
+
+def _count_doubled(text: str) -> int:
+    """Adjacent repeated tokens within a line — the signature of the hierarchy
+    doubling the flat pyobjc path produced ('IDE IDE', 'File File')."""
+    n = 0
+    for line in text.split("\n"):
+        toks = line.split()
+        n += sum(1 for i in range(1, len(toks)) if toks[i] == toks[i - 1])
+    return n
+
+
+def _token_overlap(a: str, b: str) -> float:
+    """Jaccard of the two lowercased word SETS. A number, never the words — this
+    is what keeps the A/B log free of screen text. ~1.0 means the engines read
+    the same content; a low value flags a screen worth a closer look."""
+    sa, sb = set(a.lower().split()), set(b.lower().split())
+    if not sa and not sb:
+        return 1.0
+    return len(sa & sb) / max(len(sa | sb), 1)
+
+
+def _log_ocr_ab(cg_image, width: int, height: int, app: str | None) -> None:
+    """Run BOTH engines on this frame and append a metrics-only record to
+    ~/Rewisp/ocr_ab.jsonl. No screen text is written — only counts, timings and a
+    token-overlap ratio — so the log carries the same trust as daemon.log, not the
+    plaintext of the screen. Off unless OCR_SHADOW_AB is set."""
+    import time
+
+    t = time.perf_counter()
+    tiled = _assemble(_boxes_tiled(cg_image, width, height), height)
+    tiled_ms = round((time.perf_counter() - t) * 1000)
+
+    t = time.perf_counter()
+    sboxes = _document_boxes_swift(cg_image)
+    swift = _assemble(sboxes, height) if sboxes is not None else ""
+    swift_ms = round((time.perf_counter() - t) * 1000)
+
+    rec = {
+        "ts": int(time.time()),
+        "app": app or "",
+        "swift_ok": sboxes is not None,
+        "tiled_chars": len(tiled),
+        "swift_chars": len(swift),
+        "tiled_lines": tiled.count("\n") + 1 if tiled else 0,
+        "swift_lines": swift.count("\n") + 1 if swift else 0,
+        "tiled_doubled": _count_doubled(tiled),
+        "swift_doubled": _count_doubled(swift),
+        "overlap": round(_token_overlap(tiled, swift), 3),
+        "tiled_ms": tiled_ms,
+        "swift_ms": swift_ms,
+    }
+    with open(config.OCR_AB_LOG, "a") as f:
+        f.write(json.dumps(rec) + "\n")
 
 
 def has_screen_recording_permission() -> bool:

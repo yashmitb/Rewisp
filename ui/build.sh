@@ -40,6 +40,22 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+# macOS 26 document-OCR helper. Swift-only Vision API (RecognizeDocumentsRequest)
+# that pyobjc cannot reach, so the Python daemon shells out to this binary. Built
+# for macos26 — on older systems it simply won't launch and the daemon falls back
+# to the tiled Vision path. Signed and placed in Resources BEFORE the app is
+# signed, so the bundle seal covers it (never --deep, which would reset the
+# backend helper's identity and revoke Screen Recording).
+if swiftc -O -parse-as-library -target arm64-apple-macosx26.0 RewispOCR.swift \
+        -framework Vision -framework AppKit \
+        -o "$APP/Contents/Resources/rewisp-ocr" 2>/tmp/rewisp-ocr-build.log; then
+    codesign --force --sign - "$APP/Contents/Resources/rewisp-ocr"
+    echo "built OCR helper (Resources/rewisp-ocr)"
+else
+    echo "warning: OCR helper did not build (need macOS 26 SDK) — daemon will use the tiled path"
+    cat /tmp/rewisp-ocr-build.log
+fi
+
 codesign --force --sign - "$APP"
 echo "built $APP"
 

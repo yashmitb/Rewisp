@@ -1,6 +1,7 @@
 """Paths, constants, and the kill list."""
 
 import json
+import os
 from pathlib import Path
 
 HOME = Path.home()
@@ -94,26 +95,36 @@ DEDUPE_PIXEL_DELTA = 24  # per-pixel gray delta (0-255) counted as "changed"
 # the bar's share of the screen differs by display.
 OCR_MENUBAR_POINTS = 26
 
-# macOS 26's document recogniser, OFF pending more work.
+# macOS 26's document recogniser, via the bundled Swift helper (ui/RewispOCR.swift,
+# shipped as Resources/rewisp-ocr). Default OFF so it can be A/B'd on real captures
+# before it becomes the default.
 #
-# Measured against the current path on real screens: 4x faster (398ms vs
-# 1556ms), zero doubled words in its flat transcript, and marginally better
-# recall — the words only the old engine found were OCR errors ('avlual',
-# 'cations', 'vorks').
+# The pyobjc VNRecognizeDocumentsRequest was a dead end: its `blocks` array is a
+# HIERARCHY — the same text at word, line AND paragraph granularity at once — so
+# consuming it flat rendered "San  San diego  San diego  diego" (130 doubled pairs
+# vs 6 for the tiled path), and selecting a single granularity needs Swift value
+# types pyobjc cannot bridge.
 #
-# It is off because of how the text comes out. The flat `transcript` has no
-# geometry, so the menu bar cannot be excluded and reading order puts menu items
-# on their own lines mid-document. The `blocks` array does carry bounding boxes,
-# but it is a HIERARCHY — 618 entries covering the same text at word, line and
-# paragraph granularity at once — so consuming it flat renders
-# "San  San diego  San diego  diego" and measured 130 doubled pairs against 6
-# for the current path.
-#
-# Making it work means selecting a single granularity from that tree, which the
-# Swift API expresses with types pyobjc does not bridge. Worth doing properly,
-# with measurements, rather than shipping a regression for the sake of using the
-# newer thing. The implementation stays in screen.py behind this flag.
+# The NEW Swift-only Vision API (RecognizeDocumentsRequest, DocumentObservation.
+# Container) sidesteps that: paragraph.lines is single-granularity. Probed on live
+# screens — 0 doubled pairs, geometry intact (NormalizedRect, bottom-left origin,
+# same convention as the old engine), so the menu-bar cutoff and reading-order
+# assembly are reused unchanged. It cannot run in the Python daemon (Swift-only),
+# so screen.py encodes the in-memory CGImage to PNG and pipes it to the helper.
+# Any failure (missing binary, pre-26 macOS, decode error) falls back to the
+# current tiled path — a capture is never lost to it.
 OCR_USE_DOCUMENTS = False
+
+# Override the helper binary path (dev/testing). Empty = locate it in the bundle.
+OCR_HELPER_BIN = os.environ.get("REWISP_OCR_BIN", "")
+
+# Shadow A/B: when on, every capture runs BOTH the tiled engine (stored, as today)
+# and the Swift document engine, logging metrics only — no screen text — to
+# OCR_AB_LOG. It's how we prove the document engine actually wins on real screens
+# before flipping OCR_USE_DOCUMENTS on. Off by default; adds the cost of a second
+# OCR per capture while enabled.
+OCR_SHADOW_AB = os.environ.get("REWISP_OCR_SHADOW", "") == "1"
+OCR_AB_LOG = DATA_DIR / "ocr_ab.jsonl"
 
 MAX_OCR_CHARS = 25_000  # dense pages hit 10k and got truncated mid-content
 OCR_TILING = True        # second OCR pass over 2x2 overlapping tiles for small text

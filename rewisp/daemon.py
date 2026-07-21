@@ -56,7 +56,7 @@ class Daemon:
             return
         self.prev_thumb = thumb
         try:
-            text = screen.ocr_cgimage(img)
+            text = screen.ocr_cgimage(img, app=app)
         finally:
             del img  # image existed only in memory; released here
         if len(text.strip()) < config.MIN_CAPTURE_CHARS:
