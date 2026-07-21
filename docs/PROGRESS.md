@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.18.3, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 36 releases (v0.1.0 → v0.18.3).
+**Current status (v0.18.4, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 37 releases (v0.1.0 → v0.18.4).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,30 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.18.4 — the updater was killing its own helper (2026-07-21)
+
+Rewisp still did not reopen after updating, and the evidence was unambiguous: the
+new version was installed correctly, the helper daemon was alive, no app was
+running, and the staging directories were still on disk — meaning the script had
+died somewhere between completing the swap and cleaning up after itself.
+
+The swap script ran as a **child process of the app**, and a child of a GUI app
+does not reliably survive that app terminating. `NSApp.terminate` therefore took
+the script with it, after the rename had happened but before it could reopen
+anything. The result was the worst possible outcome: a correctly updated app and
+nothing running.
+
+Fixed by handing the script to launchd instead of spawning it ourselves, which is
+[the approach Sparkle uses](https://developer.apple.com/forums/thread/763268) for
+the same reason. Verified directly: `launchctl submit` gives the script `PPID 1`,
+so nothing about our exit can reach it.
+
+- `launchctl submit -l com.rewisp.updater -- /bin/zsh <script>`, and the script
+  removes its own job when finished.
+- Failure to submit is now reported instead of quietly terminating into nothing.
+- Stale staging directories from earlier failed attempts are swept at the start of
+  each update; each held a full copy of the app, so they were not small.
 
 ## v0.18.3 — the repair page lost a race it always loses (2026-07-21)
 

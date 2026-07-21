@@ -41,6 +41,13 @@ enum Updater {
         guard Bundle.main.bundleURL.path.hasPrefix("/Applications/") else {
             return fail("Move Rewisp to your Applications folder first, then update.")
         }
+        // Clear staging left by any earlier attempt that died mid-flight; these
+        // hold a full copy of the app each, so they are not small.
+        if let stale = try? fm.contentsOfDirectory(atPath: NSTemporaryDirectory()) {
+            for name in stale where name.hasPrefix("rewisp-update-") {
+                try? fm.removeItem(atPath: NSTemporaryDirectory() + "/" + name)
+            }
+        }
         do { try fm.createDirectory(at: work, withIntermediateDirectories: true) }
         catch { return fail("Couldn't prepare the update.") }
 
@@ -130,14 +137,27 @@ enum Updater {
 
         sleep 3
         rm -rf "\(work.path)"
+        launchctl remove com.rewisp.updater 2>/dev/null
         """
         do {
             try body.write(to: script, atomically: true, encoding: .utf8)
             try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+            // Hand the script to launchd rather than running it as our own
+            // child. A child of a GUI app does not reliably survive that app
+            // terminating: the swap would complete, then the process was killed
+            // before it could reopen anything, leaving the Mac with a freshly
+            // updated app and nothing running. Verified: `launchctl submit` gives
+            // the script PPID 1, so nothing about our exit can touch it.
+            _ = shell("/bin/launchctl", ["remove", "com.rewisp.updater"])
             let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-            p.arguments = [script.path]
+            p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            p.arguments = ["submit", "-l", "com.rewisp.updater",
+                           "--", "/bin/zsh", script.path]
             try p.run()
+            p.waitUntilExit()
+            guard p.terminationStatus == 0 else {
+                return fail("Couldn't start the update helper.")
+            }
         } catch {
             return fail("Couldn't start the update.")
         }
