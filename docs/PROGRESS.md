@@ -1,7 +1,7 @@
 # Rewisp — Build Progress
 
-**Current status (v0.19.0, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 148 tests. 40 releases (v0.1.0 → v0.19.0).
-**Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
+**Current status (v0.19.1, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 41 releases (v0.1.0 → v0.19.1).
+**Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
 > Everything shipped after v0.1.0 is logged in the "Post-v0.1 releases" section
@@ -192,6 +192,36 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.19.1 — the app you name is a cue, not a keyword (2026-07-21)
+
+Second finding from the research doc, applied to retrieval.
+
+Sparrow/Liu/Wegner 2011 (the "Google effect" experiments): when people know
+information is stored somewhere, they remember **where it lives** rather than
+what it said — and typically one or the other, not both. Rewisp is the "where",
+so retrieval should key on the cues people actually retain: roughly when, which
+app, what they were doing.
+
+Time was already handled. The app was not. "What was I reading in Dia yesterday"
+sent *Dia* to FTS as a keyword, hunting for the literal string in OCR text —
+neither where the signal lives nor what the user meant, and it competed with the
+real content words.
+
+- `app_cue()` matches the question against the apps the user actually has history
+  in (≥5 wisps, their own vocabulary, not a hardcoded list), strips the name from
+  the text query, and re-ranks that app's wisps to the front.
+- A **re-rank with fallback**, not a filter: an app name can appear incidentally,
+  and returning nothing would be worse than ignoring the cue. Applies only when
+  at least two matches exist.
+- Longest name wins, so "Antigravity IDE" is not beaten by a stray "IDE", and
+  word-boundary matching keeps "terminally" from selecting Terminal.
+
+Also corrected in the docs: the capture-loop memory leak is **fixed** and was
+still listed as outstanding. Measured on the live daemon — 309 MB after 7 hours,
+against 2.19 GB after 17 hours before the autorelease-pool change.
+
+171 tests.
 
 ## v0.19.0 — untrusted context, and the forgetting curve the papers describe (2026-07-21)
 

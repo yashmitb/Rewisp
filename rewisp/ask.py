@@ -279,10 +279,71 @@ _ACTIVITY_Q = re.compile(
     r"summarize|summary of|recap|what happened|how did i spend|what did i get done)\b", re.I)
 
 
+# Apps the user actually has history in, cached briefly: the cue vocabulary is
+# their own, not a hardcoded list.
+_APP_CACHE: tuple[float, list[str]] = (0.0, [])
+_APP_CACHE_TTL = 300.0
+
+
+def known_apps(conn) -> list[str]:
+    """App names worth treating as retrieval cues, most-used first."""
+    import time as _time
+    global _APP_CACHE
+    now = _time.monotonic()
+    if _APP_CACHE[1] and now - _APP_CACHE[0] < _APP_CACHE_TTL:
+        return _APP_CACHE[1]
+    try:
+        rows = conn.execute(
+            "SELECT app, COUNT(*) c FROM captures WHERE app IS NOT NULL AND app != '' "
+            "GROUP BY app HAVING c >= 5 ORDER BY c DESC LIMIT 40").fetchall()
+    except Exception:  # noqa: BLE001 — retrieval must survive a schema hiccup
+        return []
+    apps = [r[0] for r in rows]
+    _APP_CACHE = (now, apps)
+    return apps
+
+
+def app_cue(conn, question: str) -> tuple[str | None, str]:
+    """Pull an app name out of the question and return (app, question_without_it).
+
+    People offload the *content* and keep the *retrieval path*: roughly when, in
+    which app, what they were doing (Sparrow/Liu/Wegner 2011 — when information
+    is known to be stored, subjects remember where it lives rather than what it
+    said, and typically one or the other, not both). "That thing in Dia
+    yesterday" is exactly that shape: a weak content memory wrapped in a strong
+    contextual one.
+
+    Treating the app name as a keyword wastes it — FTS looks for the literal word
+    in OCR text, which is neither where the signal lives nor what the user meant.
+    Matching it against the `app` column uses the cue as a cue. The name is then
+    stripped from the text query so it stops competing as a content word.
+    """
+    if not question:
+        return None, question
+    ql = question.lower()
+    best: str | None = None
+    for app in known_apps(conn):
+        al = app.lower()
+        # Word-boundary match so "Terminal" doesn't fire on "terminally".
+        if re.search(rf"\b{re.escape(al)}\b", ql):
+            # Longest name wins: "Antigravity IDE" beats a stray "IDE".
+            if best is None or len(app) > len(best):
+                best = app
+    if not best:
+        return None, question
+    stripped = re.sub(rf"\b{re.escape(best.lower())}\b", " ", ql).strip()
+    stripped = re.sub(r"\s{2,}", " ", stripped)
+    # If the app name was the entire question, keep the original so the caller
+    # still has something to embed.
+    return best, (stripped or question)
+
+
 def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict]:
     """compact=True shrinks everything to fit the on-device model's small
     context window (~4k tokens total including the answer)."""
     since, until, stripped_q = timeparse.parse(question)
+    # An app name in the question is a retrieval path, not a search term.
+    cue_app, stripped_q = app_cue(conn, stripped_q)
     fts = _fts_query(stripped_q)
     n_match = 8 if compact else 12
     # "Generic activity" question — after stripping the time phrase and stopwords
@@ -313,6 +374,15 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
     if not generic:
         rows = db.search_captures_hybrid(conn, fts, qvec, limit=n_match * 3,
                                          since=since, until=until)
+        # Contextual cue: if the question names an app the user actually uses,
+        # prefer that app's wisps. Kept as a re-rank with a fallback rather than
+        # a hard filter — an app name can appear incidentally, and silently
+        # returning nothing would be worse than ignoring the cue.
+        if cue_app:
+            same = [r for r in rows if (r.get("app") or "") == cue_app]
+            if len(same) >= 2:
+                rest = [r for r in rows if (r.get("app") or "") != cue_app]
+                rows = same + rest
         rows = _dedupe_captures(rows, n_match)
     if not rows:
         # Keyword miss (e.g. "what was due?") — fall back to the most recent
