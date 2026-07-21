@@ -8,11 +8,6 @@ import AppKit
 // is broken. This turns that into a one-click fix and lets Onboarding verify it.
 enum Setup {
 
-    /// The installer shipped inside the app bundle (see scripts/make_dmg.sh).
-    static var installerPath: String {
-        Bundle.main.bundlePath + "/Contents/Resources/daemon/install.sh"
-    }
-
     /// The helper executable, inside its own .app bundle.
     ///
     /// It lives in a bundle purely so macOS has a stable code identity to hang the
@@ -229,10 +224,6 @@ enum Setup {
         p.standardError = FileHandle.nullDevice
         do { try p.run(); p.waitUntilExit() } catch { return false }
         return p.terminationStatus == 0
-    }
-
-    static var installerAvailable: Bool {
-        FileManager.default.fileExists(atPath: installerPath)
     }
 
     /// True when the daemon answers on the localhost API.

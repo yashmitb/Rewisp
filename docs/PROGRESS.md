@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.18.0, 2026-07-20):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 33 releases (v0.1.0 → v0.18.0).
+**Current status (v0.18.1, 2026-07-20):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 34 releases (v0.1.0 → v0.18.1).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,43 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.18.1 — sweep (2026-07-20)
+
+Audit pass after the permission work, checking claims against behaviour rather
+than tidying prose.
+
+**Real bugs found and fixed**
+
+- **The permission repair was only reachable at launch.** Clicking "Later" on the
+  post-update window left no way back to it, and the menu bar card's "Allow
+  screen access" button still used the *old* flow — request-and-wait, without
+  clearing the stale entry. So the one surface a user would naturally reach for
+  performed the action that cannot work. Every permission entry point now routes
+  through `repairScreenPermission()`, and the card links back to the explanation.
+- **README promised the opposite of what happens:** "keeps your memories and
+  permissions intact". Permissions are exactly what an update does not keep. Now
+  states plainly that macOS will ask again, why, and that nothing is lost.
+- **A global `sed` had rewritten history.** The v0.11.0 entry in this file claimed
+  147 tests; it was 143 at the time. Restored.
+
+**Verified rather than assumed**
+
+- All 40 endpoints the UI calls exist in `server.py`; 10 of 10 live-smoked.
+- Every `Contents/…` path referenced in Swift resolves inside the installed
+  bundle.
+- All six external tools invoked (`launchctl`, `zsh`, `hdiutil`, `pkill`,
+  `tccutil`, `xattr`) are present.
+- Bundle identifiers in the uninstaller match what is actually signed.
+- Uninstall ordering re-read line by line: agents → plists → TCC (while the
+  bundle still exists for `tccutil` to resolve) → prefs → data → app last.
+
+**Removed**: `installerPath` and `installerAvailable`, dead since v0.13 deleted
+the Terminal install path.
+
+**Still open, unchanged**: the capture-loop autorelease leak, MCP auth, and
+Developer ID signing — the last of which would delete the entire permission
+problem rather than manage it.
 
 ## v0.18.0 — the update handoff, done properly (2026-07-20)
 
@@ -697,7 +734,7 @@ Two packaging bugs found the hard way, both worth remembering:
 
 - **MCP connector** — `python3 -m rewisp mcp` speaks the Model Context Protocol over stdio, so Claude Desktop / Claude Code / Cursor / VS Code / Windsurf / Gemini CLI can query your screen memory as five read-only tools (search_memory, get_context, get_day_summary, get_promises, get_page_changes). Read-only, fully local (no network listener), never spends your subscriptions, Vault excluded by default.
 - **Connect agents** is a top-level sidebar page: a live "Connected" banner (heartbeat when an agent queries), an animated demo, and per-client setup — one-click "Add to Claude Desktop" (writes the config), plus copy/download for every other client. Honest note that ChatGPT connectors are remote-only.
-- **Numbers precision fix** — the "Tracked" card was charting garbage (ad prices, file sizes, progress bars). Now the label must BE a personal metric (weight, grade, steps, heart rate…); money/counts and noise surfaces (streaming/search/AI/Finder) are excluded. Purged 291 junk rows. 147 tests.
+- **Numbers precision fix** — the "Tracked" card was charting garbage (ad prices, file sizes, progress bars). Now the label must BE a personal metric (weight, grade, steps, heart rate…); money/counts and noise surfaces (streaming/search/AI/Finder) are excluded. Purged 291 junk rows. 143 tests.
 
 ## v0.10.0 — it learns how you forget (2026-07-18)
 

@@ -246,10 +246,12 @@ struct DashboardView: View {
                 Button {
                     requestingPermission = true
                     Task { @MainActor in
-                        _ = try? await RewispAPI.post("request-permission")
-                        await Setup.restartWhenPermissionGranted()
+                        // The full repair, not just a request. After an update the
+                        // existing System Settings row is stale — bound to the old
+                        // build's hash — so asking again without clearing it first
+                        // leaves the user toggling a switch that cannot work.
+                        await Setup.repairScreenPermission()
                         requestingPermission = false
-                        StatusModel.shared.refresh()
                         await refresh()
                     }
                 } label: {
@@ -261,14 +263,9 @@ struct DashboardView: View {
                 .controlSize(.small)
                 .disabled(requestingPermission)
 
-                Button("Do it in System Settings") {
-                    NSWorkspace.shared.open(URL(string:
-                        "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
-                    Task {
-                        await Setup.restartWhenPermissionGranted()
-                        StatusModel.shared.refresh()
-                        await refresh()
-                    }
+                Button("Explain this") {
+                    NSApp.keyWindow?.close()
+                    PermissionRepairController.shared.show()
                 }
                 .buttonStyle(.plain)
                 .font(.caption)

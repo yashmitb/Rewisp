@@ -446,11 +446,8 @@ struct SearchPanelView: View {
                             .padding(.top, 2)
                     }
                     Button {
-                        NSWorkspace.shared.open(URL(string:
-                            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
-                        // Watch for the grant and restart the helper, so this
-                        // clears itself instead of needing another trip back.
-                        Task { await Setup.restartWhenPermissionGranted(); StatusModel.shared.refresh() }
+                        // Clears the stale entry first — see Setup.repairScreenPermission.
+                        Task { await Setup.repairScreenPermission() }
                     } label: {
                         Label(UpdateHandoff.justUpdated
                               ? "Switch “Rewisp Backend” back on"

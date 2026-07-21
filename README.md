@@ -59,7 +59,9 @@ So Rewisp remembers it for me, and I ask instead of digging.
 
 Nothing to run in Terminal and no Python to install — the app ships its own runtime and sets up its own background helper on first launch. [Illustrated walkthrough →](https://yashmitb.github.io/Rewisp/install.html)
 
-**Updating** is one click from inside the app. Rewisp replaces itself and keeps your memories and permissions intact.
+**Updating** is one click from inside the app: Rewisp downloads, replaces itself, and reopens. Your memories are untouched.
+
+macOS *will* ask you to re-enable screen access afterwards. That is not a bug and nothing is lost — macOS identifies apps by an exact code signature, and since Rewisp isn't signed with a paid Apple certificate yet, an updated build looks like a different app and the old permission is dropped. Rewisp opens a page after updating that clears the stale entry and walks you through it in one click. A Developer ID certificate would remove the whole situation.
 
 **Uninstalling** is in Settings → Your data → Uninstall. It stops the helper, releases permissions, and moves everything to the Trash, keeping your memories unless you tick the box. For older versions, `scripts/uninstall.sh` does the same.
 

@@ -274,11 +274,17 @@ rewisp mcp                    MCP server for AI agents (read-only, stdio)
 ## If something's off
 
 - **Menu bar says daemon isn't running** → `launchctl kickstart -k gui/501/com.rewisp.daemon`
-- **Orange permission card** → System Settings → Privacy & Security → Screen & System
-  Audio Recording → enable **Rewisp Backend** (that's Rewisp's background helper).
-  macOS only applies the grant when the process restarts, so the card can stay orange
-  for a few seconds — Rewisp restarts the helper for you. Still stuck? Click
-  **Already granted** on the card, or `launchctl kickstart -k gui/$(id -u)/com.rewisp.daemon`.
+- **Orange permission card / capture stopped after an update** → click **Allow
+  screen access** on the card. Do not just toggle the existing switch in System
+  Settings: after an update that row is stale (it points at the previous build),
+  so flipping it changes nothing. Rewisp removes the stale entry for you and
+  reopens the right page, then picks up the new grant by itself.
+
+  Why it happens: macOS identifies apps by an exact code signature and Rewisp
+  isn't signed with a paid Apple certificate yet, so an updated build looks like
+  a different app and the old permission is dropped. Nothing is lost when it
+  happens.
+
 - **"Could not connect to the server"** → the background helper isn't running. Click
   **Finish setup** in the search panel; it re-provisions the launchd agents. This is
   self-healing since v0.12 (the app carries its own Python), so it should be rare.
