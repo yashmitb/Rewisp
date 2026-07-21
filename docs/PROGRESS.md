@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.18.2, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 35 releases (v0.1.0 → v0.18.2).
+**Current status (v0.18.3, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 36 releases (v0.1.0 → v0.18.3).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,28 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.18.3 — the repair page lost a race it always loses (2026-07-21)
+
+Reported: after updating, Rewisp does not come back to the "fix screen access"
+page. General, not machine-specific.
+
+`showIfNeeded()` waited three seconds and then asked `/status` **once**. The
+updater kickstarts the helper immediately before reopening the app, and the
+helper needs about six seconds to come up — loading the embedding model alone
+accounts for most of it (measured: 17:16:39 start, 17:16:45 ready). So the single
+call landed while nothing was listening, `try?` swallowed the connection failure,
+the guard returned, and the one window whose entire purpose is explaining the
+missing permission never appeared. It lost that race nearly every time.
+
+- Polls for up to 45 seconds instead of asking once, and shows the window as soon
+  as the helper reports the permission is missing.
+- If the helper never answers at all, the window is shown anyway — a daemon that
+  is down after an update is its own problem, and silence was the worst response.
+- The swap script now retries the reopen up to five times and verifies the app
+  actually came back. A single `open` can be refused while Launch Services is
+  still catching up with the bundle swap, and failing silently there leaves the
+  user staring at nothing after their app disappeared.
 
 ## v0.18.2 — reopening a window is a check (2026-07-21)
 

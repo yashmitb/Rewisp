@@ -19,15 +19,31 @@ final class PermissionRepairController {
     static let shared = PermissionRepairController()
     private var window: NSWindow?
 
-    /// Only after an update, only when access is actually missing, once per version.
+    /// Only after an update, only when access is actually missing.
+    ///
+    /// Polls rather than asking once. The updater kickstarts the helper
+    /// immediately before reopening the app, and the helper takes several seconds
+    /// to come up (loading the embedding model alone is ~6s). A single `/status`
+    /// call a few seconds in therefore lost the race almost every time: `try?`
+    /// swallowed the connection failure, the guard returned, and the window that
+    /// exists precisely to explain the missing permission never appeared.
     @MainActor
     func showIfNeeded() {
         guard UpdateHandoff.justUpdated else { return }
         Task {
-            // Give the helper a moment to come up and report honestly.
-            try? await Task.sleep(for: .seconds(3))
-            guard let s = try? await RewispAPI.get("status", as: RewispAPI.Status.self),
-                  s.screen_permission != true else { return }
+            let deadline = Date().addingTimeInterval(45)
+            while Date() < deadline {
+                if let s = try? await RewispAPI.get("status", as: RewispAPI.Status.self) {
+                    // Answered: show the window only if access is actually missing.
+                    if s.screen_permission != true {
+                        await MainActor.run { self.show() }
+                    }
+                    return
+                }
+                try? await Task.sleep(for: .seconds(2))
+            }
+            // Never answered at all. That is its own problem worth surfacing —
+            // the window explains the situation and its button re-provisions.
             await MainActor.run { self.show() }
         }
     }

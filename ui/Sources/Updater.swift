@@ -112,11 +112,22 @@ enum Updater {
           fi
         fi
 
-        # Same path and same helper hash as before, so the Screen Recording grant
-        # carries over untouched; the helper only needs to pick up the new code.
+        # Restart the helper so it runs the new daemon code. Note this does NOT
+        # preserve Screen Recording: ad-hoc signing means the updated app is a
+        # different identity to macOS, so the grant is dropped and the app shows
+        # its repair page on reopen.
         launchctl kickstart -k "gui/$(id -u)/com.rewisp.daemon" 2>/dev/null
 
-        open "\(target)"
+        # Reopen, and actually confirm it came back. A single `open` right after
+        # replacing the bundle can be refused while Launch Services is still
+        # catching up with the swap, and a silent failure here leaves the user
+        # staring at nothing after their app vanished.
+        for i in 1 2 3 4 5; do
+          open "\(target)" 2>/dev/null
+          sleep 1
+          pgrep -x Rewisp >/dev/null && break
+        done
+
         sleep 3
         rm -rf "\(work.path)"
         """
