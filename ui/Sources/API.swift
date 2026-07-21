@@ -152,7 +152,8 @@ struct RewispAPI {
     // The Forgetting Model: your measured forgetting signature per category,
     // wisps predicted to be fading, and auto-pinned facts.
     struct ForgettingCat: Decodable {
-        var stability_days: Double
+        var stability_days: Double      // half-life: days to 50% recall
+        var complexity: Double?         // C-HLR+ exponent; nil on older daemons
         var events: Int
         var observed: Int
     }

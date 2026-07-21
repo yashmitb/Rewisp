@@ -83,16 +83,22 @@ struct ForgettingCard: View {
                 }
                 ForEach(order, id: \.self) { cat in
                     if let c = d.signature[cat] {
-                        decayPath(stability: c.stability_days, in: CGSize(width: w, height: h))
+                        decayPath(halfLife: c.stability_days, complexity: c.complexity ?? 1,
+                                  in: CGSize(width: w, height: h))
                             .trim(from: 0, to: drawn ? 1 : 0)
                             .stroke(tints[cat] ?? .gray,
                                     style: StrokeStyle(lineWidth: 2, lineCap: .round))
                         // dot at the point recall crosses 50% — "half-gone in N days"
-                        let hx = min(c.stability_days * 0.693, 14.0)
+                        // The parameter IS the half-life now (C-HLR+), so the
+                        // 50% point sits at h itself — no ln2 conversion, and it
+                        // stays correct for any complexity, since (h/h)^C == 1.
+                        let hx = min(c.stability_days, 14.0)
                         Circle().fill(tints[cat] ?? .gray)
                             .frame(width: 6, height: 6)
                             .position(x: w * hx / 14.0,
-                                      y: h * (1 - exp(-hx / c.stability_days)))
+                                      y: h * (1 - recall(day: hx,
+                                                         halfLife: c.stability_days,
+                                                         complexity: c.complexity ?? 1)))
                             .opacity(drawn ? 1 : 0)
                     }
                 }
@@ -103,12 +109,20 @@ struct ForgettingCard: View {
         .frame(height: 110)
     }
 
-    private func decayPath(stability: Double, in size: CGSize) -> Path {
+    /// C-HLR+ : p = 2^-((t/h)^C), matching rewisp/forgetting.py exactly. Drawing a
+    /// different curve from the one the rescue logic uses would make the chart a
+    /// decoration rather than an explanation.
+    private func recall(day: Double, halfLife: Double, complexity: Double) -> Double {
+        let h = max(halfLife, 0.1), c = max(complexity, 0.05)
+        return pow(2.0, -pow(max(day, 0) / h, c))
+    }
+
+    private func decayPath(halfLife: Double, complexity: Double, in size: CGSize) -> Path {
         Path { p in
             p.move(to: CGPoint(x: 0, y: 0))
             for step in 1...60 {
                 let day = 14.0 * Double(step) / 60.0
-                let recall = exp(-day / max(stability, 0.1))
+                let recall = recall(day: day, halfLife: halfLife, complexity: complexity)
                 p.addLine(to: CGPoint(x: size.width * day / 14.0,
                                       y: size.height * (1 - recall)))
             }

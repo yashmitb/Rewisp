@@ -134,3 +134,56 @@ class TestUnpinnable:
                      "VALUES ('what did i do yesterday?', 'stale', x'00', datetime('now'))")
         conn.commit()
         assert forgetting.pinned_answer(conn, "what did i do yesterday?") is None
+
+
+class TestCHLRPlus:
+    """C-HLR+ : p = 2^-((Δt/h)^C), per PMC7334729 (fitted on 4.28M observations).
+
+    The paper's headline result is that a per-item complexity term beats plain
+    exponential decay: hard items fall off a cliff rather than fading evenly.
+    """
+
+    def test_half_life_means_half_life(self):
+        from rewisp import forgetting
+        # The whole point of the reparameterisation: the number the UI labels
+        # "half-gone in N days" is now literally that, at any complexity.
+        for c in (0.6, 1.0, 2.0):
+            assert abs(forgetting.recall_probability(5.0, 5.0, c) - 0.5) < 1e-9
+
+    def test_complexity_one_is_plain_exponential_decay(self):
+        from rewisp import forgetting
+        # Backwards compatibility: C = 1 must reduce to the previous curve, so
+        # anyone with too little history sees no behavioural change.
+        assert abs(forgetting.recall_probability(10.0, 5.0, 1.0) - 0.25) < 1e-9
+
+    def test_higher_complexity_falls_off_a_cliff(self):
+        from rewisp import forgetting
+        gentle = forgetting.recall_probability(10.0, 5.0, 1.0)
+        steep = forgetting.recall_probability(10.0, 5.0, 2.0)
+        assert steep < gentle, "C > 1 must decay faster past the half-life"
+        # ...but be MORE confident before it, which is what a cliff means.
+        assert (forgetting.recall_probability(2.0, 5.0, 2.0)
+                > forgetting.recall_probability(2.0, 5.0, 1.0))
+
+    def test_complexity_needs_evidence_before_it_moves(self):
+        from rewisp import forgetting
+        assert forgetting._fit_complexity([]) == 1.0
+        assert forgetting._fit_complexity([4.0, 5.0]) == 1.0, "2 points is noise"
+
+    def test_tight_gaps_imply_a_sharp_edge(self):
+        from rewisp import forgetting
+        tight = forgetting._fit_complexity([5.0, 5.1, 4.9, 5.0, 5.05])
+        spread = forgetting._fit_complexity([1.0, 9.0, 3.0, 14.0, 6.0])
+        assert tight > spread
+
+    def test_complexity_is_clamped(self):
+        from rewisp import forgetting
+        # Identical gaps would divide by ~0 without the clamp.
+        c = forgetting._fit_complexity([5.0] * 6)
+        assert forgetting._MIN_C <= c <= forgetting._MAX_C
+
+    def test_extreme_inputs_do_not_raise(self):
+        from rewisp import forgetting
+        assert forgetting.recall_probability(0.0, 5.0) == 1.0
+        assert 0.0 <= forgetting.recall_probability(1e6, 0.1, 2.0) <= 1.0
+        assert 0.0 <= forgetting.recall_probability(-5.0, -1.0, -1.0) <= 1.0

@@ -4,7 +4,8 @@ Every failed search is a documented forgetting event: you typed "that pasta
 place brooklyn", got nothing useful, rephrased — your brain just lost something
 specific, timestamped. Re-asking a question days later is a decay event: the
 answer didn't stick. From these, fit a per-category forgetting signature
-(P(recall) = e^(-t/S), stability S per kind of fact — names, numbers, links…),
+(C-HLR+: P(recall) = 2^-((t/h)^C), half-life h and complexity C per kind of fact
+— names, numbers, links…),
 then:
 
   • "About to fade" — wisps predicted to cross YOUR forgetting cliff get one
@@ -30,11 +31,23 @@ from . import config, db
 
 log = logging.getLogger("rewisp")
 
-# Population priors for stability S (days until recall drops to ~37%), per bin.
+# Population priors for HALF-LIFE h (days until recall drops to 50%), per bin.
 # Diary-study ordering: names go first, numbers fast, places stick longer.
-PRIORS = {"name": 6.0, "number": 3.0, "link": 2.0, "date": 4.0,
-          "place": 7.0, "other": 7.0}
+#
+# These were previously the time-constant S of an exponential e^(-t/S), whose
+# half-life is S·ln2. Converting (x0.693) keeps every curve exactly where it was
+# while making the number mean the thing the UI already labels it: "half-gone in
+# N days". The parameter is now directly interpretable instead of needing a
+# conversion at every read site.
+PRIORS = {"name": 4.2, "number": 2.1, "link": 1.4, "date": 2.8,
+          "place": 4.9, "other": 4.9}
 _PRIOR_WEIGHT = 3.0          # pseudo-observations the prior counts for
+
+# Complexity exponent C in the C-HLR+ curve. C = 1 is plain exponential decay;
+# C > 1 bends the curve steeper (a cliff rather than a slope), C < 1 flattens it.
+_PRIOR_COMPLEXITY = 1.0
+_MIN_C, _MAX_C = 0.6, 2.0
+_MIN_OBS_FOR_C = 5           # below this, dispersion is noise, not signal
 
 _NUMBERY = re.compile(r"\d|how (much|many)|price|cost|amount|balance|number|total|phone|percent", re.I)
 _LINKY = re.compile(r"\b(link|url|site|website|repo|video|article|page|doc)\b", re.I)
@@ -118,13 +131,56 @@ def signature(conn) -> dict:
         obs = gaps.get(cat, [])
         s = (prior * _PRIOR_WEIGHT + sum(obs)) / (_PRIOR_WEIGHT + len(obs))
         out[cat] = {"stability_days": round(s, 1),
+                    "complexity": round(_fit_complexity(obs), 2),
                     "events": counts.get(cat, 0),
                     "observed": len(obs)}
     return out
 
 
-def recall_probability(days_old: float, stability: float) -> float:
-    return math.exp(-max(days_old, 0.0) / max(stability, 0.1))
+def _fit_complexity(gaps: list[float]) -> float:
+    """Estimate the C-HLR+ complexity exponent from how TIGHTLY re-asks cluster.
+
+    The adaptive-forgetting-curve work (PMC7334729, fitted on 4.28M Duolingo
+    observations) found its best variant was p = 2^-((Δt/ĥ)^C): a per-item
+    complexity term, because real forgetting is not uniformly exponential. Hard
+    items fall off a cliff; easy ones fade gently. Plain HLR (C fixed at 1) was
+    measurably worse.
+
+    Fitting C properly needs far more observations than one person's re-asks
+    provide, so this uses the shape of the evidence rather than pretending to
+    fit: if a category's re-ask gaps cluster tightly around one value, that
+    category has a sharp edge — you remember reliably, then suddenly do not, so
+    the curve is steep (C > 1). Gaps scattered widely mean a gradual slide
+    (C < 1). Below _MIN_OBS_FOR_C observations the dispersion is noise, so it
+    stays at 1.0 and the curve reduces exactly to the previous behaviour.
+    """
+    if len(gaps) < _MIN_OBS_FOR_C:
+        return _PRIOR_COMPLEXITY
+    mean = sum(gaps) / len(gaps)
+    if mean <= 0:
+        return _PRIOR_COMPLEXITY
+    var = sum((g - mean) ** 2 for g in gaps) / len(gaps)
+    cv = math.sqrt(var) / mean          # coefficient of variation
+    # cv ~1.0 is what a memoryless exponential produces, so that maps to C = 1.
+    # Tighter than that means a sharper edge; broader means a gentler slide.
+    c = _PRIOR_COMPLEXITY / max(cv, 0.05)
+    return max(_MIN_C, min(_MAX_C, c))
+
+
+def recall_probability(days_old: float, half_life: float,
+                       complexity: float = _PRIOR_COMPLEXITY) -> float:
+    """C-HLR+ : p = 2^-((Δt / h)^C).
+
+    `half_life` is days until recall reaches 50%, so p(h) == 0.5 exactly at
+    C = 1 — the parameter now means what the UI has always called it.
+    """
+    t = max(days_old, 0.0)
+    h = max(half_life, 0.1)
+    c = max(complexity, 0.05)
+    try:
+        return 2.0 ** (-((t / h) ** c))
+    except OverflowError:
+        return 0.0
 
 
 def about_to_fade(conn, limit: int = 2) -> list[dict]:
@@ -163,8 +219,12 @@ def about_to_fade(conn, limit: int = 2) -> list[dict]:
         if n_key > 3:
             continue
         days = (now - _parse_ts(ts)).total_seconds() / 86400.0
-        s = sig.get(cat, sig["other"])["stability_days"]
-        p = recall_probability(days, s)
+        entry = sig.get(cat, sig["other"])
+        s = entry["stability_days"]
+        # Pass the fitted complexity through: a category with a sharp forgetting
+        # edge should be rescued nearer that edge, which is the whole point of
+        # fitting C rather than assuming plain exponential decay.
+        p = recall_probability(days, s, entry.get("complexity", 1.0))
         # sweet spot: past the cliff's edge but not long gone
         if not 0.15 <= p <= 0.55:
             continue
