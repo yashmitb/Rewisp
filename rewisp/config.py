@@ -104,8 +104,28 @@ def ensure_dirs() -> None:
     VAULT_DIR.mkdir(parents=True, exist_ok=True)
     try:
         DATA_DIR.chmod(0o700)  # screen history is for this user's eyes only
+        VAULT_DIR.chmod(0o700)
     except OSError:
         pass
+    # And the files themselves. The 0700 directory is the real barrier, but the
+    # contents were left 0644 by SQLite and by plain writes — so anything that
+    # ever escapes the directory (a copy, a backup, a restore into a different
+    # location, a sync client) carries world-readable permissions with it.
+    # Defence in depth costs nothing here.
+    for f in (DB_PATH, MEMORY_PATH, SETTINGS_PATH):
+        try:
+            if f.exists():
+                f.chmod(0o600)
+        except OSError:
+            pass
+    # SQLite's sidecars are recreated on demand and inherit the same exposure.
+    for suffix in ("-wal", "-shm"):
+        side = DB_PATH.with_name(DB_PATH.name + suffix)
+        try:
+            if side.exists():
+                side.chmod(0o600)
+        except OSError:
+            pass
 
 
 def load_user_kill_list() -> dict:

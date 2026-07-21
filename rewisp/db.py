@@ -407,6 +407,12 @@ def delete_captures(conn: sqlite3.Connection, ids: list[int]) -> int:
     except Exception:  # noqa: BLE001
         pass
     conn.execute(f"DELETE FROM series WHERE wisp_id IN ({marks})", ids)
+    # Nudges quote the wisp verbatim in their body ("You saw this on Sunday in
+    # Dia: …"), so a surviving nudge repeats content the user asked to forget
+    # straight back at them. This table was added after the docstring above was
+    # written and never attached to the cascade — exactly the leak it promises
+    # cannot happen.
+    conn.execute(f"DELETE FROM nudges WHERE source_wisp_id IN ({marks})", ids)
     n = conn.execute(f"DELETE FROM captures WHERE id IN ({marks})", ids).rowcount
     conn.commit()
     return n

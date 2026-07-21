@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.18.5, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 38 releases (v0.1.0 → v0.18.5).
+**Current status (v0.18.6, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 148 tests. 39 releases (v0.1.0 → v0.18.6).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,39 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.18.6 — a forgotten wisp could still be quoted back at you (2026-07-21)
+
+A hunt for bugs of the same class as the update failures — swallowed errors,
+cleanup that never runs, invariants stated but not enforced. The worst find was a
+privacy one.
+
+**Forgetting did not remove nudges.** `db.delete_captures()` is the single choke
+point behind the 10-minute forget button, kill-list purges and retention, and its
+docstring promises "no forgotten wisp ever leaks into a downstream table". The
+`nudges` table was added after that was written and never attached. A nudge
+quotes its source wisp verbatim in the body — *"You saw this on Sunday in Dia:
+…"* — so forgetting a moment left behind a pill that repeated the forgotten text
+straight back at the user. Now cascaded, with a regression test.
+
+**Data files were world-readable.** `~/Rewisp` is `0700`, which is the real
+barrier, but the files inside were `0644` as SQLite and plain writes left them.
+Anything that leaves the directory — a copy, a restore elsewhere, a sync client —
+carried that exposure with it. `rewisp.db`, its `-wal`/`-shm` sidecars,
+`memory.md` and `settings.json` are now `0600`, and the vault directory `0700`.
+
+**The daemon log grew without limit.** 3.2 MB in twelve days, roughly 100 MB a
+year, inside the user's data folder forever. Now rotates at 2 MB with three
+generations kept.
+
+**Documented rather than fixed:** `pinned` stores a question and answer with no
+reference to the wisps behind them, so forgetting those wisps cannot remove the
+pinned fact. Recorded in `SECURITY.md` instead of left as a silent gap.
+
+**Checked and found sound:** backups are pruned to 14; `.pycache` is bounded by
+module count, not time; every `Process.run()` waits; `os._exit` in the daemon
+happens before the capture loop so nothing is uncommitted; retention covers
+promises, series, episodes, chats and captures.
 
 ## v0.18.5 — every successful update leaked 213 MB (2026-07-21)
 

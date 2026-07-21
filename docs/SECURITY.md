@@ -31,6 +31,25 @@ Audited 2026-07-08. Threat model: Rewisp stores everything the user sees on scre
 - Claude receives only: retrieval snippets for the asked question (interactive) or the day's compressed text (Digest, once per day). No images, no raw database.
 - Prompt injection: screen text is untrusted input to the model. The system rules pin answers to the provided context; worst case is a wrong answer displayed to the user — the model has no tools and no write path.
 
+## What "forget" actually removes
+
+`db.delete_captures()` is the single choke point for forgetting: the 10-minute
+button, kill-list purges, and retention all route through it. It deletes the
+capture and every table derived from it — promises, series, episodes (the whole
+episode, if a forgotten wisp fed one), the FTS row, and the embedding.
+
+**`nudges` was missing from that list until v0.18.6.** A nudge quotes its source
+wisp verbatim in its body, so forgetting a moment left a pill that repeated the
+forgotten text back at you. Fixed, with a regression test.
+
+**Known gap: `pinned`.** Facts you look up repeatedly are pinned and kept
+forever, deliberately. A pinned row stores the question and the answer but no
+reference to the wisps the answer came from, so forgetting those wisps cannot
+remove it. In practice pinned answers are short factual values you asked for
+several times, not passages of screen text, but it is a real gap and worth
+knowing: review Settings → Your data if you have pinned something you would
+rather Rewisp did not keep.
+
 ## Accepted risks
 
 - OCR text from non-kill-listed apps can still contain sensitive content the user had on screen (mitigations: kill list, pause hotkey, forget button, 700 perms).

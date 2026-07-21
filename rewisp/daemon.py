@@ -4,6 +4,7 @@ idle guard, kill list, dedupe. Screenshots live only in memory — OCR'd, then r
 import logging
 import os
 import time
+from logging.handlers import RotatingFileHandler
 
 from . import browser, config, db, screen
 from .killlist import KillList
@@ -335,6 +336,12 @@ def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
-        handlers=[logging.FileHandler(config.LOG_PATH), logging.StreamHandler()],
+        # Rotating, not plain: this daemon runs continuously for months and the
+        # log was unbounded — 3.2 MB in twelve days, so roughly 100 MB a year,
+        # growing forever inside the user's data folder. 2 MB x 3 keeps recent
+        # history for debugging without ever becoming a disk problem.
+        handlers=[RotatingFileHandler(config.LOG_PATH, maxBytes=2_000_000,
+                                      backupCount=3),
+                  logging.StreamHandler()],
     )
     Daemon().run()
