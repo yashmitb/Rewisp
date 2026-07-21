@@ -98,3 +98,32 @@ def test_no_temp_file_left_behind(target):
     mcp.install_for("cursor")
     leftovers = list(target.parent.glob("*rewisp-tmp*"))
     assert not leftovers, leftovers
+
+
+def test_config_carries_everything_needed_to_actually_start():
+    """The config must be self-sufficient.
+
+    Regression: server_entry() declared only PYTHONPATH. The bundled interpreter
+    lives in RewispBackend.app while its stdlib sits in Resources/python, so
+    without PYTHONHOME it died instantly with "Failed to import encodings
+    module" and every client reported the same useless "Server disconnected".
+    A config that cannot start the thing it configures is not a config.
+    """
+    import pathlib
+    import sys
+
+    from rewisp import mcp
+
+    env = mcp.server_entry()["env"]
+    assert "PYTHONPATH" in env
+
+    exe = pathlib.Path(sys.executable)
+    bundled = any((p / "Resources" / "python" / "lib").is_dir() for p in exe.parents)
+    if bundled:
+        assert "PYTHONHOME" in env, "bundled runtime cannot start without PYTHONHOME"
+        assert (pathlib.Path(env["PYTHONHOME"]) / "lib").is_dir()
+
+    # Never let an MCP client write bytecode into the signed bundle: that
+    # invalidates the signature and macOS withdraws Screen Recording.
+    assert "PYTHONPYCACHEPREFIX" in env
+    assert ".app/" not in env["PYTHONPYCACHEPREFIX"]

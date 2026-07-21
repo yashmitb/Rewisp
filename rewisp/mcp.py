@@ -21,6 +21,7 @@ so this is a dependency-free JSON-RPC loop rather than an SDK.
 import json
 import logging
 import re
+import pathlib
 import sys
 
 from . import config, db
@@ -28,7 +29,7 @@ from . import config, db
 log = logging.getLogger("rewisp")
 
 PROTOCOL_VERSION = "2024-11-05"
-SERVER_INFO = {"name": "rewisp", "version": "0.21.0"}
+SERVER_INFO = {"name": "rewisp", "version": "0.21.1"}
 
 # The MCP server runs as a separate short-lived process spawned by the client, so
 # the menu-bar app can't see it directly. It records a heartbeat here on every
@@ -283,19 +284,46 @@ def _package_dir() -> str:
     return str(Path(__file__).resolve().parent.parent)
 
 
+def _runtime_env() -> dict:
+    """Environment an MCP client must set to run the bundled interpreter.
+
+    PYTHONHOME is not optional and its absence is not subtle: the shipped
+    interpreter lives in RewispBackend.app while its standard library sits in
+    Resources/python, so without it the process dies instantly with "Failed to
+    import encodings module" and the client reports only "Server disconnected".
+    Every client using a config written before this fix hit exactly that.
+
+    PYTHONPYCACHEPREFIX is belt and braces. A stray interpreter run without it
+    writes __pycache__ inside the app bundle, which invalidates the code
+    signature and makes macOS withdraw Screen Recording — the v0.17.2 bug. The
+    bundled sitecustomize already refuses bytecode writes, but an MCP client is
+    exactly the kind of caller that would otherwise reintroduce it.
+    """
+    exe = pathlib.Path(sys.executable)
+    env = {"PYTHONPATH": _package_dir()}
+    # .../Rewisp.app/Contents/MacOS/RewispBackend.app/Contents/MacOS/Rewisp Backend
+    #  -> .../Rewisp.app/Contents/Resources/python
+    for parent in exe.parents:
+        candidate = parent / "Resources" / "python"
+        if (candidate / "lib").is_dir():
+            env["PYTHONHOME"] = str(candidate)
+            break
+    env["PYTHONPYCACHEPREFIX"] = str(config.DATA_DIR / ".pycache")
+    return env
+
+
 def server_entry() -> dict:
-    """The mcpServers config block every client understands. Uses this exact
-    interpreter (it has the deps) and points PYTHONPATH at the package dir."""
+    """The mcpServers config block every client understands."""
     return {
         "command": sys.executable,
         "args": ["-m", "rewisp", "mcp"],
-        "env": {"PYTHONPATH": _package_dir()},
+        "env": _runtime_env(),
     }
 
 
 def cli_command() -> str:
-    return (f'claude mcp add rewisp -e PYTHONPATH="{_package_dir()}" '
-            f'-- "{sys.executable}" -m rewisp mcp')
+    envs = " ".join(f'-e {k}="{v}"' for k, v in _runtime_env().items())
+    return f'claude mcp add rewisp {envs} -- "{sys.executable}" -m rewisp mcp'
 
 
 def client_setups() -> list[dict]:

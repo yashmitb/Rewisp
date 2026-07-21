@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.21.0, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 45 releases (v0.1.0 → v0.21.0).
+**Current status (v0.21.1, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 46 releases (v0.1.0 → v0.21.1).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,42 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.21.1 — the MCP config could never have worked (2026-07-21)
+
+Reported by a second user: **"MCP rewisp: Server disconnected"** in Claude
+Desktop, immediately after the one-click setup reported success.
+
+`server_entry()` declared only `PYTHONPATH`. The bundled interpreter lives in
+`RewispBackend.app` while its standard library sits in `Resources/python`, so
+without `PYTHONHOME` the process dies on startup:
+
+    Fatal Python error: Failed to import encodings module
+
+The client sees a process that exits instantly and reports "Server disconnected",
+which says nothing about the cause. **Every MCP client Rewisp has ever configured
+was broken this way** — the config was written correctly and pointed at an
+interpreter that could not start.
+
+- `_runtime_env()` now supplies `PYTHONHOME`, discovered by walking up from the
+  executable to the sibling `Resources/python`, so it stays correct wherever the
+  app is installed.
+- It also supplies `PYTHONPYCACHEPREFIX`. An MCP client is exactly the kind of
+  caller that would otherwise write `__pycache__` into the signed bundle,
+  invalidating the signature and making macOS withdraw Screen Recording — the
+  v0.17.2 bug, reintroduced through a side door.
+- The Claude Code one-liner gets the same variables.
+
+**Worth recording how this was missed.** The previous session "verified" the
+server by speaking MCP to it directly — but added `PYTHONHOME` to that test
+command by hand, proving the server works when given something the config never
+provided. The regression test now launches from the written config with a clean
+environment, which is the only test that would have caught it.
+
+Existing users must press the setup button again; the old config on disk is
+still broken.
+
+195 tests.
 
 ## v0.21.0 — one click to connect any agent (2026-07-21)
 
