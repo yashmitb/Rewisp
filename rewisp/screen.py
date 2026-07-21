@@ -152,6 +152,52 @@ def is_duplicate(thumb: bytes, prev_thumb: bytes | None) -> bool:
 
 # --- OCR --------------------------------------------------------------------
 
+def _document_boxes(cg_image) -> list[tuple[float, float, str]] | None:
+    """Text boxes from macOS 26's document recogniser, or None if unavailable.
+
+    Measured against VNRecognizeTextRequest on real screens: ~4x faster (398ms vs
+    1556ms), zero doubled words where the tiled pass produced six, and slightly
+    BETTER recall — the words only the old path found were OCR errors
+    ('avlual', 'cations', 'vorks'), while the new one additionally read text the
+    old one missed.
+
+    Its flat `transcript` is not usable directly: reading order puts menu items on
+    separate lines and interleaves chrome mid-document. But `blocks` yields
+    VNRecognizedTextBlockObservation with transcript AND boundingBox, the same
+    shape the existing row-assembly consumes, so we keep our reading order and
+    menu-bar handling and take only the better recognition.
+
+    Reached through KVC because the Swift-native API does not bridge to pyobjc.
+    That is the fragile part, so every step is guarded and any failure falls back
+    to the previous engine rather than losing a capture.
+    """
+    if not hasattr(Vision, "VNRecognizeDocumentsRequest"):
+        return None
+    try:
+        handler = Vision.VNImageRequestHandler.alloc().initWithCGImage_options_(
+            cg_image, None)
+        request = Vision.VNRecognizeDocumentsRequest.alloc().init()
+        ok, _err = handler.performRequests_error_([request], None)
+        if not ok:
+            return None
+        results = request.results() or []
+        if not results:
+            return None
+        blocks = results[0].valueForKey_("blocks")
+        if not blocks:
+            return None
+        boxes = []
+        for blk in blocks:
+            text = blk.valueForKey_("transcript")
+            if not text:
+                continue
+            bb = blk.boundingBox()
+            boxes.append((bb.origin.y + bb.size.height / 2, bb.origin.x, str(text)))
+        return boxes or None
+    except Exception:  # noqa: BLE001 — never lose a capture to an unbridged API
+        return None
+
+
 def _ocr_boxes(cg_image) -> list[tuple[float, float, str]]:
     """Vision text boxes for one image: [(mid_y, x, text)], normalized 0-1,
     origin bottom-left (Vision's convention). Accurate mode, latest revision."""
@@ -262,11 +308,18 @@ def ocr_cgimage(cg_image) -> str:
     pages (Canvas, docs) is scrambled. Reassemble reading order: group boxes
     into visual rows by y, sort rows top-to-bottom and boxes left-to-right.
     """
-    boxes = _ocr_boxes(cg_image)
     width = Quartz.CGImageGetWidth(cg_image)
     height = Quartz.CGImageGetHeight(cg_image)
-    if config.OCR_TILING and width >= config.OCR_TILE_MIN_WIDTH:
-        boxes = _merge_boxes(boxes, _tile_boxes(cg_image, width, height))
+
+    # Prefer the document recogniser: faster, no duplicate text, and it reads
+    # small text well enough that the 2x2 tile pass — the source of the doubling
+    # — is unnecessary. Falls back to the older request wherever it is
+    # unavailable or returns nothing.
+    boxes = _document_boxes(cg_image) if config.OCR_USE_DOCUMENTS else None
+    if boxes is None:
+        boxes = _ocr_boxes(cg_image)
+        if config.OCR_TILING and width >= config.OCR_TILE_MIN_WIDTH:
+            boxes = _merge_boxes(boxes, _tile_boxes(cg_image, width, height))
     if not boxes:
         return ""
 

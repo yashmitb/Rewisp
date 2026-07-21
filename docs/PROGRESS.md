@@ -225,11 +225,32 @@ fragment lines across 400 captures); cross-capture boilerplate is only 3% of
 lines; truncated tab titles like "Product Hunt - The be" are the *browser*
 truncating them visually, read correctly by Vision.
 
-**On newer models:** macOS 26 ships `VNRecognizeDocumentsRequest`, which returns
-paragraphs and tables rather than lines, and it *is* reachable from pyobjc
-(checked). It is a genuine structural improvement and worth evaluating on its
-own merits — but it would not have fixed any of the above, which was our merge
-logic, so it is deliberately left for a separate, measured piece of work.
+**macOS 26's document recogniser: evaluated, implemented, and left switched
+off.** `VNRecognizeDocumentsRequest` is reachable from pyobjc and is genuinely
+better in three of four respects, measured on real screens:
+
+| | current | documents |
+|---|---|---|
+| time | 1556 ms | **398 ms** |
+| doubled pairs (flat transcript) | 6 | **0** |
+| distinct words | 104 | **107** |
+
+The words only the old engine found were OCR errors — `avlual`, `cations`,
+`vorks` — while the new one read text the old one missed.
+
+It is off because of how the text comes back out. The flat `transcript` carries
+no geometry, so the menu bar cannot be excluded and reading order puts menu items
+on their own lines mid-document. The `blocks` array *does* carry bounding boxes,
+but it is a **hierarchy**: 618 entries covering the same text at word, line and
+paragraph granularity simultaneously. Consuming it flat renders
+`San  San diego  San diego  diego` and measured **130 doubled pairs against 6**
+for the current path — worse than the bug this release fixes.
+
+Selecting one granularity from that tree is what the Swift API expresses with
+types pyobjc does not bridge. That is a real piece of work and worth doing with
+measurements, not a flag flip for the sake of using the newer thing. The
+implementation stays in `screen.py` behind `OCR_USE_DOCUMENTS`, with the numbers
+above recorded so the next attempt starts from evidence.
 
 **Also in this release: opening Rewisp opens Rewisp.** Launching a menu-bar app
 did nothing visible, so clicking it in Finder, Spotlight or the Dock appeared to

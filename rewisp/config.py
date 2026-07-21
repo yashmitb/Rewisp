@@ -94,6 +94,27 @@ DEDUPE_PIXEL_DELTA = 24  # per-pixel gray delta (0-255) counted as "changed"
 # the bar's share of the screen differs by display.
 OCR_MENUBAR_POINTS = 26
 
+# macOS 26's document recogniser, OFF pending more work.
+#
+# Measured against the current path on real screens: 4x faster (398ms vs
+# 1556ms), zero doubled words in its flat transcript, and marginally better
+# recall — the words only the old engine found were OCR errors ('avlual',
+# 'cations', 'vorks').
+#
+# It is off because of how the text comes out. The flat `transcript` has no
+# geometry, so the menu bar cannot be excluded and reading order puts menu items
+# on their own lines mid-document. The `blocks` array does carry bounding boxes,
+# but it is a HIERARCHY — 618 entries covering the same text at word, line and
+# paragraph granularity at once — so consuming it flat renders
+# "San  San diego  San diego  diego" and measured 130 doubled pairs against 6
+# for the current path.
+#
+# Making it work means selecting a single granularity from that tree, which the
+# Swift API expresses with types pyobjc does not bridge. Worth doing properly,
+# with measurements, rather than shipping a regression for the sake of using the
+# newer thing. The implementation stays in screen.py behind this flag.
+OCR_USE_DOCUMENTS = False
+
 MAX_OCR_CHARS = 25_000  # dense pages hit 10k and got truncated mid-content
 OCR_TILING = True        # second OCR pass over 2x2 overlapping tiles for small text
 OCR_TILE_MIN_WIDTH = 1600  # skip tiling for small frames — whole pass suffices
