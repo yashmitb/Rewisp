@@ -87,6 +87,58 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # quiet
         pass
 
+    def _stream_answer(self, question: str) -> None:
+        """Stream an answer as it generates, so the window fills rather than hangs."""
+        question = (question or "").strip()
+        if not question:
+            return self._json({"error": "empty question"}, 400)
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+
+        def emit(event: str, payload: dict) -> bool:
+            """False once the client has gone, so we can stop generating."""
+            try:
+                self.wfile.write(
+                    f"event: {event}\ndata: {json.dumps(payload)}\n\n".encode())
+                self.wfile.flush()
+                return True
+            except (BrokenPipeError, ConnectionResetError):
+                return False
+
+        from . import ask as _ask
+        conn = db.connect()
+        try:
+            prompt, _meta = _ask.build_prompt(question)
+            whole = []
+            for piece in _ask.stream_claude(prompt):
+                whole.append(piece)
+                if not emit("delta", {"text": piece}):
+                    return                      # user closed the panel; stop working
+            answer = "".join(whole)
+            fields = _ask.parse_answer(answer)
+            emit("done", fields)
+            # Persist exactly as the non-streaming path does, so history, chat and
+            # auto-pinning behave identically no matter which route was taken.
+            try:
+                ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                conn.execute("INSERT INTO chats (ts, role, content) VALUES (?, 'user', ?)",
+                             (ts, question))
+                conn.execute("INSERT INTO chats (ts, role, content) VALUES (?, 'assistant', ?)",
+                             (ts, fields.get("answer", "")))
+                conn.commit()
+                from . import forgetting
+                forgetting.maybe_pin(conn, question, fields.get("answer", ""),
+                                     _meta.get("wisp_ids"))
+            except Exception:  # noqa: BLE001 — never lose an answer over bookkeeping
+                log.debug("stream bookkeeping failed", exc_info=True)
+        except Exception as e:  # noqa: BLE001
+            emit("error", {"error": str(e)})
+        finally:
+            conn.close()
+
     def _json(self, obj, code=200):
         body = json.dumps(obj).encode()
         self.send_response(code)
@@ -439,6 +491,12 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/mcp/install-desktop":
                 from . import mcp as _mcp
                 self._json(_mcp.install_to_desktop())
+            elif self.path == "/ask-stream":
+                # Server-sent events: one `data:` line per fragment, terminated by
+                # a `done` event. Chosen over raw chunked because it is
+                # line-delimited, which is exactly the shape Swift's
+                # URLSession.AsyncBytes.lines consumes natively.
+                self._stream_answer(body.get("question", ""))
             elif self.path == "/mcp/test":
                 from . import mcp as _mcp
                 self._json(_mcp.test_connection())

@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.23.1, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 49 releases (v0.1.0 → v0.23.1).
+**Current status (v0.24.0, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 50 releases (v0.1.0 → v0.24.0).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,35 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.24.0 — the deeper answer types itself out (2026-07-21)
+
+The last of the latency work. "Think longer" sends the question to a cloud engine
+and that takes ten to seventeen seconds, which was ten to seventeen seconds of
+nothing on screen.
+
+Researched the options rather than assuming: raw chunked transfer versus
+[server-sent events](https://developer.apple.com/documentation/foundation/urlsession/asyncbytes).
+SSE wins here because it is line-delimited and Swift's
+`URLSession.AsyncBytes.lines` consumes exactly that shape natively — no buffering
+of our own, no framing code to get subtly wrong.
+
+- `stream_claude()` runs the CLI with `--output-format stream-json --verbose
+  --include-partial-messages` and yields `text_delta` fragments.
+- `POST /ask-stream` emits them as SSE, then a final `done` event carrying the
+  parsed answer. History, chat and auto-pinning happen on this path exactly as on
+  the non-streaming one, so which route an answer took is invisible afterwards.
+- Writing stops the moment the client disappears: a closed panel should not leave
+  a model generating into a broken pipe.
+
+**Measured, and honestly less than hoped.** On the real 14.4 KB prompt the blank
+window went from 16s to 10s — 13 fragments, first text at 10.7s over real HTTP.
+Most of the wait is *before* the first token (CLI startup plus reading the
+prompt), not during generation, so streaming cannot fix it. The genuine latency
+win was v0.22.0 showing the on-device answer immediately; this makes the
+escalation path stop looking frozen.
+
+216 tests.
 
 ## v0.23.1 — a forgotten wisp could survive as a pinned answer (2026-07-21)
 

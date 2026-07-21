@@ -374,6 +374,51 @@ struct RewispAPI {
         return try await send(req)
     }
 
+    /// Stream an answer, calling `onDelta` as fragments arrive.
+    ///
+    /// Server-sent events, consumed with URLSession.AsyncBytes.lines — the
+    /// protocol is line-delimited, so this needs no buffering of our own. The
+    /// total wait is unchanged (the model takes what it takes), but the window
+    /// fills with text instead of sitting blank, which is the difference between
+    /// "working" and "frozen".
+    static func askStreaming(_ question: String,
+                             onDelta: @escaping (String) -> Void) async throws -> AskResult {
+        var req = request("ask-stream")
+        req.httpMethod = "POST"
+        req.timeoutInterval = 180
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["question": question])
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: req)
+        if (response as? HTTPURLResponse)?.statusCode == 401 {
+            reloadToken()
+            throw NSError(domain: "rewisp", code: 401,
+                          userInfo: [NSLocalizedDescriptionKey: "unauthorized"])
+        }
+        var final: AskResult?
+        for try await line in bytes.lines {
+            guard line.hasPrefix("data: "),
+                  let payload = String(line.dropFirst(6)).data(using: .utf8) else { continue }
+            if let obj = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] {
+                if let text = obj["text"] as? String {
+                    await MainActor.run { onDelta(text) }
+                } else if let message = obj["error"] as? String {
+                    throw NSError(domain: "rewisp", code: 2,
+                                  userInfo: [NSLocalizedDescriptionKey: message])
+                } else {
+                    final = try? JSONDecoder().decode(
+                        AskResult.self, from: payload)
+                }
+            }
+        }
+        guard let final else {
+            throw NSError(domain: "rewisp", code: 3,
+                          userInfo: [NSLocalizedDescriptionKey:
+                                     "The answer ended unexpectedly."])
+        }
+        return final
+    }
+
     static func ask(_ question: String) async throws -> AskResult {
         let data = try await post("ask", body: ["question": question])
         let resp = try JSONDecoder().decode(AskResult.self, from: data)

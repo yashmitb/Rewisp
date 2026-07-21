@@ -1,6 +1,7 @@
 """Ask pipeline: local time parse -> FTS retrieval -> one Claude call (Claude Code
 subscription, never an API key) -> answer with sources -> saved to chats."""
 
+import json
 import os
 import re
 import shutil
@@ -666,6 +667,64 @@ def build_prompt(question: str, compact: bool = False) -> tuple[str, dict]:
         return prompt, meta
     finally:
         conn.close()
+
+
+def stream_claude(prompt: str):
+    """Yield Claude's answer as it is generated.
+
+    Same invocation as _call_claude plus `--output-format stream-json
+    --verbose --include-partial-messages`, which emits newline-delimited JSON
+    events. Text arrives as `stream_event` lines whose `event.delta.type` is
+    `text_delta`; everything else (tool use, init, retries) is ignored.
+
+    This does not make the answer arrive sooner in total — the model takes as
+    long as it takes — but it replaces a blank window with text appearing, which
+    is the difference between "working" and "frozen". Total latency was already
+    addressed by answering on-device first; this is for the escalation path.
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY is set — this would bill the API instead of your "
+            "Claude subscription. Unset it and retry.")
+    claude = cli_path("claude")
+    if not claude:
+        raise RuntimeError("Claude Code CLI not found. Install it and run `claude` once to sign in.")
+
+    proc = subprocess.Popen(
+        [claude, "-p", "--output-format", "stream-json", "--verbose",
+         "--include-partial-messages",
+         "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
+         "--setting-sources", "user"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, cwd="/tmp", bufsize=1)
+    try:
+        proc.stdin.write(prompt)
+        proc.stdin.close()
+        for line in proc.stdout:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue
+            if msg.get("type") == "stream_event":
+                delta = (msg.get("event") or {}).get("delta") or {}
+                if delta.get("type") == "text_delta" and delta.get("text"):
+                    yield delta["text"]
+            elif msg.get("type") == "result" and msg.get("is_error"):
+                raise RuntimeError(msg.get("result") or "Claude reported an error.")
+    finally:
+        try:
+            proc.stdout.close()
+        except Exception:  # noqa: BLE001
+            pass
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
 
 
 def _call_claude(prompt: str) -> str:

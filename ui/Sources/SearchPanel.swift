@@ -210,6 +210,8 @@ struct SearchPanelView: View {
     /// The question behind the answer on screen, so "Think longer" can re-ask it.
     @State private var answeredQuestion = ""
     @State private var thinkingLonger = false
+    /// Partial text while the deeper answer generates.
+    @State private var streamed = ""
     @State private var needsPermission = false
     @State private var fixingSetup = false
     @State private var setupFixFailed = false
@@ -473,12 +475,20 @@ struct SearchPanelView: View {
                         thinkingLonger = true
                         let q = answeredQuestion
                         Task { @MainActor in
+                            // Stream it: the deeper answer takes ten seconds or
+                            // more, and watching text appear is a different
+                            // experience from watching nothing.
+                            streamed = ""
                             var better: RewispAPI.AskResult
-                            do { better = try await RewispAPI.ask(q) }
-                            catch {
+                            do {
+                                better = try await RewispAPI.askStreaming(q) { piece in
+                                    streamed += piece
+                                }
+                            } catch {
                                 better = RewispAPI.AskResult(
                                     answer: "⚠︎ \(error.localizedDescription)")
                             }
+                            streamed = ""
                             withAnimation(spring) { result = better }
                             thinkingLonger = false
                         }
@@ -486,7 +496,7 @@ struct SearchPanelView: View {
                         HStack(spacing: 7) {
                             if thinkingLonger {
                                 ProgressView().controlSize(.small)
-                                Text("Thinking…")
+                                Text(streamed.isEmpty ? "Thinking…" : "Writing…")
                             } else {
                                 Image(systemName: "brain")
                                 Text("Think longer")
@@ -498,6 +508,15 @@ struct SearchPanelView: View {
                     .controlSize(.small)
                     .disabled(thinkingLonger)
                     .padding(.top, 2)
+
+                    if thinkingLonger, !streamed.isEmpty {
+                        // The deeper answer as it arrives, above the old one.
+                        Text(streamed)
+                            .font(.callout)
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .transition(.opacity)
+                    }
 
                     if !thinkingLonger {
                         Text("Answered on-device, instantly. Think longer sends it to your stronger engine.")
