@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.18.1, 2026-07-20):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 34 releases (v0.1.0 → v0.18.1).
+**Current status (v0.18.2, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 147 tests. 35 releases (v0.1.0 → v0.18.2).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: the capture-loop autorelease leak, a LICENSE file, an uninstaller, and auth on the MCP server.
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,31 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.18.2 — reopening a window is a check (2026-07-21)
+
+Reported: the update banner never appears when you open Rewisp, but quitting the
+whole app from the menu bar and reopening it shows the banner every time.
+
+Exactly right, and the reason is that ⌘W does not destroy anything.
+`MainWindowController` builds its `NSWindow` once and sets
+`isReleasedWhenClosed = false`, so closing the window keeps the SwiftUI tree
+alive. `.task` fires once per view lifetime, so reopening the window was
+indistinguishable from never having closed it — and only a full app relaunch,
+which runs the launch-time check, ever noticed a new release.
+
+Third time this bug has appeared in a different disguise (v0.16.3, v0.17.1, and
+now this), each time because the check was hung off SwiftUI's view lifecycle
+rather than the moment the UI actually becomes visible.
+
+- `MainWindowController.show()` checks on every open, at the AppKit layer where
+  reuse cannot hide it.
+- The menu bar popover checks in `onAppear`, for the same reason.
+- Both use a 60-second throttle rather than the default 15 minutes, so opening a
+  window genuinely re-checks while hammering ⌘W is not a request storm.
+
+Four independent triggers now cover it: app launch, a 30-minute timer, opening
+the main window, and opening the popover.
 
 ## v0.18.1 — sweep (2026-07-20)
 

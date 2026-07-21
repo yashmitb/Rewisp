@@ -58,6 +58,9 @@ struct DashboardView: View {
         .frame(minHeight: 320, maxHeight: 560)
         .popoverReveal()
         .task { await refresh() }
+        // Same reasoning as the main window: the popover's view can be reused
+        // between openings, so closing and reopening it must itself be a check.
+        .onAppear { UpdateChecker.shared.checkIfStale(minInterval: 60) }
         // Esc anywhere in the popover closes it (Spotlight-style).
         .onExitCommand { NSApp.keyWindow?.close() }
     }

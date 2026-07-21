@@ -37,6 +37,12 @@ final class MainWindowController {
         NSApp.setActivationPolicy(.regular)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        // Check here, not in a SwiftUI .task. The window is created once and
+        // reused (isReleasedWhenClosed = false), so the view tree survives ⌘W and
+        // .task never fires a second time — reopening the window looked identical
+        // to leaving it open, and only quitting the whole app ever re-checked.
+        // A short throttle so hammering ⌘W isn't a request storm.
+        UpdateChecker.shared.checkIfStale(minInterval: 60)
         // Replay the launch splash on every open (window is reused, so the
         // view's own .task only fires the first time).
         NotificationCenter.default.post(name: .rewispMainShown, object: nil)
