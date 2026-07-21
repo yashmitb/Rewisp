@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.20.0, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 43 releases (v0.1.0 → v0.20.0).
+**Current status (v0.20.1, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 44 releases (v0.1.0 → v0.20.1).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,36 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.20.1 — recall is 4x faster, and one bad byte no longer breaks search (2026-07-21)
+
+**Semantic search rebuilt its entire matrix on every query.** `vector_search`
+pulled all 12,217 embeddings out of SQLite and ran `np.vstack` on each call:
+24 ms warm, growing linearly with the corpus, and paid again for every search a
+single question triggers. The matmul was never the cost — the loading was.
+
+The matrix now lives in memory and grows incrementally as wisps arrive.
+
+- **24 ms → 6.4 ms** on the hot path, measured on the live 12k-wisp corpus. A
+  question that fans out to four searches went 96 ms → 26 ms.
+- **Deletes invalidate it**, hooked into the single delete choke point. A cache
+  that kept serving a forgotten wisp would be far worse than a slow one, so
+  there is also a row-count check as a backstop.
+- **Keyed to the database file.** Not hypothetical: restoring from a backup
+  swaps the file under a running daemon, and a cache keyed to nothing would go
+  on answering from embeddings that no longer exist. Caught by a test that
+  swaps databases mid-flight.
+- **Malformed embeddings are skipped rather than fatal.** `vstack` demands
+  uniform rows, so a single blob of the wrong width took out *every* semantic
+  search. Found because loading the full corpus exposed a bad row the old
+  time-filtered query happened to miss. That wisp now falls back to keyword
+  matching and the rest keeps working.
+
+Also verified this release: the uninstaller, finally **run end to end** against a
+scratch environment rather than only read. Agents out, plists removed, data and
+app to the Trash, everything recoverable. It had been shipped and untested.
+
+184 tests.
 
 ## v0.20.0 — what launch-day feedback actually asked for (2026-07-21)
 

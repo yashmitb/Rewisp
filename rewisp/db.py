@@ -210,33 +210,143 @@ def search_captures(conn: sqlite3.Connection, query: str, limit: int = 20,
     return [dict(zip(cols, row)) for row in conn.execute(sql, params)]
 
 
+# Cached embedding matrix for semantic search.
+#
+# vector_search used to pull every embedding out of SQLite and rebuild the numpy
+# matrix on EVERY query: 12k rows measured at 24 ms warm, growing linearly, and
+# paid again for each of the several searches a single question can trigger. The
+# matmul was never the cost — the loading was.
+#
+# The daemon is long-lived, so the matrix is held in memory and extended
+# incrementally as wisps arrive. Deletions (forget, kill-list purge, retention)
+# are caught by a row-count check, which is cheap and cannot silently keep a
+# forgotten wisp searchable — the one failure mode that would actually matter
+# here.
+_VEC = {"db": None, "max_id": 0, "count": 0, "ids": None, "mat": None, "ts": None}
+
+
+def _db_identity(conn: sqlite3.Connection) -> str:
+    """Which file this connection is actually attached to.
+
+    The cache is module-level, so it must know when the database underneath it
+    changes. That is not hypothetical: restoring from a backup swaps the file
+    while the process keeps running, and a cache keyed to nothing would go on
+    answering from embeddings that no longer exist.
+    """
+    try:
+        for _seq, name, path in conn.execute("PRAGMA database_list"):
+            if name == "main":
+                return path or ":memory:"
+    except sqlite3.Error:
+        pass
+    return ":memory:"
+
+
+def _epoch(ts: str) -> float:
+    """DB timestamps are UTC 'YYYY-MM-DD HH:MM:SS'. Compared as floats so the
+    time window is a numpy mask rather than per-row string parsing."""
+    from datetime import datetime, timezone
+    try:
+        return datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(
+            tzinfo=timezone.utc).timestamp()
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _refresh_vec_cache(conn: sqlite3.Connection) -> None:
+    import numpy as np
+    total, = conn.execute(
+        "SELECT COUNT(*) FROM captures WHERE embedding IS NOT NULL").fetchone()
+    identity = _db_identity(conn)
+    # Fewer rows than we hold means something was deleted; the cached copy could
+    # otherwise keep serving a wisp the user asked to forget. A different file
+    # means the database was swapped underneath us entirely.
+    if _VEC["ids"] is None or total < _VEC["count"] or _VEC["db"] != identity:
+        _VEC.update(max_id=0, count=0, ids=None, mat=None, ts=None)
+
+    rows = conn.execute(
+        "SELECT id, ts, embedding FROM captures "
+        "WHERE embedding IS NOT NULL AND id > ? ORDER BY id",
+        (_VEC["max_id"],)).fetchall()
+    if not rows and _VEC["ids"] is not None:
+        return
+
+    # Skip blobs that are not the expected width. One malformed embedding would
+    # otherwise break EVERY semantic search, because vstack demands uniform rows —
+    # a single bad byte-count taking out the whole retrieval path. Cheap to
+    # tolerate: that wisp simply falls back to keyword matching.
+    from . import embed as _embed
+    want = _embed.DIM * 4                      # float32
+    keep = [r for r in rows if r[2] is not None and len(r[2]) == want]
+    skipped = len(rows) - len(keep)
+    if skipped:
+        log.warning("vector cache: skipped %d capture(s) with malformed embeddings",
+                    skipped)
+    if not keep:
+        # Still advance past these rows, or every call retries them forever.
+        if rows:
+            _VEC["max_id"] = max(_VEC["max_id"], max(r[0] for r in rows))
+        _VEC["count"] = total
+        _VEC["db"] = identity
+        return
+
+    new_ids = np.fromiter((r[0] for r in keep), dtype=np.int64, count=len(keep))
+    new_ts = np.fromiter((_epoch(r[1]) for r in keep), dtype=np.float64, count=len(keep))
+    new_mat = np.vstack([np.frombuffer(r[2], dtype=np.float32) for r in keep])
+
+    if _VEC["ids"] is None:
+        _VEC.update(ids=new_ids, ts=new_ts, mat=new_mat)
+    elif rows:
+        _VEC["ids"] = np.concatenate([_VEC["ids"], new_ids])
+        _VEC["ts"] = np.concatenate([_VEC["ts"], new_ts])
+        _VEC["mat"] = np.vstack([_VEC["mat"], new_mat])
+
+    if rows:
+        _VEC["max_id"] = max(_VEC["max_id"], max(r[0] for r in rows))
+    elif _VEC["ids"] is not None and len(_VEC["ids"]):
+        _VEC["max_id"] = max(_VEC["max_id"], int(_VEC["ids"][-1]))
+    _VEC["count"] = total
+    _VEC["db"] = identity
+
+
 def vector_search(conn: sqlite3.Connection, qvec, k: int = 40,
                   since: str | None = None, until: str | None = None) -> list[tuple[int, float]]:
-    """Brute-force cosine over stored embeddings. At 6-month retention the corpus
-    is ~20k rows x 512 float32 (~40 MB) — a single numpy matmul, a few ms. No
-    vector-index extension needed at this scale. Returns [(id, score)] desc."""
+    """Cosine over stored embeddings, against an in-memory matrix.
+
+    Brute force is still the right call at this scale — a single matmul over
+    ~20k x 512 float32 is a few ms, and no ANN index earns its complexity until
+    the corpus is far larger. What did not scale was rebuilding the matrix from
+    SQLite on every call. Returns [(id, score)] descending.
+    """
     import numpy as np
-    sql = "SELECT id, embedding FROM captures WHERE embedding IS NOT NULL"
-    params: list = []
-    if since:
-        sql += " AND ts >= ?"; params.append(since)
-    if until:
-        sql += " AND ts <= ?"; params.append(until)
-    ids: list[int] = []
-    vecs: list = []
-    for rid, blob in conn.execute(sql, params):
-        ids.append(rid)
-        vecs.append(np.frombuffer(blob, dtype=np.float32))
-    if not ids:
+    _refresh_vec_cache(conn)
+    if _VEC["ids"] is None or not len(_VEC["ids"]):
         return []
-    mat = np.vstack(vecs)                      # (n, dim), already normalized
+
+    mat, ids, ts = _VEC["mat"], _VEC["ids"], _VEC["ts"]
+    if since or until:
+        mask = np.ones(len(ids), dtype=bool)
+        if since:
+            mask &= ts >= _epoch(since)
+        if until:
+            mask &= ts <= _epoch(until)
+        if not mask.any():
+            return []
+        mat, ids = mat[mask], ids[mask]
+
     q = np.asarray(qvec, dtype=np.float32)
     q = q / (np.linalg.norm(q) + 1e-9)
-    sims = mat @ q                             # cosine, since both are unit-norm
+    sims = mat @ q                             # cosine: both sides unit-norm
     k = min(k, len(ids))
     top = np.argpartition(-sims, k - 1)[:k]
     top = top[np.argsort(-sims[top])]
-    return [(ids[i], float(sims[i])) for i in top]
+    return [(int(ids[i]), float(sims[i])) for i in top]
+
+
+def invalidate_vector_cache() -> None:
+    """Drop the cached matrix. Called after deletes so a forgotten wisp cannot
+    be served from memory even for the moment before the count check notices."""
+    _VEC.update(db=None, max_id=0, count=0, ids=None, mat=None, ts=None)
 
 
 def reinforcement_rank(conn: sqlite3.Connection, ids: list[int]) -> list[int]:
@@ -415,6 +525,7 @@ def delete_captures(conn: sqlite3.Connection, ids: list[int]) -> int:
     conn.execute(f"DELETE FROM nudges WHERE source_wisp_id IN ({marks})", ids)
     n = conn.execute(f"DELETE FROM captures WHERE id IN ({marks})", ids).rowcount
     conn.commit()
+    invalidate_vector_cache()
     return n
 
 
