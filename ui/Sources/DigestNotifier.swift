@@ -30,7 +30,21 @@ final class DigestNotifier {
             guard granted else { return }
             let content = UNMutableNotificationContent()
             content.title = "Your day, digested"
-            content.body = String((recap.recap ?? "Tonight's digest is ready.").prefix(140))
+            // Deliberately says nothing about the day itself.
+            //
+            // This used to carry 140 characters of the recap, which is a summary
+            // of everything you did — the pages, the people, the work. macOS
+            // shows notification previews on the LOCK SCREEN by default, and
+            // keeps them in Notification Center, so that content was readable by
+            // anyone standing near a locked Mac. An app whose entire promise is
+            // that your screen history stays yours cannot put a précis of it on
+            // the lock screen.
+            //
+            // There is no API to force a hidden preview — that is a per-app user
+            // setting — so the only reliable fix is to not put anything sensitive
+            // in the notification. The recap stays inside the app, behind the
+            // machine's own login.
+            content.body = "Tonight's recap is ready. Open Rewisp to read it."
             content.sound = .default
             try? await center.add(UNNotificationRequest(
                 identifier: "rewisp.digest.\(today)", content: content, trigger: nil))

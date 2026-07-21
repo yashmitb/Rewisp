@@ -34,7 +34,7 @@ class Daemon:
     # -- state checks ---------------------------------------------------------
 
     def paused(self) -> bool:
-        return config.PAUSE_FLAG.exists()
+        return config.is_paused()
 
     def idle(self) -> bool:
         return screen.seconds_since_any_input() > config.IDLE_GUARD_SECONDS

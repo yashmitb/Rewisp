@@ -9,6 +9,44 @@ DB_PATH = DATA_DIR / "rewisp.db"
 VAULT_DIR = DATA_DIR / "vault"
 MEMORY_PATH = DATA_DIR / "memory.md"
 PAUSE_FLAG = DATA_DIR / "paused"
+
+
+def pause_until() -> float | None:
+    """Epoch seconds the pause expires, or None for an indefinite pause."""
+    try:
+        raw = PAUSE_FLAG.read_text().strip()
+    except OSError:
+        return None
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def is_paused() -> bool:
+    """True while capture is paused, expiring a timed pause automatically.
+
+    A pause with no end was the only kind available, which quietly made "pause
+    while I do something sensitive" and "stop recording my life" the same
+    action. People asked for a timed version precisely because the indefinite
+    one is easy to set and easy to forget, and a forgotten pause looks exactly
+    like a broken app: no wisps, no error, no explanation.
+
+    Checked here rather than by a timer so it stays correct across sleep,
+    restarts, and a daemon that was not running when the deadline passed.
+    """
+    if not PAUSE_FLAG.exists():
+        return False
+    until = pause_until()
+    if until is None:
+        return True                      # indefinite
+    import time as _time
+    if _time.time() >= until:
+        PAUSE_FLAG.unlink(missing_ok=True)   # expired: resume on its own
+        return False
+    return True
 KILL_LIST_PATH = DATA_DIR / "killlist.json"
 LOG_PATH = DATA_DIR / "daemon.log"
 TOKEN_PATH = DATA_DIR / ".api_token"  # shared secret for the localhost API
@@ -65,6 +103,16 @@ RRF_K = 60          # reciprocal-rank-fusion constant (standard default)
 RRF_POOL = 40       # top-k pulled from each of FTS and vector before fusion
 
 DEFAULT_KILL_APPS = [
+    # Video calls. Not only your own privacy: when someone screen-shares a
+    # document with you, capturing it stores THEIR confidential material in your
+    # database, and they never agreed to that. Asked for on launch day, and the
+    # right default regardless.
+    "zoom.us",
+    "Microsoft Teams",
+    "Webex",
+    "FaceTime",
+    "Discord",
+    "Slack Call",
     "Messages",
     "WhatsApp",
     "1Password",

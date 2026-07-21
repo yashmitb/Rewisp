@@ -1,3 +1,3 @@
 """Rewisp — ambient memory for macOS. Captures screen text locally, answers questions via Claude."""
 
-__version__ = "0.19.2"
+__version__ = "0.20.0"

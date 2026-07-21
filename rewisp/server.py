@@ -128,7 +128,8 @@ class Handler(BaseHTTPRequestHandler):
                 # missing long after the user had granted it.
                 usable, pending = screen.permission_state()
                 self._json({
-                    "paused": config.PAUSE_FLAG.exists(),
+                    "paused": config.is_paused(),
+                    "pause_until": config.pause_until(),
                     "capture_state": daemon.STATE.get("capture", "unknown"),
                     "screen_permission": usable,
                     "permission_pending": pending,
@@ -389,8 +390,17 @@ class Handler(BaseHTTPRequestHandler):
                             "permission_pending": pending})
             elif self.path == "/pause":
                 config.ensure_dirs()
-                config.PAUSE_FLAG.touch()
-                self._json({"paused": True})
+                # Optional {"minutes": N} for a pause that ends by itself. A
+                # forgotten indefinite pause is indistinguishable from a broken
+                # app, so a bounded one is the safer default for "just while I do
+                # this thing".
+                mins = body.get("minutes")
+                if isinstance(mins, (int, float)) and 0 < mins <= 24 * 60:
+                    import time as _t
+                    config.PAUSE_FLAG.write_text(str(_t.time() + mins * 60))
+                else:
+                    config.PAUSE_FLAG.write_text("")
+                self._json({"paused": True, "until": config.pause_until()})
             elif self.path == "/resume":
                 config.PAUSE_FLAG.unlink(missing_ok=True)
                 self._json({"paused": False})

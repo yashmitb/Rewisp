@@ -8,6 +8,16 @@ leaves the Mac); hard questions and the nightly digest use a stronger engine
 
 ---
 
+## A note on the Vault and Touch ID
+
+The Vault tab is gated by Touch ID, and that is a UI gate: it stops someone
+opening the tab on your unlocked Mac. It is **not** encryption. The files sit in
+`~/Rewisp/vault/`, protected by the same thing as everything else — the folder is
+locked to your account and FileVault covers the disk. Anything running as you can
+read them without ever meeting the Touch ID prompt.
+
+Worth being precise about, because "Touch ID locked" sounds like more than it is.
+
 ## Installing
 
 Download **Rewisp.dmg** and drag Rewisp into Applications. Grant Screen Recording
@@ -97,9 +107,9 @@ refuses files that look like they contain credentials and tells you why.
 
 Vault beats screen history: if they conflict, the Vault answer wins.
 
-The Vault tab is **locked behind Touch ID** (or your login password) — it holds
-your most sensitive facts, so opening it prompts for authentication each visit.
-If your Mac has no biometric or password enrolled, the Vault opens normally.
+The Vault tab prompts for Touch ID (or your login password) each visit. That is a
+gate on the tab, not on the files — see the note at the top of this manual. If
+your Mac has no biometric or password enrolled, the Vault opens normally.
 
 ### Memory (what Rewisp learns about you)
 Main window → **Memory** tab: approve ✓ or delete ✕ pending facts the digest

@@ -65,6 +65,25 @@ struct DashboardView: View {
         .onExitCommand { NSApp.keyWindow?.close() }
     }
 
+    /// "Paused · 12m left" is the difference between a state you can trust and
+    /// one you have to remember.
+    private var pauseLabel: String {
+        guard status?.paused == true else { return "Pause" }
+        guard let until = status?.pause_until else { return "Resume" }
+        let left = Int((until - Date().timeIntervalSince1970) / 60) + 1
+        return left > 0 ? "Resume (\(left)m)" : "Resume"
+    }
+
+    private func pause(minutes: Int?) {
+        Task { @MainActor in
+            var body: [String: Any] = [:]
+            if let minutes { body["minutes"] = minutes }
+            try? await RewispAPI.post("pause", body: body)
+            await refresh()
+            StatusModel.shared.refresh()
+        }
+    }
+
     private func openMain(_ tab: MainTab) {
         NSApp.keyWindow?.close()
         MainWindowController.shared.show(tab)
@@ -344,20 +363,32 @@ struct DashboardView: View {
 
     private var footer: some View {
         HStack(spacing: 12) {
-            Button {
-                Task { @MainActor in
-                    guard let s = status else { return }
-                    try? await RewispAPI.post(s.paused ? "resume" : "pause")
-                    await refresh()
-                    StatusModel.shared.refresh()  // menu bar icon updates immediately
-                }
+            // Plain click toggles; the menu offers a pause that ends by itself.
+            // An indefinite pause is easy to set and easy to forget, and a
+            // forgotten one looks exactly like a broken app.
+            Menu {
+                Button("Pause for 15 minutes") { pause(minutes: 15) }
+                Button("Pause for 30 minutes") { pause(minutes: 30) }
+                Button("Pause for 1 hour") { pause(minutes: 60) }
+                Divider()
+                Button("Pause until I resume") { pause(minutes: nil) }
             } label: {
-                Label(status?.paused == true ? "Resume" : "Pause",
+                Label(pauseLabel,
                       systemImage: status?.paused == true ? "play.fill" : "pause.fill")
                     .font(.caption.weight(.medium))
+            } primaryAction: {
+                Task { @MainActor in
+                    guard let s = status else { return }
+                    if s.paused { try? await RewispAPI.post("resume") }
+                    else { try? await RewispAPI.post("pause") }
+                    await refresh()
+                    StatusModel.shared.refresh()
+                }
             }
+            .menuStyle(.button)
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .fixedSize()
             .tint(status?.paused == true ? .orange : nil)
 
             Button {

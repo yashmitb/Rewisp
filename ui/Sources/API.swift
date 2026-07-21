@@ -30,6 +30,8 @@ struct RewispAPI {
 
     struct Status: Decodable {
         var paused: Bool
+        /// Epoch seconds a timed pause ends; nil when paused indefinitely.
+        var pause_until: Double?
         var capture_state: String?
         var screen_permission: Bool?
         /// Granted in System Settings, but the helper hasn't restarted into it yet.

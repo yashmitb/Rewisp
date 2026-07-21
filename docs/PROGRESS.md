@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.19.2, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 42 releases (v0.1.0 → v0.19.2).
+**Current status (v0.20.0, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 43 releases (v0.1.0 → v0.20.0).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,41 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.20.0 — what launch-day feedback actually asked for (2026-07-21)
+
+Went through the Product Hunt thread and shipped the things people asked for that
+were genuinely missing, rather than the things that were nice to hear.
+
+**Timed pause** (Yasin Erhal: *"a way to mark something as do-not-track when I'm
+working on sensitive stuff... a shortcut to pause for 15 or 30 minutes"*). Only an
+indefinite pause existed, which conflates "stop for a moment" with "stop
+recording my life" — and a forgotten pause is indistinguishable from a broken
+app: no wisps, no error, no explanation. `/pause` now accepts `{"minutes": N}`,
+the flag file carries the deadline, and expiry is **checked rather than timed**,
+so it stays correct across sleep, restarts, and a daemon that was not running
+when the deadline passed. The menu bar button gained 15/30/60-minute options and
+counts down: "Resume (12m)". A malformed deadline fails safe as *paused*.
+
+**Video calls are blocked by default** (Buket: *"exclude specific apps... like
+when I'm in a video call"*). zoom.us, Teams, Webex, FaceTime and Discord join the
+kill list. This is not only the user's privacy: when someone screen-shares a
+document with you, capturing it puts **their** confidential material in your
+database, and they never agreed to that.
+
+**The digest notification no longer previews your day.** It carried 140
+characters of the recap — a summary of everything you did — and macOS shows
+notification previews on the lock screen by default and keeps them in
+Notification Center. Anyone near a locked Mac could read it. There is no API to
+force a hidden preview, so the only reliable fix is to put nothing sensitive in
+the notification: it now says the recap is ready and the content stays in the app.
+
+**The Vault's Touch ID claim is now accurate.** The manual said "locked behind
+Touch ID", which reads as encryption. It gates the tab, not the files — anything
+running as you reads `~/Rewisp/vault/` without meeting the prompt. Stated plainly
+in two places rather than left to imply more than it does.
+
+178 tests.
 
 ## v0.19.2 — browsing history was sitting in world-readable /tmp (2026-07-21)
 
