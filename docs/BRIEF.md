@@ -4,7 +4,7 @@ An ambient memory for macOS. Rewisp quietly captures the **text** of what you se
 
 Owner: Yashmit. Single user, his Mac only. Nothing leaves the machine except the prompt of a question or the nightly digest, and only to the engine you choose.
 
-**Current version: v0.23.0** (48 releases across 2026-07-08 → 07-21). In daily use (~180+ wisps/day, 11,000+ wisps). 214 tests.
+**Current version: v0.23.1** (49 releases across 2026-07-08 → 07-21). In daily use (~180+ wisps/day, 11,000+ wisps). 216 tests.
 
 The arc so far: v0.8 shipped the "intelligent memory" cycle (semantic search, delta, promises, numbers, precognition, dream/reinforcement, nudges); v0.9 was the precision cycle, closing the promise loop with due-day reminders and failed-search near-miss rescue; v0.10 added the Forgetting Model; v0.11 exposed the whole memory to external agents over MCP; v0.12 made it installable by someone who isn't a developer — the app bundles its own Python runtime and provisions its background helper on first launch, so there is nothing to run and no system dependency.
 

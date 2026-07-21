@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.23.0, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 48 releases (v0.1.0 → v0.23.0).
+**Current status (v0.23.1, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 49 releases (v0.1.0 → v0.23.1).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,37 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.23.1 — a forgotten wisp could survive as a pinned answer (2026-07-21)
+
+Closing the gap documented in v0.18.6 rather than leaving it documented.
+
+Facts asked three times are pinned and kept forever by design. That made `pinned`
+the one table where a forgotten wisp could persist indefinitely — and as a
+*deterministic* answer, returned without a model, which is the most durable form
+it could take. "Forget the last 10 minutes" removed the wisp and left the answer
+built from it.
+
+- `build_context` now carries the source wisp ids in its meta, `maybe_pin` stores
+  them, and `delete_captures` drops any pin whose sources are forgotten. Same
+  treatment episodes already had.
+- Pins created before this release have no provenance and are **left alone**.
+  Deleting facts someone relies on, to close a gap they may not have, is the
+  worse trade.
+
+**Two things the work exposed:**
+
+An encrypted database opened by a build without SQLCipher failed deep inside
+sqlite3 with `file is not a database` — indistinguishable from corruption, and an
+invitation for something upstream to "recover" by recreating it. It now says what
+is actually wrong and that the data is intact.
+
+`test_get_context_excludes_vault_by_default` was reading the author's **real**
+`~/Rewisp` database rather than a fixture. Encryption surfaced it as a failure;
+it was a latent problem the whole time, both a privacy issue in the test suite
+and a source of false results. Now isolated.
+
+216 tests.
 
 ## v0.23.0 — the database is encrypted at rest (2026-07-21)
 

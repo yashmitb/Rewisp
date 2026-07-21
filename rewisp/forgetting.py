@@ -252,7 +252,8 @@ _UNPINNABLE = re.compile(
     r"what changed|how has|what happened)\b", re.I)
 
 
-def maybe_pin(conn, question: str, answer: str) -> bool:
+def maybe_pin(conn, question: str, answer: str,
+              wisp_ids: list[int] | None = None) -> bool:
     """Called after every answered question. If this is the ~3rd time the same
     STABLE fact has been asked, pin the answer for instant deterministic recall."""
     if not answer or "not found" in answer.lower():
@@ -275,9 +276,16 @@ def maybe_pin(conn, question: str, answer: str) -> bool:
         return False
     if pinned_answer(conn, question):
         return False                                  # already pinned
+    # Record which wisps produced this answer. A pinned fact is kept forever by
+    # design, so without provenance "forget the last 10 minutes" would leave a
+    # permanent, deterministic copy of whatever it said — the exact thing the
+    # forget button exists to prevent.
+    import json as _json
+    sources = _json.dumps(sorted(set(wisp_ids))) if wisp_ids else None
     conn.execute(
-        "INSERT INTO pinned (question, answer, embedding, created_at) VALUES (?, ?, ?, ?)",
-        (question.strip(), answer.strip()[:500], qv, db.utcnow()))
+        "INSERT INTO pinned (question, answer, embedding, created_at, source_wisp_ids) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (question.strip(), answer.strip()[:500], qv, db.utcnow(), sources))
     conn.commit()
     log.info("forgetting: auto-pinned %r (asked %d times)", question[:50], similar)
     return True

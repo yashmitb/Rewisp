@@ -60,7 +60,12 @@ class TestVaultPrivacy:
         assert "Screen captures" in out and "Daily summaries" in out
         assert "leak" not in out
 
-    def test_get_context_excludes_vault_by_default(self, monkeypatch):
+    def test_get_context_excludes_vault_by_default(self, conn, monkeypatch):
+        # Uses the fixture database, not ~/Rewisp: a test that reads real user
+        # data is both a privacy problem and a source of false failures.
+        from rewisp import db
+        monkeypatch.setattr(db, "connect", lambda: conn)
+        monkeypatch.setattr(mcp, "db", db)
         # even asking for a personal fact, no vault file chunk leaks
         ctx = mcp.t_get_context({"question": "what is my email"})
         assert "[vault:" not in ctx

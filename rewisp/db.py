@@ -128,7 +128,8 @@ CREATE TABLE IF NOT EXISTS pinned (          -- facts you kept re-asking, kept f
   question TEXT,
   answer TEXT,
   embedding BLOB,
-  created_at TEXT
+  created_at TEXT,
+  source_wisp_ids TEXT       -- JSON list, so forgetting a source removes the pin
 );
 """
 
@@ -149,6 +150,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # Stable page identity for Delta ("what changed") and Numbers Over Time.
         conn.execute("ALTER TABLE captures ADD COLUMN page_key TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_captures_pagekey ON captures(page_key, ts)")
+        conn.commit()
+    pincols = {r[1] for r in conn.execute("PRAGMA table_info(pinned)")}
+    if pincols and "source_wisp_ids" not in pincols:
+        # Provenance for pinned facts. Existing pins have none, so they cannot be
+        # cascaded — they predate the tracking. Deliberately not deleted here:
+        # silently removing facts someone relies on, to fix a leak they may not
+        # have, is the worse trade. New pins are covered from now on.
+        conn.execute("ALTER TABLE pinned ADD COLUMN source_wisp_ids TEXT")
         conn.commit()
     pcols = {r[1] for r in conn.execute("PRAGMA table_info(promises)")}
     if pcols and "reminded_at" not in pcols:
@@ -197,6 +206,16 @@ def connect() -> sqlite3.Connection:
         except Exception:  # noqa: BLE001
             log.exception("encryption setup failed — continuing unencrypted")
             key = None
+
+    # An encrypted database opened by a build WITHOUT SQLCipher fails deep in
+    # sqlite3 with "file is not a database" — indistinguishable from corruption,
+    # and an invitation for something upstream to recreate it. Say what is
+    # actually wrong instead.
+    if driver is sqlite3 and crypto.is_encrypted(config.DB_PATH):
+        raise RuntimeError(
+            "This Rewisp database is encrypted, but this build has no SQLCipher "
+            "support, so it cannot be opened. Your data is intact — use a "
+            "current build of Rewisp. Nothing has been changed.")
 
     # A database already encrypted on disk MUST be opened with the key, even if
     # something above went wrong; opening it without one would look like
@@ -636,6 +655,20 @@ def delete_captures(conn: sqlite3.Connection, ids: list[int]) -> int:
     # written and never attached to the cascade — exactly the leak it promises
     # cannot happen.
     conn.execute(f"DELETE FROM nudges WHERE source_wisp_id IN ({marks})", ids)
+    # Pinned facts are kept forever on purpose, which makes them the one place a
+    # forgotten wisp could survive indefinitely — as a deterministic answer, no
+    # less. If any source is forgotten, the pin goes too, exactly as episodes do.
+    try:
+        import json as _json
+        gone_pins = [pid for pid, sj in conn.execute(
+            "SELECT id, source_wisp_ids FROM pinned WHERE source_wisp_ids IS NOT NULL")
+            if sj and idset & set(_json.loads(sj))]
+        if gone_pins:
+            conn.execute(
+                f"DELETE FROM pinned WHERE id IN ({','.join('?' * len(gone_pins))})",
+                gone_pins)
+    except Exception:  # noqa: BLE001 — never let this block a delete
+        log.debug("pinned cascade failed", exc_info=True)
     n = conn.execute(f"DELETE FROM captures WHERE id IN ({marks})", ids).rowcount
     conn.commit()
     invalidate_vector_cache()

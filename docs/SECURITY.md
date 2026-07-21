@@ -68,13 +68,13 @@ episode, if a forgotten wisp fed one), the FTS row, and the embedding.
 wisp verbatim in its body, so forgetting a moment left a pill that repeated the
 forgotten text back at you. Fixed, with a regression test.
 
-**Known gap: `pinned`.** Facts you look up repeatedly are pinned and kept
-forever, deliberately. A pinned row stores the question and the answer but no
-reference to the wisps the answer came from, so forgetting those wisps cannot
-remove it. In practice pinned answers are short factual values you asked for
-several times, not passages of screen text, but it is a real gap and worth
-knowing: review Settings → Your data if you have pinned something you would
-rather Rewisp did not keep.
+**`pinned` — closed in v0.23.1.** Facts you look up repeatedly are pinned and
+kept forever, which made them the one place a forgotten wisp could survive
+indefinitely, as a deterministic answer no less. Pins now record which wisps
+produced them, and forgetting any source removes the pin, exactly as episodes
+behave. Pins created before v0.23.1 have no provenance recorded and are left
+alone — silently deleting facts someone relies on, to close a gap they may not
+have, is the worse trade.
 
 ## Accepted risks
 

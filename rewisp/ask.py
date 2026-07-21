@@ -562,7 +562,17 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
             db.bump_recall(conn, recalled_ids)
         except Exception:  # noqa: BLE001
             pass
-    meta = {"since": since, "until": until, "fts": fts, "n_captures": len(rows)}
+    # Which wisps this answer was actually built from. Needed so that anything
+    # derived and KEPT — a pinned fact especially — can be removed when its
+    # sources are forgotten. Without provenance, "forget this" silently spares
+    # every downstream artefact.
+    wisp_ids = []
+    for r in rows:
+        rid = r.get("id") if isinstance(r, dict) else None
+        if isinstance(rid, int):
+            wisp_ids.append(rid)
+    meta = {"since": since, "until": until, "fts": fts, "n_captures": len(rows),
+            "wisp_ids": wisp_ids}
     text = "\n\n".join(parts)
     # Hard caps: tight for the on-device window; also bound the cloud prompt so a
     # dense day doesn't balloon it to 30k+ chars and make Claude slow to read.
@@ -1055,7 +1065,8 @@ def ask(question: str, save: bool = True) -> tuple[str, dict]:
         conn.commit()
         try:
             from . import forgetting
-            forgetting.maybe_pin(conn, question, answer)   # 3rd lookup -> pinned
+            forgetting.maybe_pin(conn, question, answer,
+                                 meta.get("wisp_ids"))   # 3rd lookup -> pinned
         except Exception:  # noqa: BLE001
             pass
     return answer, meta
