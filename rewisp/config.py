@@ -118,6 +118,15 @@ def ensure_dirs() -> None:
                 f.chmod(0o600)
         except OSError:
             pass
+    # launchd recreates its stderr files 0644 on every boot; the 0700 directory
+    # is the real barrier, but there is no reason to leave them loose.
+    for name in ("com.rewisp.daemon.err", "com.rewisp.digest.err"):
+        try:
+            f = DATA_DIR / name
+            if f.exists():
+                f.chmod(0o600)
+        except OSError:
+            pass
     # SQLite's sidecars are recreated on demand and inherit the same exposure.
     for suffix in ("-wal", "-shm"):
         side = DB_PATH.with_name(DB_PATH.name + suffix)

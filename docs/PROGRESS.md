@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.19.1, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 41 releases (v0.1.0 → v0.19.1).
+**Current status (v0.19.2, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 42 releases (v0.1.0 → v0.19.2).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,37 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.19.2 — browsing history was sitting in world-readable /tmp (2026-07-21)
+
+Found while auditing what the uninstaller misses. The uninstaller gap was real,
+but it was hiding something worse.
+
+The launchd plists set `StandardErrorPath` to `/tmp/com.rewisp.daemon.err`. Every
+capture line goes to stderr, and capture lines contain the window title and the
+full URL. launchd creates that file `0644`, and `/tmp` is `drwxrwxrwt`. So **any
+account on the machine could read the user's browsing history**, straight past
+the `0700` data directory that the privacy story rests on. 245 KB of it, 673
+lines carrying URLs, was sitting on the author's own Mac.
+
+- `StandardErrorPath` now points inside `~/Rewisp` (0700). `install.sh` had the
+  same path and is fixed too.
+- `provisionedPathIsCurrent()` treats a plist still logging to `/tmp` as stale,
+  so **existing installs are migrated on next launch** rather than leaking
+  forever. Checking only the program path would have left them exposed.
+- `ensure_dirs()` chmods those files 0600 as well; launchd recreates them 0644
+  each boot and the directory is the real barrier, but there is no reason to
+  leave them loose.
+- The uninstaller now removes the stray `/tmp` logs, the transient
+  `com.rewisp.updater` job, and any update staging directories. Removing the app
+  while leaving a readable browsing history behind was the worst version of that
+  bug.
+
+Separately: the console handler wrote every line **twice**, once to the rotating
+log and once to a launchd file that cannot be rotated, so the `.err` file grew
+without limit for the life of the install. It is now attached only when stderr is
+a TTY, so interactive runs still print and the daemon stops feeding a file it has
+no control over.
 
 ## v0.19.1 — the app you name is a cue, not a keyword (2026-07-21)
 

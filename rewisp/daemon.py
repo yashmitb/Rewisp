@@ -3,6 +3,7 @@ idle guard, kill list, dedupe. Screenshots live only in memory — OCR'd, then r
 
 import logging
 import os
+import sys
 import time
 from logging.handlers import RotatingFileHandler
 
@@ -342,6 +343,11 @@ def main() -> None:
         # history for debugging without ever becoming a disk problem.
         handlers=[RotatingFileHandler(config.LOG_PATH, maxBytes=2_000_000,
                                       backupCount=3),
-                  logging.StreamHandler()],
+                  # Console handler only when someone is actually watching. Under
+                  # launchd stderr is redirected to a file the daemon cannot
+                  # rotate, so every line was written twice: once to the rotating
+                  # log and once to a .err file that grew without limit for the
+                  # life of the install. Interactive runs still get their output.
+                  *([logging.StreamHandler()] if sys.stderr.isatty() else [])],
     )
     Daemon().run()

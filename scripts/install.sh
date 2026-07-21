@@ -62,7 +62,7 @@ cat > "$AGENTS/com.rewisp.daemon.plist" <<PLIST
     <key>WorkingDirectory</key><string>$DAEMON_DIR</string>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
-    <key>StandardErrorPath</key><string>/tmp/rewisp-daemon.err</string>
+    <key>StandardErrorPath</key><string>$HOME/Rewisp/com.rewisp.daemon.err</string>
 </dict></plist>
 PLIST
 

@@ -26,6 +26,19 @@ enum Setup {
     }
     /// Bytecode cache location, deliberately outside the app bundle — writing it
     /// inside breaks the signature and silently revokes Screen Recording.
+    /// Where launchd writes the helper's stderr.
+    ///
+    /// NOT /tmp. That log carries every capture line — window titles and full
+    /// URLs — and /tmp is world-readable (drwxrwxrwt), so launchd created it 0644
+    /// and any account on the Mac could read the user's browsing history straight
+    /// out of it. 245 KB of it was sitting there on the author's own machine.
+    /// The whole "everything is local, the folder is 0700" story was undone by a
+    /// path in a plist. It belongs beside the other logs, inside the data dir.
+    static var logDir: String {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Rewisp").path
+    }
+
     static var pycachePrefix: String {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Rewisp/.pycache").path
@@ -86,7 +99,7 @@ enum Setup {
                     <key>PYTHONPYCACHEPREFIX</key><string>\(pycachePrefix)</string>
                 </dict>
                 \(job.extra)
-                <key>StandardErrorPath</key><string>/tmp/\(job.label).err</string>
+                <key>StandardErrorPath</key><string>\(logDir)/\(job.label).err</string>
             </dict></plist>
             """
             let url = agents.appendingPathComponent("\(job.label).plist")
@@ -195,6 +208,11 @@ enum Setup {
               let args = plist["ProgramArguments"] as? [String],
               let program = args.first
         else { return false }
+        // Also treat a plist that still logs to /tmp as stale. That path leaked
+        // window titles and URLs to every account on the machine, and checking
+        // only the program would have left existing installs leaking forever.
+        let errPath = (plist["StandardErrorPath"] as? String) ?? ""
+        if errPath.hasPrefix("/tmp/") { return false }
         return program == bundledPython
     }
 

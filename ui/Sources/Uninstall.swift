@@ -107,6 +107,29 @@ enum Uninstall {
             else { report.failures.append("Couldn't move ~/Rewisp to the Trash") }
         }
 
+        // 5b ── leftovers that used to be missed entirely.
+        // The stderr logs are the important one: before this version they lived
+        // in world-readable /tmp and contained window titles and full URLs, so
+        // uninstalling without removing them left a readable browsing history
+        // behind on the machine.
+        for stray in ["/tmp/com.rewisp.daemon.err", "/tmp/com.rewisp.digest.err",
+                      "/tmp/rewisp-daemon.err"] {
+            try? fm.removeItem(atPath: stray)
+        }
+        _ = shell("/bin/launchctl", ["remove", "com.rewisp.updater"])
+        if let temps = try? fm.contentsOfDirectory(atPath: NSTemporaryDirectory()) {
+            for name in temps where name.hasPrefix("rewisp-update-") {
+                let dir = NSTemporaryDirectory() + "/" + name
+                if let inner = try? fm.contentsOfDirectory(atPath: dir) {
+                    for sub in inner where sub.hasPrefix("dmg.") {
+                        _ = shell("/usr/bin/hdiutil",
+                                  ["detach", dir + "/" + sub, "-force", "-quiet"])
+                    }
+                }
+                try? fm.removeItem(atPath: dir)
+            }
+        }
+
         // 6 ── the app, last.
         if plan.deleteApp {
             if await trash(Bundle.main.bundleURL) { report.appTrashed = true }
