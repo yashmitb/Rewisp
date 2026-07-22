@@ -2,6 +2,7 @@
 
 import logging
 import pathlib
+import re
 import sqlite3
 from datetime import datetime, timezone
 
@@ -20,6 +21,12 @@ CREATE TABLE IF NOT EXISTS captures (
 );
 CREATE INDEX IF NOT EXISTS idx_captures_ts ON captures(ts);
 
+-- Small key/value store for one-time migration state (e.g. whether the trigram
+-- index has been backfilled). External-content FTS5 can't be probed for
+-- "is it built" — its EXISTS reads through to the content table — so a flag here
+-- is the reliable signal.
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS captures_fts USING fts5(
   ocr_text, window_title, url, content=captures, content_rowid=id
 );
@@ -31,6 +38,25 @@ END;
 CREATE TRIGGER IF NOT EXISTS captures_ad AFTER DELETE ON captures BEGIN
   INSERT INTO captures_fts(captures_fts, rowid, ocr_text, window_title, url)
   VALUES ('delete', old.id, old.ocr_text, old.window_title, old.url);
+END;
+
+-- Trigram index over the same text. The word tokenizer above is exact: an OCR
+-- slip ('cl1ent' for 'client') makes a query word miss entirely. The trigram
+-- tokenizer indexes every 3-char shingle, so a query word expanded to its own
+-- trigrams still overlaps a mangled copy and surfaces it. Used only as one more
+-- fused (rank-based) signal in search_captures_hybrid, so the extra fuzzy hits
+-- it brings can lift recall without hurting precision. Separate triggers (new
+-- names) because CREATE TRIGGER IF NOT EXISTS won't rewrite the bodies above on
+-- an existing database.
+CREATE VIRTUAL TABLE IF NOT EXISTS captures_trigram USING fts5(
+  ocr_text, content=captures, content_rowid=id, tokenize='trigram'
+);
+CREATE TRIGGER IF NOT EXISTS captures_ai_tri AFTER INSERT ON captures BEGIN
+  INSERT INTO captures_trigram(rowid, ocr_text) VALUES (new.id, new.ocr_text);
+END;
+CREATE TRIGGER IF NOT EXISTS captures_ad_tri AFTER DELETE ON captures BEGIN
+  INSERT INTO captures_trigram(captures_trigram, rowid, ocr_text)
+  VALUES ('delete', old.id, old.ocr_text);
 END;
 
 CREATE TABLE IF NOT EXISTS summaries (
@@ -174,6 +200,24 @@ def _migrate(conn: sqlite3.Connection) -> None:
         # Forgetting model: a wisp gets ONE "about to fade" rescue mention, ever.
         conn.execute("ALTER TABLE captures ADD COLUMN rescued INTEGER DEFAULT 0")
         conn.commit()
+
+    # One-time backfill of the trigram index. The triggers only cover rows
+    # inserted after the table exists, so on an existing database it starts empty
+    # while captures is full. FTS5's external-content 'rebuild' repopulates it from
+    # the content table in one pass. Gated by a meta flag rather than a row count:
+    # an external-content FTS5 reports EXISTS=1 even when its index is empty
+    # (it reads through to the content table), so a count check would wrongly skip
+    # the rebuild and leave every pre-upgrade row unindexed.
+    try:
+        done = conn.execute("SELECT 1 FROM meta WHERE key='trigram_built'").fetchone()
+        if not done:
+            if conn.execute("SELECT EXISTS(SELECT 1 FROM captures)").fetchone()[0]:
+                log.info("building trigram index (one-time)…")
+                conn.execute("INSERT INTO captures_trigram(captures_trigram) VALUES('rebuild')")
+            conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('trigram_built','1')")
+            conn.commit()
+    except Exception:  # noqa: BLE001 — a fuzzy-recall index is optional; never block open
+        log.exception("trigram backfill skipped")
 
 
 def _driver():
@@ -340,6 +384,47 @@ def search_captures(conn: sqlite3.Connection, query: str, limit: int = 20,
     params.append(limit)
     cols = ["id", "ts", "app", "window_title", "url", "snippet"]
     return [dict(zip(cols, row)) for row in conn.execute(sql, params)]
+
+
+def _trigram_match(query: str) -> str:
+    """Turn a query into a trigram-tokenizer MATCH string: each content word (≥3
+    chars) becomes an OR of its own 3-char shingles. A word and an OCR-mangled
+    copy of it share most shingles, so a clean query still overlaps a noisy stored
+    word ('client' finds 'cl1ent'). Returns '' when nothing is long enough."""
+    words = re.findall(r"[a-z0-9]{3,}", query.lower())
+    grams: list[str] = []
+    seen: set[str] = set()
+    for w in words[:12]:                     # cap: keep the MATCH string bounded
+        for i in range(len(w) - 2):
+            g = w[i:i + 3]
+            if g not in seen:
+                seen.add(g)
+                grams.append(f'"{g}"')
+    return " OR ".join(grams)
+
+
+def search_captures_trigram(conn: sqlite3.Connection, query: str, limit: int = 40,
+                            since: str | None = None, until: str | None = None) -> list[int]:
+    """Fuzzy candidate ids from the trigram index, best first. Robust to OCR
+    character errors that the exact word index misses. Returns ids only — this is
+    a recall signal fused by rank in search_captures_hybrid, not a result set."""
+    match = _trigram_match(query)
+    if not match:
+        return []
+    sql = ("SELECT captures_trigram.rowid FROM captures_trigram "
+           "JOIN captures c ON c.id = captures_trigram.rowid "
+           "WHERE captures_trigram MATCH ?")
+    params: list = [match]
+    if since:
+        sql += " AND c.ts >= ?"; params.append(since)
+    if until:
+        sql += " AND c.ts <= ?"; params.append(until)
+    sql += " ORDER BY rank LIMIT ?"
+    params.append(limit)
+    try:
+        return [row[0] for row in conn.execute(sql, params)]
+    except Exception:  # noqa: BLE001 — a missing/immature trigram index must not break search
+        return []
 
 
 # Cached embedding matrix for semantic search.
@@ -521,9 +606,10 @@ def search_captures_hybrid(conn: sqlite3.Connection, query: str, qvec,
     via Reciprocal Rank Fusion. Falls back to FTS-only when no query vector is
     available (embedder offline). Row shape matches search_captures()."""
     fts_rows = search_captures(conn, query, limit=config.RRF_POOL, since=since, until=until)
-    if qvec is None:
+    tri_hits = search_captures_trigram(conn, query, limit=config.RRF_POOL, since=since, until=until)
+    if qvec is None and not tri_hits:
         return fts_rows[:limit]
-    vec_hits = vector_search(conn, qvec, k=config.RRF_POOL, since=since, until=until)
+    vec_hits = vector_search(conn, qvec, k=config.RRF_POOL, since=since, until=until) if qvec is not None else []
 
     kk = config.RRF_K
     fused: dict[int, float] = {}
@@ -531,18 +617,23 @@ def search_captures_hybrid(conn: sqlite3.Connection, query: str, qvec,
         fused[r["id"]] = fused.get(r["id"], 0.0) + 1.0 / (kk + rank)
     for rank, (rid, _score) in enumerate(vec_hits):
         fused[rid] = fused.get(rid, 0.0) + 1.0 / (kk + rank)
-    # Third signal: reinforcement weight, over the candidates we already have.
+    # Fuzzy signal: trigram overlap, robust to OCR character errors the exact FTS
+    # missed. Rank-based like the others, so noisy fuzzy hits sit below anything a
+    # second signal corroborates.
+    for rank, rid in enumerate(tri_hits):
+        fused[rid] = fused.get(rid, 0.0) + 1.0 / (kk + rank)
+    # Reinforcement weight, over the candidates we already have.
     for rank, rid in enumerate(reinforcement_rank(conn, list(fused))):
         fused[rid] = fused.get(rid, 0.0) + 1.0 / (kk + rank)
 
     order = sorted(fused, key=lambda i: -fused[i])[:limit]
     by_id = {r["id"]: r for r in fts_rows}
-    vec_only = [i for i in order if i not in by_id]
-    if vec_only:
-        # Vector-only hits have no FTS snippet — pull a plain head of their text.
-        q = f"SELECT id, ts, app, window_title, url, substr(ocr_text,1,300) FROM captures WHERE id IN ({','.join('?' * len(vec_only))})"
+    missing = [i for i in order if i not in by_id]
+    if missing:
+        # Vector- or trigram-only hits have no FTS snippet — pull a plain head.
+        q = f"SELECT id, ts, app, window_title, url, substr(ocr_text,1,300) FROM captures WHERE id IN ({','.join('?' * len(missing))})"
         cols = ["id", "ts", "app", "window_title", "url", "snippet"]
-        for row in conn.execute(q, vec_only):
+        for row in conn.execute(q, missing):
             d = dict(zip(cols, row))
             d["vector_match"] = True   # UI can badge "≈ meaning match"
             by_id[d["id"]] = d
