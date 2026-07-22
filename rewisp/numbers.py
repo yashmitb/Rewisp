@@ -131,6 +131,15 @@ def detect(text: str) -> list[dict]:
     return out
 
 
+def _established_unit(conn, key: str) -> str:
+    """The series' settled unit: the most common non-empty unit already stored for
+    this key. '' when the series has no unit yet."""
+    row = conn.execute(
+        "SELECT unit, COUNT(*) c FROM series WHERE key=? AND unit != '' "
+        "GROUP BY unit ORDER BY c DESC LIMIT 1", (key,)).fetchone()
+    return row[0] if row else ""
+
+
 def scan_and_store(conn, wisp_id: int, page_key: str, text: str,
                    max_per_capture: int = 8) -> int:
     """Store observations for this capture. Dedups the same key+value seen again
@@ -141,6 +150,14 @@ def scan_and_store(conn, wisp_id: int, page_key: str, text: str,
     added = 0
     for p in found:
         key = f"{page_key}::{p['key_label']}"
+        # Unit consistency: once a series has a settled unit, refuse an observation
+        # whose unit conflicts. A 'weight … lbs' series must not absorb a stray
+        # 'weight 2020' or a '%' the OCR grabbed from an adjacent progress bar —
+        # mixing units makes the chart meaningless. A unitless reading is still
+        # accepted (OCR often drops the unit); only an actively different one is cut.
+        est = _established_unit(conn, key)
+        if est and p["unit"] and p["unit"] != est:
+            continue
         dup = conn.execute(
             "SELECT 1 FROM series WHERE key=? AND value=? AND ts >= datetime('now','-1 day') LIMIT 1",
             (key, p["value"])).fetchone()
@@ -153,6 +170,25 @@ def scan_and_store(conn, wisp_id: int, page_key: str, text: str,
     if added:
         conn.commit()
     return added
+
+
+def _drop_outliers(points: list[dict]) -> list[dict]:
+    """Remove gross outliers from a series before it's charted or answered, so a
+    single OCR-garbled reading ('154, 155, 153, 9155') doesn't wreck the trend.
+    Uses the median absolute deviation (robust, unlike mean/stddev which the
+    outlier itself corrupts). Needs >= 4 points to act, and never returns empty."""
+    vals = [p["value"] for p in points]
+    n = len(vals)
+    if n < 4:
+        return points
+    s = sorted(vals)
+    med = s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+    dev = sorted(abs(v - med) for v in vals)
+    mad = dev[n // 2] if n % 2 else (dev[n // 2 - 1] + dev[n // 2]) / 2
+    if mad == 0:
+        return points                       # no spread among the bulk: keep all
+    kept = [p for p in points if abs(p["value"] - med) <= 6 * mad]
+    return kept or points
 
 
 def _promoted(conn) -> list[str]:
@@ -174,7 +210,9 @@ def active_series(conn, limit: int = 5) -> list[dict]:
     """Promoted series with their latest value + label, most-recently-seen first."""
     out = []
     for key in _promoted(conn):
-        pts = series_points(conn, key)
+        pts = _drop_outliers(series_points(conn, key))
+        if not pts:
+            continue
         label = conn.execute("SELECT label FROM series WHERE key=? ORDER BY ts DESC LIMIT 1",
                              (key,)).fetchone()[0]
         out.append({"key": key, "label": label, "unit": pts[-1]["unit"],
