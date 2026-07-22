@@ -51,29 +51,55 @@ def _local_day_bounds(day: datetime) -> tuple[str, str]:
             end.astimezone(timezone.utc).strftime(fmt))
 
 
-def compress_captures(rows: list) -> str:
-    """Group by (hour, app); dedupe lines seen earlier in the day. Local, free."""
-    by_bucket: dict = defaultdict(list)
+def compress_captures(rows: list, per_topic_lines: int = 30) -> str:
+    """Cluster the day by topic (page_key), not by clock hour, and order topics by
+    how much unique content each carried. Local, free.
+
+    The old layout bucketed by (hour, app): a task you returned to all day was
+    scattered across every hour it touched, and because build_input truncates at a
+    fixed budget, a busy day lost its whole evening to the cut. Grouping by
+    page_key collapses each topic into one block regardless of when you visited it,
+    global line-dedup removes the redundancy a revisited page produces, and
+    ordering by unique-line count means the budget is spent on the substantive
+    topics first — a page refreshed 50 times but carrying little text sinks, and
+    truncation drops the least, not the latest.
+    """
+    from . import delta
+    groups: dict = {}
+    order: list = []                              # preserve first-seen order for ties
     seen_lines: set = set()
     for ts, app, title, url, text in rows:
-        hour = ts[11:13]
-        fresh = []
+        pk = delta.page_key(app, title, url) or (app or "misc")
+        g = groups.get(pk)
+        if g is None:
+            g = groups[pk] = {"app": app, "head": url or title or "",
+                              "first": ts, "last": ts, "count": 0, "lines": []}
+            order.append(pk)
+        g["last"] = ts
+        g["count"] += 1
+        if not g["app"]:
+            g["app"] = app
+        if not g["head"]:
+            g["head"] = url or title or ""
         for line in text.splitlines():
-            key = line.strip().lower()
+            s = line.strip()
+            key = s.lower()
             if len(key) < 4 or key in seen_lines:
                 continue
             seen_lines.add(key)
-            fresh.append(line.strip())
-        head = url or title or ""
-        if fresh or head:
-            by_bucket[(hour, app)].append((head, fresh))
+            g["lines"].append(s)
+    # Richest topics first (most unique content), ties by when first seen.
+    ranked = sorted(order, key=lambda pk: (-len(groups[pk]["lines"]),
+                                           groups[pk]["first"]))
     parts = []
-    for (hour, app), items in sorted(by_bucket.items()):
-        parts.append(f"### {hour}:00 UTC — {app}")
-        for head, lines in items:
-            if head:
-                parts.append(f"[{head}]")
-            parts.extend(lines[:40])
+    for pk in ranked:
+        g = groups[pk]
+        if not g["lines"] and not g["head"]:
+            continue
+        span = f"{g['first'][11:16]}–{g['last'][11:16]} UTC"
+        label = g["head"] or g["app"] or pk
+        parts.append(f"### {label} — {g['app']}, {g['count']}× , {span}")
+        parts.extend(g["lines"][:per_topic_lines])
     return "\n".join(parts)
 
 
