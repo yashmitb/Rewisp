@@ -158,7 +158,7 @@ struct RewispAPI {
     // wisps predicted to be fading, and auto-pinned facts.
     struct ForgettingCat: Decodable {
         var stability_days: Double      // half-life: days to 50% recall
-        var complexity: Double?         // C-HLR+ exponent; nil on older daemons
+        var decay: Double?              // FSRS-6 decay exponent (negative); nil on older daemons
         var events: Int
         var observed: Int
     }

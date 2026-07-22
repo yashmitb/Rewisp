@@ -4,8 +4,8 @@ Every failed search is a documented forgetting event: you typed "that pasta
 place brooklyn", got nothing useful, rephrased — your brain just lost something
 specific, timestamped. Re-asking a question days later is a decay event: the
 answer didn't stick. From these, fit a per-category forgetting signature
-(C-HLR+: P(recall) = 2^-((t/h)^C), half-life h and complexity C per kind of fact
-— names, numbers, links…),
+(FSRS-6 power-law curve: R(t) = (1 + F·t/h)^decay, with half-life h and a decay
+exponent per kind of fact — names, numbers, links…),
 then:
 
   • "About to fade" — wisps predicted to cross YOUR forgetting cliff get one
@@ -43,11 +43,14 @@ PRIORS = {"name": 4.2, "number": 2.1, "link": 1.4, "date": 2.8,
           "place": 4.9, "other": 4.9}
 _PRIOR_WEIGHT = 3.0          # pseudo-observations the prior counts for
 
-# Complexity exponent C in the C-HLR+ curve. C = 1 is plain exponential decay;
-# C > 1 bends the curve steeper (a cliff rather than a slope), C < 1 flattens it.
-_PRIOR_COMPLEXITY = 1.0
-_MIN_C, _MAX_C = 0.6, 2.0
-_MIN_OBS_FOR_C = 5           # below this, dispersion is noise, not signal
+# FSRS-6 decay exponent. FSRS models retention as a POWER law, not an exponential:
+# a category's curve is R(t) = (1 + FACTOR·t/h)^decay. The canonical FSRS-6 value
+# is -0.5. A category whose re-asks cluster tightly has a sharper forgetting edge
+# (steeper, more-negative decay); scattered re-asks mean a gentler slide. Range
+# kept modest so no category degenerates.
+DEFAULT_DECAY = -0.5
+_MIN_DECAY, _MAX_DECAY = -0.8, -0.2      # steepest .. gentlest
+_MIN_OBS_FOR_DECAY = 5                    # below this, dispersion is noise, not signal
 
 _NUMBERY = re.compile(r"\d|how (much|many)|price|cost|amount|balance|number|total|phone|percent", re.I)
 _LINKY = re.compile(r"\b(link|url|site|website|repo|video|article|page|doc)\b", re.I)
@@ -131,55 +134,55 @@ def signature(conn) -> dict:
         obs = gaps.get(cat, [])
         s = (prior * _PRIOR_WEIGHT + sum(obs)) / (_PRIOR_WEIGHT + len(obs))
         out[cat] = {"stability_days": round(s, 1),
-                    "complexity": round(_fit_complexity(obs), 2),
+                    "decay": round(_fit_decay(obs), 2),
                     "events": counts.get(cat, 0),
                     "observed": len(obs)}
     return out
 
 
-def _fit_complexity(gaps: list[float]) -> float:
-    """Estimate the C-HLR+ complexity exponent from how TIGHTLY re-asks cluster.
+def _fit_decay(gaps: list[float]) -> float:
+    """Estimate the FSRS-6 decay exponent from how TIGHTLY re-asks cluster.
 
-    The adaptive-forgetting-curve work (PMC7334729, fitted on 4.28M Duolingo
-    observations) found its best variant was p = 2^-((Δt/ĥ)^C): a per-item
-    complexity term, because real forgetting is not uniformly exponential. Hard
-    items fall off a cliff; easy ones fade gently. Plain HLR (C fixed at 1) was
-    measurably worse.
-
-    Fitting C properly needs far more observations than one person's re-asks
-    provide, so this uses the shape of the evidence rather than pretending to
-    fit: if a category's re-ask gaps cluster tightly around one value, that
-    category has a sharp edge — you remember reliably, then suddenly do not, so
-    the curve is steep (C > 1). Gaps scattered widely mean a gradual slide
-    (C < 1). Below _MIN_OBS_FOR_C observations the dispersion is noise, so it
-    stays at 1.0 and the curve reduces exactly to the previous behaviour.
+    FSRS-6 (open-spaced-repetition, validated on ~1.7B reviews) makes the curve's
+    decay a free parameter rather than fixing the exponential shape SM-2 assumed,
+    because real forgetting is a heavy-tailed power law and its steepness differs
+    by material. We can't fit it the FSRS way (that needs graded reviews we don't
+    have), so we read the shape of the evidence: re-ask gaps that cluster tightly
+    around one value mean a sharp edge — reliable recall, then a sudden drop —
+    which is a steeper (more-negative) decay; gaps scattered widely mean a gentle
+    slide. Below _MIN_OBS_FOR_DECAY observations the dispersion is noise, so it
+    stays at the canonical -0.5.
     """
-    if len(gaps) < _MIN_OBS_FOR_C:
-        return _PRIOR_COMPLEXITY
+    if len(gaps) < _MIN_OBS_FOR_DECAY:
+        return DEFAULT_DECAY
     mean = sum(gaps) / len(gaps)
     if mean <= 0:
-        return _PRIOR_COMPLEXITY
+        return DEFAULT_DECAY
     var = sum((g - mean) ** 2 for g in gaps) / len(gaps)
     cv = math.sqrt(var) / mean          # coefficient of variation
-    # cv ~1.0 is what a memoryless exponential produces, so that maps to C = 1.
-    # Tighter than that means a sharper edge; broader means a gentler slide.
-    c = _PRIOR_COMPLEXITY / max(cv, 0.05)
-    return max(_MIN_C, min(_MAX_C, c))
+    # cv ~1.0 is what a memoryless process produces -> canonical -0.5. Tighter
+    # than that means a sharper edge (steeper); broader means a gentler slide.
+    d = DEFAULT_DECAY / max(cv, 0.05)
+    return max(_MIN_DECAY, min(_MAX_DECAY, d))
 
 
 def recall_probability(days_old: float, half_life: float,
-                       complexity: float = _PRIOR_COMPLEXITY) -> float:
-    """C-HLR+ : p = 2^-((Δt / h)^C).
+                       decay: float = DEFAULT_DECAY) -> float:
+    """FSRS-6 power-law recall curve: R(t) = (1 + FACTOR · t/h) ^ decay.
 
-    `half_life` is days until recall reaches 50%, so p(h) == 0.5 exactly at
-    C = 1 — the parameter now means what the UI has always called it.
+    FACTOR is set so R(half_life) == 0.5 for ANY decay, so `half_life` keeps its
+    meaning — days until recall reaches 50% — and every prior, label and rescue
+    threshold expressed in half-life terms stays valid. The power tail is the
+    point: at long delays it predicts more retained memory than an exponential,
+    which is what the FSRS data shows and what makes the rescue window realistic.
     """
     t = max(days_old, 0.0)
     h = max(half_life, 0.1)
-    c = max(complexity, 0.05)
+    d = min(max(decay, _MIN_DECAY), _MAX_DECAY)
+    factor = 0.5 ** (1.0 / d) - 1.0     # => (1 + factor)^d == 0.5 at t == h
     try:
-        return 2.0 ** (-((t / h) ** c))
-    except OverflowError:
+        return (1.0 + factor * (t / h)) ** d
+    except (OverflowError, ValueError):
         return 0.0
 
 
@@ -221,10 +224,10 @@ def about_to_fade(conn, limit: int = 2) -> list[dict]:
         days = (now - _parse_ts(ts)).total_seconds() / 86400.0
         entry = sig.get(cat, sig["other"])
         s = entry["stability_days"]
-        # Pass the fitted complexity through: a category with a sharp forgetting
-        # edge should be rescued nearer that edge, which is the whole point of
-        # fitting C rather than assuming plain exponential decay.
-        p = recall_probability(days, s, entry.get("complexity", 1.0))
+        # Pass the fitted decay through: a category with a sharp forgetting edge
+        # should be rescued nearer that edge, which is the point of fitting the
+        # FSRS decay per category rather than assuming one shape for all.
+        p = recall_probability(days, s, entry.get("decay", DEFAULT_DECAY))
         # sweet spot: past the cliff's edge but not long gone
         if not 0.15 <= p <= 0.55:
             continue

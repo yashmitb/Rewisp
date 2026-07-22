@@ -83,22 +83,21 @@ struct ForgettingCard: View {
                 }
                 ForEach(order, id: \.self) { cat in
                     if let c = d.signature[cat] {
-                        decayPath(halfLife: c.stability_days, complexity: c.complexity ?? 1,
+                        decayPath(halfLife: c.stability_days, decay: c.decay ?? -0.5,
                                   in: CGSize(width: w, height: h))
                             .trim(from: 0, to: drawn ? 1 : 0)
                             .stroke(tints[cat] ?? .gray,
                                     style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                        // dot at the point recall crosses 50% — "half-gone in N days"
-                        // The parameter IS the half-life now (C-HLR+), so the
-                        // 50% point sits at h itself — no ln2 conversion, and it
-                        // stays correct for any complexity, since (h/h)^C == 1.
+                        // dot at the point recall crosses 50% — "half-gone in N days".
+                        // FACTOR is chosen so R(h)==0.5 for any decay, so the 50%
+                        // point sits exactly at the half-life h regardless of shape.
                         let hx = min(c.stability_days, 14.0)
                         Circle().fill(tints[cat] ?? .gray)
                             .frame(width: 6, height: 6)
                             .position(x: w * hx / 14.0,
                                       y: h * (1 - recall(day: hx,
                                                          halfLife: c.stability_days,
-                                                         complexity: c.complexity ?? 1)))
+                                                         decay: c.decay ?? -0.5)))
                             .opacity(drawn ? 1 : 0)
                     }
                 }
@@ -109,20 +108,23 @@ struct ForgettingCard: View {
         .frame(height: 110)
     }
 
-    /// C-HLR+ : p = 2^-((t/h)^C), matching rewisp/forgetting.py exactly. Drawing a
-    /// different curve from the one the rescue logic uses would make the chart a
-    /// decoration rather than an explanation.
-    private func recall(day: Double, halfLife: Double, complexity: Double) -> Double {
-        let h = max(halfLife, 0.1), c = max(complexity, 0.05)
-        return pow(2.0, -pow(max(day, 0) / h, c))
+    /// FSRS-6 power-law curve: R(t) = (1 + F·t/h)^decay, with F set so R(h)==0.5.
+    /// Matches rewisp/forgetting.py exactly — drawing a different curve from the
+    /// one the rescue logic uses would make the chart a decoration, not an
+    /// explanation. decay is negative; -0.5 is the FSRS-6 canonical value.
+    private func recall(day: Double, halfLife: Double, decay: Double) -> Double {
+        let h = max(halfLife, 0.1)
+        let d = min(max(decay, -0.8), -0.2)
+        let factor = pow(0.5, 1.0 / d) - 1.0
+        return pow(1.0 + factor * (max(day, 0) / h), d)
     }
 
-    private func decayPath(halfLife: Double, complexity: Double, in size: CGSize) -> Path {
+    private func decayPath(halfLife: Double, decay: Double, in size: CGSize) -> Path {
         Path { p in
             p.move(to: CGPoint(x: 0, y: 0))
             for step in 1...60 {
                 let day = 14.0 * Double(step) / 60.0
-                let recall = recall(day: day, halfLife: halfLife, complexity: complexity)
+                let recall = recall(day: day, halfLife: halfLife, decay: decay)
                 p.addLine(to: CGPoint(x: size.width * day / 14.0,
                                       y: size.height * (1 - recall)))
             }

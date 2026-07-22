@@ -136,51 +136,57 @@ class TestUnpinnable:
         assert forgetting.pinned_answer(conn, "what did i do yesterday?") is None
 
 
-class TestCHLRPlus:
-    """C-HLR+ : p = 2^-((Δt/h)^C), per PMC7334729 (fitted on 4.28M observations).
-
-    The paper's headline result is that a per-item complexity term beats plain
-    exponential decay: hard items fall off a cliff rather than fading evenly.
-    """
+class TestFSRSCurve:
+    """FSRS-6 power-law recall curve: R(t) = (1 + F·t/h)^decay, F set so
+    R(h) == 0.5. The power tail is the point — heavier than exponential, matching
+    the FSRS finding that real memory retains more at long delays than exp
+    predicts."""
 
     def test_half_life_means_half_life(self):
         from rewisp import forgetting
-        # The whole point of the reparameterisation: the number the UI labels
-        # "half-gone in N days" is now literally that, at any complexity.
-        for c in (0.6, 1.0, 2.0):
-            assert abs(forgetting.recall_probability(5.0, 5.0, c) - 0.5) < 1e-9
+        # The half-life keeps its meaning at ANY decay: R(h) == 0.5 by
+        # construction, so every prior/label/threshold in half-life terms holds.
+        for d in (-0.2, -0.5, -0.8):
+            assert abs(forgetting.recall_probability(5.0, 5.0, d) - 0.5) < 1e-9
 
-    def test_complexity_one_is_plain_exponential_decay(self):
+    def test_curve_is_monotonic_and_bounded(self):
         from rewisp import forgetting
-        # Backwards compatibility: C = 1 must reduce to the previous curve, so
-        # anyone with too little history sees no behavioural change.
-        assert abs(forgetting.recall_probability(10.0, 5.0, 1.0) - 0.25) < 1e-9
+        assert forgetting.recall_probability(0.0, 5.0) == 1.0
+        seq = [forgetting.recall_probability(t, 5.0) for t in range(0, 40, 2)]
+        assert all(a >= b for a, b in zip(seq, seq[1:]))     # never increases
+        assert all(0.0 <= p <= 1.0 for p in seq)
 
-    def test_higher_complexity_falls_off_a_cliff(self):
+    def test_power_tail_beats_exponential_at_long_delay(self):
         from rewisp import forgetting
-        gentle = forgetting.recall_probability(10.0, 5.0, 1.0)
-        steep = forgetting.recall_probability(10.0, 5.0, 2.0)
-        assert steep < gentle, "C > 1 must decay faster past the half-life"
-        # ...but be MORE confident before it, which is what a cliff means.
-        assert (forgetting.recall_probability(2.0, 5.0, 2.0)
-                > forgetting.recall_probability(2.0, 5.0, 1.0))
+        # At 4 half-lives the power law must retain MORE than a pure exponential
+        # (2^-4 = 0.0625) — that heavier tail is the FSRS improvement.
+        p = forgetting.recall_probability(20.0, 5.0)
+        assert p > 0.0625
 
-    def test_complexity_needs_evidence_before_it_moves(self):
+    def test_steeper_decay_is_sharper_past_the_half_life(self):
         from rewisp import forgetting
-        assert forgetting._fit_complexity([]) == 1.0
-        assert forgetting._fit_complexity([4.0, 5.0]) == 1.0, "2 points is noise"
+        gentle = forgetting.recall_probability(10.0, 5.0, -0.2)
+        steep = forgetting.recall_probability(10.0, 5.0, -0.8)
+        assert steep < gentle, "more-negative decay must fall faster past h"
+        # ...and be MORE confident before it — the sharp-edge shape.
+        assert (forgetting.recall_probability(2.0, 5.0, -0.8)
+                > forgetting.recall_probability(2.0, 5.0, -0.2))
 
-    def test_tight_gaps_imply_a_sharp_edge(self):
+    def test_decay_needs_evidence_before_it_moves(self):
         from rewisp import forgetting
-        tight = forgetting._fit_complexity([5.0, 5.1, 4.9, 5.0, 5.05])
-        spread = forgetting._fit_complexity([1.0, 9.0, 3.0, 14.0, 6.0])
-        assert tight > spread
+        assert forgetting._fit_decay([]) == forgetting.DEFAULT_DECAY
+        assert forgetting._fit_decay([4.0, 5.0]) == forgetting.DEFAULT_DECAY
 
-    def test_complexity_is_clamped(self):
+    def test_tight_gaps_imply_a_sharper_edge(self):
         from rewisp import forgetting
-        # Identical gaps would divide by ~0 without the clamp.
-        c = forgetting._fit_complexity([5.0] * 6)
-        assert forgetting._MIN_C <= c <= forgetting._MAX_C
+        tight = forgetting._fit_decay([5.0, 5.1, 4.9, 5.0, 5.05])
+        spread = forgetting._fit_decay([1.0, 9.0, 3.0, 14.0, 6.0])
+        assert tight < spread, "tight cluster -> steeper (more-negative) decay"
+
+    def test_decay_is_clamped(self):
+        from rewisp import forgetting
+        d = forgetting._fit_decay([5.0] * 6)     # identical gaps -> cv ~0
+        assert forgetting._MIN_DECAY <= d <= forgetting._MAX_DECAY
 
     def test_extreme_inputs_do_not_raise(self):
         from rewisp import forgetting
