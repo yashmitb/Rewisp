@@ -21,10 +21,59 @@ Fully local: regex + NSDataDetector for dates. No model, no cloud call.
 
 import logging
 import re
+from datetime import date, timedelta
 
 from . import db
 
 log = logging.getLogger("rewisp")
+
+# ── functional zoning ─────────────────────────────────────────────────────────
+#
+# Before detecting anything, drop the parts of a mail/chat surface that are not
+# the user's own fresh text: quoted reply threads, forwarded headers, signatures,
+# and legal disclaimers. This is the single cheapest precision lever in the email
+# commitment-extraction literature (Smart To-Do, ACL 2020; Carvalho & Cohen 2006):
+# commitments live in the active body zone, and quoted/boilerplate text is a large
+# source of false triggers — "On Fri, Dana wrote: I'll send the report" is Dana's
+# old line, not yours.
+#
+# We only have an OCR'd frame, not a parsed MIME message, so this is line-level and
+# deliberately conservative: a matching line is dropped, never "everything below
+# it" (a frame can show the compose box under the quoted thread, or vice versa).
+_QUOTE_LINE = re.compile(
+    r"^\s*(?:>+|\|)\s|"
+    r"^\s*On\b.{0,80}\bwrote:\s*$|"
+    r"^\s*(?:From|Sent|To|Cc|Bcc|Subject|Date|Reply-To):\s",
+    re.I)
+_SIG_LINE = re.compile(
+    r"^\s*(?:"
+    r"--\s*$|"
+    r"—\s*\w|"
+    r"sent from my \w.*|"                 # "Sent from my iPhone"
+    r"get outlook for .*|"
+    r"(?:best(?: regards)?|kind regards|regards|cheers|thanks(?:,| again)?|"
+    r"sincerely|warmly|yours truly)\s*[,.]?\s*$"   # standalone sign-off line
+    r")",
+    re.I)
+_DISCLAIMER_LINE = re.compile(
+    r"confidential|do not (?:reply|forward|distribute)|unsubscribe|"
+    r"privacy policy|all rights reserved|©|\(c\)\s*\d{4}|terms of service",
+    re.I)
+
+
+def strip_noise(text: str) -> str:
+    """Remove quoted threads, forwarded headers, signatures and disclaimers so
+    detection sees only the active body zone. Line-level and conservative."""
+    kept = []
+    for line in text.split("\n"):
+        if _QUOTE_LINE.match(line):
+            continue
+        if _SIG_LINE.match(line):
+            continue
+        if _DISCLAIMER_LINE.search(line):
+            continue
+        kept.append(line)
+    return "\n".join(kept)
 
 # ── source gating ─────────────────────────────────────────────────────────────
 
@@ -133,10 +182,17 @@ _SENT_SPLIT = re.compile(r"[.?!\n]|\s{2,}|\s+[-–—•|›]\s+")
 _NEGATION = re.compile(
     r"\b(?:won'?t|will not|wouldn'?t|not going to|no need to|don'?t have to|"
     r"never|can'?t|cannot|couldn'?t)\b", re.I)
-# Conditionals, maybes, dictation disfluencies ("what I want to do is …").
+# Conditionals, maybes, dictation disfluencies ("what I want to do is …"), and
+# WEAK COMMISSIVES. The hedging literature (Prokofieva & Hirschberg) treats these
+# as high-precision markers of LOW commitment: "I'll try to", "I hope to", "I aim
+# to", "I'll probably" are not the same speech act as "I'll send it" and should
+# not become a tracked promise. Modality (may/might) systematically weakens the
+# commitment, so it is rejected here rather than scored.
 _HEDGE = re.compile(
     r"\b(?:if [il1]\b|might|maybe|thinking about|was going to|want to do is|"
-    r"wondering|considering|not sure|probably should)\b", re.I)
+    r"wondering|considering|not sure|probably should|"
+    r"i'?ll try|i'?ll probably|try to|hope to|hoping to|aim to|"
+    r"i'?ll see if|i'?ll try to|if i get|when i get a chance|at some point)\b", re.I)
 # Ad/marketing copy: imperative verb + commerce lexicon ("Get instant discounts
 # on hotels today"). Either signal alone is fine; together it's an ad.
 _AD_LEX = re.compile(
@@ -153,24 +209,49 @@ _BAD_TAIL = re.compile(
 _QUESTION_OPEN = re.compile(r"^\s*(?:will|can|could|would|should|do|does|did|am|are|is)\b", re.I)
 
 
-def _extract_due(text: str) -> str | None:
-    """Resolve a natural-language deadline to an ISO date via NSDataDetector."""
+def _resolve_vague(text: str, ref: date | None = None) -> str | None:
+    """Resolve the vague work-anchors NSDataDetector misses — EOD, COB, EOW,
+    'end of week', 'next week' — to a concrete ISO date relative to `ref` (the
+    capture day). Deterministic, no dependency; the temporal-tagging literature
+    (SUTime/HeidelTime) resolves these against a reference time, and this is the
+    same idea scoped to the handful of anchors that actually recur on screen."""
+    ref = ref or date.today()
+    t = text.lower()
+    if re.search(r"\b(?:eod|cob|end of (?:the )?day|by end of day|tonight|today)\b", t):
+        return ref.isoformat()
+    if re.search(r"\b(?:tomorrow|tmrw)\b", t):
+        return (ref + timedelta(days=1)).isoformat()
+    if re.search(r"\b(?:eow|end of (?:the )?week|this week|this weekend)\b", t):
+        # Upcoming Friday (today if it's already Fri; wraps within the week).
+        return (ref + timedelta(days=(4 - ref.weekday()) % 7)).isoformat()
+    if re.search(r"\bnext week\b", t):
+        # Next Monday.
+        return (ref + timedelta(days=(7 - ref.weekday()) or 7)).isoformat()
+    if re.search(r"\bnext month\b", t):
+        y, m = (ref.year + (ref.month == 12)), (ref.month % 12) + 1
+        return date(y, m, 1).isoformat()
+    return None
+
+
+def _extract_due(text: str, ref: date | None = None) -> str | None:
+    """Resolve a natural-language deadline to an ISO date. NSDataDetector first
+    (real dates, weekdays, 'tomorrow'), then the vague-anchor resolver for
+    EOD/COB/EOW/'next week' which NSDataDetector does not handle."""
     try:
         import Foundation
         det, _ = Foundation.NSDataDetector.dataDetectorWithTypes_error_(
             Foundation.NSTextCheckingTypeDate, None)
-        if det is None:
-            return None
-        rng = Foundation.NSMakeRange(0, len(text))
-        for m in det.matchesInString_options_range_(text, 0, rng):
-            d = m.date()
-            if d is not None:
-                return d.descriptionWithCalendarFormat_timeZone_locale_(
-                    "%Y-%m-%d", None, None) if hasattr(d, "descriptionWithCalendarFormat_timeZone_locale_") \
-                    else str(d)[:10]
+        if det is not None:
+            rng = Foundation.NSMakeRange(0, len(text))
+            for m in det.matchesInString_options_range_(text, 0, rng):
+                d = m.date()
+                if d is not None:
+                    return d.descriptionWithCalendarFormat_timeZone_locale_(
+                        "%Y-%m-%d", None, None) if hasattr(d, "descriptionWithCalendarFormat_timeZone_locale_") \
+                        else str(d)[:10]
     except Exception:  # noqa: BLE001 — date detection is best-effort
         pass
-    return None
+    return _resolve_vague(text, ref)
 
 
 def _clean(s: str) -> str:
@@ -223,6 +304,7 @@ def detect(text: str, source: str = "authored") -> list[dict]:
     out: list[dict] = []
     seen: list[str] = []
     trust = 0.15 if source == "authored" else 0.0
+    text = strip_noise(text)   # drop quoted threads, headers, signatures first
     for sent in _SENT_SPLIT.split(text):
         sent = sent.strip()
         if len(sent) < 8 or len(sent) > 200:
@@ -293,6 +375,51 @@ def scan_and_store(conn, wisp_id: int, text: str, app: str | None = None,
     if src == "blocked":
         return 0
     return _scan(conn, wisp_id, text, src, max_per_capture)
+
+
+# Past-tense completion cues — a promise is only closed when later text shows the
+# ACTION was actually carried out ("sent the invoice", "emailed Dana").
+_DONE_CUE = re.compile(
+    r"\b(?:sent|emailed|mailed|submitted|delivered|shared|replied|responded|"
+    r"finished|completed|done|paid|booked|scheduled|shipped|uploaded|posted|"
+    r"messaged|dm'?d|texted|called|signed|returned|confirmed|merged|approved)\b",
+    re.I)
+
+# Stopwords excluded when matching a promise's action words against later text —
+# without this, "the"/"to"/"you" would make almost anything look fulfilled.
+_STOP = frozenset(
+    "the a an to of for with and or that this you your me my it is are be by on at "
+    "in from will i'll ill send back get do can".split())
+
+
+def scan_fulfilment(conn, text: str, app: str | None = None,
+                    url: str | None = None) -> int:
+    """Close open promises the user has since carried out, so kept promises stop
+    nagging (Zeigarnik: a completed intention should release; a false-open one
+    nags wrongly, so this is precision-first).
+
+    Conservative by design: only on AUTHORED surfaces, only when the text carries
+    a past-tense completion cue AND at least two of the promise's distinctive
+    action words appear. Marks the promise 'done'. Runs BEFORE scan_and_store in
+    the daemon so a capture cannot cancel the promise it just created."""
+    if source_class(app, url) != "authored":
+        return 0
+    body = strip_noise(text)
+    if not _DONE_CUE.search(body):
+        return 0
+    # Whole-body word set — NOT _norm(), which truncates to 60 chars and would
+    # drop nearly every word of a real capture, silently breaking the match.
+    ntext = set(re.sub(r"[^a-z0-9 ]", " ", body.lower()).split())
+    marked = 0
+    for p in db.promises_by_status(conn, ("pending", "confirmed")):
+        kw = [w for w in _norm(p["what"]).split() if len(w) > 3 and w not in _STOP]
+        distinctive = kw[:5]
+        if len(distinctive) >= 2 and sum(w in ntext for w in distinctive) >= 2:
+            db.set_promise_status(conn, p["id"], "done")
+            marked += 1
+    if marked:
+        log.info("promises: closed %d as fulfilled", marked)
+    return marked
 
 
 def remind_due(conn) -> int:

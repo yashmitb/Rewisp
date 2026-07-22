@@ -85,6 +85,9 @@ class Daemon:
         # Source-gated: only correspondence/notes surfaces can produce promises.
         try:
             from . import promises
+            # Close promises already carried out BEFORE storing new ones, so a
+            # capture can't cancel the promise it just created.
+            promises.scan_fulfilment(self.conn, text, app=app, url=url)
             promises.scan_and_store(self.conn, row_id, text, app=app, url=url)
         except Exception:  # noqa: BLE001
             log.debug("promise scan failed", exc_info=True)
