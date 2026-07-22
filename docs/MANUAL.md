@@ -187,6 +187,19 @@ so the list stays yours, not noise.
 small pill slides down from the menu bar with the full commitment — one reminder
 per day, never spam. Pending slips you never confirmed stay silent.
 
+**It reads deadlines the way you write them.** *"by EOD"*, *"end of the week"*,
+*"next week"*, a weekday or a date — all resolve to a real due day, so the
+reminder lands when it should.
+
+**It knows the difference between a promise and a maybe.** *"I'll send it"* is a
+promise; *"I'll try to"*, *"hope to"*, *"maybe later"* are not, and won't clutter
+your list. Quoted replies and email signatures are ignored too — only the line
+*you* actually wrote counts.
+
+**Kept promises close themselves.** When you later write that you did it —
+*"emailed Dana the report"* — Rewisp marks the slip **Done** for you, so nothing
+nags after it's handled.
+
 ### Numbers over time
 Any label+number Rewisp sees repeatedly — a weight, a grade, a price, tracked
 hours — becomes a **series** on **Today → Tracked** with a sparkline, once it's

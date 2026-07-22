@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.25.0, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 11,000+ wisps). 163 tests. 51 releases (v0.1.0 → v0.25.0).
+**Current status (v0.26.0, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 12,500+ wisps). 259 tests. 52 releases (v0.1.0 → v0.26.0).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,32 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.26.0 — smarter promise catching (2026-07-21)
+
+A precision-first upgrade to how commitments are caught, grounded in the email
+commitment-extraction literature (Smart To-Do, ACL 2020; Carvalho & Cohen) and
+prospective-memory research.
+
+- **Functional zoning.** Quoted reply threads, forwarded headers, signatures and
+  disclaimers are stripped before detection. A quoted *"On Fri, Dana wrote: I'll
+  send the report"* is Dana's old line, not your commitment — it no longer
+  becomes one. Cheapest precision lever in the literature.
+- **Weak commissives rejected.** *"I'll try to"*, *"hope to"*, *"aim to"*,
+  *"I'll probably"*, *"at some point"* — the hedging literature treats these as
+  markers of low commitment. They no longer become tracked promises. Firm *"I'll
+  send it"* still does.
+- **Vague deadlines understood.** EOD, COB, EOW, *"end of week"*, *"next week"*,
+  *"next month"* now resolve to concrete dates (relative to the capture day) that
+  NSDataDetector alone missed.
+- **Fulfilment.** A promise closes itself to **Done** when later text where you
+  write shows you carried it out (*"emailed Dana the report"*), so kept promises
+  stop nagging (Zeigarnik effect). Conservative: needs a completion cue plus two
+  distinctive action words, on an authored surface only.
+
+Also lays the groundwork (off by default, behind flags) for the macOS 26 document
+OCR engine and a shadow A/B harness to evaluate it on real captures without
+changing what is stored. 259 tests.
 
 ## v0.25.0 — the text extraction was duplicating itself (2026-07-21)
 
