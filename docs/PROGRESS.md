@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.26.0, 2026-07-21):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 12,500+ wisps). 259 tests. 52 releases (v0.1.0 → v0.26.0).
+**Current status (v0.27.0, 2026-07-22):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 12,500+ wisps). 298 tests. 53 releases (v0.1.0 → v0.27.0).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,45 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.27.0 — privacy + smarter memory (2026-07-22)
+
+Six research-backed upgrades: one you feel (redaction), one you notice
+(typo-proof search), and four quiet accuracy gains. Each landed with its own
+tests; 298 total.
+
+- **Card/SSN redaction before storage.** A backstop for PII that leaks onto
+  ordinary screens the kill list doesn't cover. Card numbers (13–19 digits that
+  pass the Luhn checksum *and* start with a real network digit) and dashed SSNs
+  in valid ranges are replaced with `[card]`/`[ssn]` before the row is stored or
+  embedded — neither the database nor the vector ever holds one. Precision-first
+  so real memories aren't corrupted; ~1ms per frame; on by default. Applies going
+  forward (old rows keep what they had, encrypted at rest).
+- **Typo-proof search.** OCR mangles words (`client` → `cl1ent`), and exact
+  keyword search then misses them. A trigram index expands each query word into
+  its 3-char shingles, so a clean query still overlaps a mangled stored word.
+  Fused as a fourth rank-based signal, so it only adds recall — measured 1→4
+  relevant hits recovered on a noisy corpus. Backed by SUTime/BM25-for-noise
+  retrieval literature.
+- **Delta tells jitter from real change.** "What changed on this page" no longer
+  reports OCR wobble as an edit: a line counts as changed only if a word was
+  added/removed, a number moved, or a word genuinely swapped — not if it merely
+  read differently twice. Also catches a real word swap hidden in a long line the
+  old check missed.
+- **Numbers over time: units + outliers.** A series refuses an observation whose
+  unit conflicts with its settled one (no `weight … lbs` absorbing a stray `%`),
+  and one OCR-garbled reading (`9155` among weights) is dropped via
+  median-absolute-deviation before charting, so the trend and the reported
+  current value stay honest.
+- **FSRS-6 forgetting curve.** The recall model moves from a stretched
+  exponential to FSRS-6's power law, `R(t) = (1 + F·t/h)^decay` (validated on
+  ~1.7B reviews). The heavier tail matches how real memory fades, so the "about
+  to fade" rescue lands more realistically. Half-life keeps its meaning; the
+  in-app forgetting chart draws the identical curve.
+- **Digest clusters by topic.** The one daily cloud call now groups the day by
+  page instead of by clock hour, orders topics by how much unique content each
+  carried, and dedupes — so a task returned to all day is one block and the
+  truncation budget is spent on substance, never silently dropping the evening.
 
 ## v0.26.0 — smarter promise catching (2026-07-21)
 

@@ -25,6 +25,20 @@ What it doesn't: a program already running as you, which can read the same
 Keychain entry. That's the honest limit of automatic unlocking, and the daemon
 needs automatic unlocking to capture at all.
 
+## Card numbers and SSNs are stripped (new in 0.27)
+
+The kill list already pauses capture on banking sites, password managers and
+private windows. As a backstop for the times a card number or SSN shows up on an
+ordinary screen — an order confirmation, an email quoting a number — Rewisp
+removes it before the row is ever stored. A card number (13–19 digits that pass
+the Luhn checksum and start with a real card-network digit) or a dashed SSN is
+replaced with `[card]` / `[ssn]`. The surrounding memory stays useful ("paid with
+`[card]`"); the number is gone, from both the database and the search index.
+
+It's deliberately cautious — it only removes numbers it can validate, so it won't
+mangle an order id or a phone number. It runs on new captures; anything already
+stored keeps what it had (still encrypted). On by default.
+
 ## A note on the Vault and Touch ID
 
 The Vault tab is gated by Touch ID, and that is a UI gate: it stops someone
@@ -162,6 +176,11 @@ wisp gets a local semantic fingerprint (model2vec, ~0.1 ms, no cloud); answers
 fuse keyword + meaning ranking. If the embedder is offline it silently falls back
 to keyword search.
 
+Search is also **typo-proof** (new in 0.27): OCR sometimes misreads a word
+(`client` → `cl1ent`), which used to make exact search miss it. A trigram index
+matches on shared letter-chunks, so a clean search term still finds the mangled
+copy. It only ever adds results, never removes the exact ones.
+
 And when a search truly misses, you don't get a dead end: the answer includes
 **"Closest moments in your memory"** — the three nearest things Rewisp did see,
 with app and time — because half the time you just misremembered the wording.
@@ -170,7 +189,9 @@ with app and time — because half the time you just misremembered the wording.
 Because Rewisp stores every version of a page as text, it can diff them. On any
 page you revisit, ⌘⇧Space → *"what changed on this page?"* or *"what's new here
 since Tuesday?"* → it shows what was **added / changed / removed** (a **Delta**
-badge marks these). Numbers that moved (a price, a grade) are called out.
+badge marks these). Numbers that moved (a price, a grade) are called out. As of
+0.27 it ignores OCR wobble — a line that merely read differently twice isn't
+reported as a change, only a real edit is.
 
 ### Promises
 Rewisp catches commitments off your screen — *"I'll send mavi the doc"*, *"email

@@ -38,7 +38,7 @@ So Rewisp remembers it for me, and I ask instead of digging.
 
 - **Promises** — it catches commitments as they scroll past (*"I'll send it Friday"*) and brings them back the morning they're due. You never typed a reminder.
 - **What changed on this page?** — every version of a page is kept as text, so Rewisp can diff them and tell you what was added, changed, or removed.
-- **Meaning-based search** — ask for *"that article about burnout"* and find the page that said *"exhaustion"*. Local embeddings fused with keyword search.
+- **Meaning-based search** — ask for *"that article about burnout"* and find the page that said *"exhaustion"*. Local embeddings fused with keyword search, and typo-proof: a trigram signal finds words OCR mangled (`client` → `cl1ent`).
 - **Numbers over time** — a label and number you see repeatedly (weight, grade, price) becomes a tracked sparkline.
 - **Precognition** — the suggested questions are guessed from what's on screen right now plus what you usually ask.
 - **The forgetting model** — Rewisp learns *how you forget*, strengthens what you look up, and lets the rest fade.
@@ -81,6 +81,7 @@ Nightly digest (9 PM) → one call → recap · loose threads · things worth re
 - **Screenshots are never written to disk.** Each frame is OCR'd in memory and released; only the recognized text is stored.
 - **Everything stays local** — one SQLite database in `~/Rewisp`, on-device OCR, on-device answering. The only things that ever leave are the prompt for a question you asked, and the once-daily digest.
 - **The kill list is absolute.** Messages, WhatsApp, password managers, banking sites, and private windows pause capture entirely. Not filtered afterwards — paused, so there is no row.
+- **PII redaction backstop.** For card numbers and SSNs that leak onto ordinary screens, validated (Luhn/SSA) numbers are stripped to `[card]`/`[ssn]` before storage — never in the database, embedding, or index.
 - **The Vault** holds your resume, addresses, and standard answers as trusted truth. Files that look like credentials are refused at the door.
 
 ### Honest about the boundaries

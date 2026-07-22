@@ -28,6 +28,26 @@ exports to a new file, verifies row counts per table *and* runs a real FTS query
 against the copy, and only then swaps. The original is kept as
 `rewisp.plaintext-backup`. Any failure leaves the plaintext file byte-identical.
 
+## PII redaction (since v0.27.0)
+
+A content-level backstop beneath the kill list. Before a capture is stored or
+embedded, `redact.scrub_pii` removes validated card numbers (13–19 digits passing
+the Luhn checksum and starting with a card-network digit 3/4/5/6) and dashed SSNs
+in SSA-issued ranges, replacing them with `[card]` / `[ssn]`. Applied at two
+points: in the daemon before the embedding is computed, and in `insert_capture`,
+the single choke point every ingestion path shares — so neither the row, the
+embedding, nor the derived FTS/trigram indexes hold the number.
+
+Precision-first on purpose: it only redacts what it can validate, so it will miss
+a card glued to adjacent OCR text and will not touch an order id or phone number.
+It is a reduction of exposure, not a guarantee — the kill list, on-device
+processing, and encryption at rest remain the primary defences. On by default
+(`REDACT_PII`).
+
+**Scope:** forward-looking only. Rows captured before v0.27.0 keep whatever PII
+their `ocr_text` already held (encrypted at rest); the feature does not rewrite
+history. A one-time re-redaction of existing rows is a possible future addition.
+
 ## Historical: plaintext at rest (before v0.23.0)
 
 - `~/Rewisp/` is `chmod 700` (enforced on every daemon start).

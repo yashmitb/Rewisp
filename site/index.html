@@ -6,7 +6,7 @@
 <title>Rewisp — an ambient memory for your Mac</title>
 <meta name="description" content="Rewisp remembers the text of everything you see on your Mac, so you can ask about it later. Private by construction — screenshots never touch disk.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23181c2c'/%3E%3Cpath d='M 1.44 14.80 L 1.97 15.86 L 2.50 16.79 L 3.02 17.55 L 3.55 18.13 L 4.08 18.52 L 4.61 18.71 L 5.14 18.69 L 5.66 18.48 L 6.19 18.07 L 6.72 17.50 L 7.25 16.78 L 7.78 15.93 L 8.30 14.98 L 8.83 13.96 L 9.36 12.91 L 9.89 11.86 L 10.42 10.84 L 10.94 9.87 L 11.47 8.99 L 12.00 8.23 L 12.53 7.59 L 13.06 7.10 L 13.58 6.77 L 14.11 6.60 L 14.64 6.60 L 15.17 6.76 L 15.70 7.07 L 16.22 7.52 L 16.75 8.09 L 17.28 8.75 L 17.81 9.50 L 18.34 10.30 L 18.86 11.13 L 19.39 11.96 L 19.92 12.77 L 20.45 13.52 L 20.98 14.21 L 21.50 14.82 L 22.03 15.32 L 22.56 15.70' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Ccircle cx='22.56' cy='15.70' r='1.0' fill='%23fff'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="css/styles.css?v=20260721b">
+<link rel="stylesheet" href="css/styles.css?v=20260722a">
 </head>
 <body>
 
@@ -216,7 +216,7 @@
     <h2 class="reveal d1">Not just a search box.<br><span class="soft">A memory that reasons.</span></h2>
     <p class="lead reveal d2">Rewisp keeps clean text, not video — so it can do things a screen recorder can't. All of this runs on your Mac, for free.</p>
     <div class="grid">
-      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></div><h3>Search by meaning</h3><p>Ask “that article about burnout” and it finds the page that said “exhaustion.” No shared words needed — it understands what you meant.</p></div>
+      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></div><h3>Search by meaning</h3><p>Ask “that article about burnout” and it finds the page that said “exhaustion.” No shared words needed — it understands what you meant, and it’s typo-proof: it still finds words the screen text misread.</p></div>
       <div class="card reveal d1"><div class="ic"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></div><h3>What changed here?</h3><p>Rewisp keeps every version of a page. Ask what’s new since Tuesday and it shows exactly what was added, changed, or removed.</p></div>
       <div class="card reveal d2"><div class="ic"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg></div><h3>Keeps your promises</h3><p>“I’ll send it Friday” — caught where you write, never typed. It reads deadlines like “by EOD” or “next week”, tells a real promise from a “maybe”, and closes the slip once you’ve done it. Confirm it and Rewisp reminds you on the due day, once. Ads and AI chats can’t fake one.</p></div>
       <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24"><path d="M3 17l5-5 4 4 8-8"/><path d="M21 8h-5m5 0v5"/></svg></div><h3>Numbers over time</h3><p>A weight, a grade, a price you see again and again becomes a sparkline. “How has my weight moved?” — charted from your own screen.</p></div>
@@ -285,6 +285,7 @@
       <li><span class="tick">✓</span><span><b>Answers can stay on-device.</b> Run questions on Apple's built-in or a local model — nothing leaves the Mac. Prefer Claude or Gemini for sharper answers? Only the prompt is sent, only when you ask.</span></li>
       <li><span class="tick">✓</span><span><b>Vault locked with Touch ID.</b> Your resume, addresses, and answers sit behind a fingerprint. Credentials are refused at the door.</span></li>
       <li><span class="tick">✓</span><span><b>Kill list is absolute.</b> Messages, password managers, banking, private windows: capture fully pauses.</span></li>
+      <li><span class="tick">✓</span><span><b>Card numbers &amp; SSNs stripped.</b> If one slips onto an ordinary screen, it’s removed before anything is stored — never in the database or the search index.</span></li>
       <li><span class="tick">✓</span><span><b>Forget button.</b> Delete the last 10 minutes with one click. Everything expires after 6 months.</span></li>
     </ul>
   </div>
@@ -431,7 +432,7 @@
   <img alt="Rewisp — an ambient memory for your Mac - See it once. Ask forever. | Product Hunt" width="250" height="54" loading="lazy" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1199790&theme=dark&t=1784448393504">
 </a>
 
-<script src="js/demos.js?v=20260720a"></script>
+<script src="js/demos.js?v=20260722a"></script>
 
 <!-- Analytics: GoatCounter. No cookies, no personal data, no cross-site tracking,
      nothing that needs a consent banner — which matters here, because a page
