@@ -353,6 +353,13 @@ def _encrypt_in_place_if_needed(driver, key: str) -> None:
 
 def insert_capture(conn: sqlite3.Connection, app: str, window_title: str | None,
                    url: str | None, ocr_text: str, embedding: bytes | None = None) -> int:
+    # Redact validated card/SSN numbers here too, not only in the daemon: this is
+    # the single choke point every ingestion path passes through, so the database
+    # cannot hold one even if a future caller forgets. Idempotent with the daemon's
+    # earlier pass (which also protects the embedding).
+    if config.REDACT_PII:
+        from . import redact
+        ocr_text = redact.scrub_pii(ocr_text)
     ocr_text = ocr_text[: config.MAX_OCR_CHARS]
     from . import delta
     pkey = delta.page_key(app, window_title, url)

@@ -118,6 +118,11 @@ OCR_USE_DOCUMENTS = False
 # Override the helper binary path (dev/testing). Empty = locate it in the bundle.
 OCR_HELPER_BIN = os.environ.get("REWISP_OCR_BIN", "")
 
+# Purge validated card numbers and SSNs from captured text before storing or
+# embedding it. On by default — a privacy backstop for PII that leaks onto
+# ordinary screens the kill list doesn't cover.
+REDACT_PII = True
+
 # Shadow A/B: when on, every capture runs BOTH the tiled engine (stored, as today)
 # and the Swift document engine, logging metrics only — no screen text — to
 # OCR_AB_LOG. It's how we prove the document engine actually wins on real screens

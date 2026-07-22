@@ -59,6 +59,11 @@ class Daemon:
             text = screen.ocr_cgimage(img, app=app)
         finally:
             del img  # image existed only in memory; released here
+        # Purge validated card/SSN numbers before anything else touches the text —
+        # so neither the stored row nor the embedding computed below ever sees one.
+        if config.REDACT_PII:
+            from . import redact
+            text = redact.scrub_pii(text)
         if len(text.strip()) < config.MIN_CAPTURE_CHARS:
             return   # video-subtitle fragments / near-empty screens aren't memories
         # Semantic vector for meaning-based retrieval. Best-effort: if the embedder
