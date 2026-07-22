@@ -98,11 +98,30 @@ def _clean_lines(text: str) -> list[str]:
 _NUM = re.compile(r"-?\$?\d[\d,]*\.?\d*%?")
 
 
+def _is_ocr_noise(a: str, b: str) -> bool:
+    """True when two lines differ only by OCR jitter, not a real edit.
+
+    The line-level ratio alone can't tell 'the quick brown fox' -> 'the qulck
+    brown f0x' (noise) from 'the quick brown fox' -> 'the quick red fox' (a real
+    word change): both can land in the 0.6-0.9 band. This looks word by word:
+    same number of words, identical numbers, and every aligned word either equal
+    or a close variant (a short OCR slip, ratio >= 0.75). A real edit adds/removes
+    a word, changes a number, or swaps in a genuinely different word — all of
+    which fail here and stay classified as a change."""
+    if _numbers(a) != _numbers(b):
+        return False                       # a changed number is always a real change
+    wa, wb = a.lower().split(), b.lower().split()
+    if len(wa) != len(wb) or not wa:
+        return False                       # words added/removed = real change
+    return all(x == y or SequenceMatcher(None, x, y).ratio() >= 0.75
+               for x, y in zip(wa, wb))
+
+
 def diff_texts(old: str, new: str) -> dict:
     """Line-level fuzzy diff. Two lines count as the same when their similarity
-    ratio > 0.9 (OCR jitter); a 0.6-0.9 near-match is a *changed* line (the page
-    edited it); everything else is added/removed. Returns
-    {added:[], removed:[], changed:[{old,new}]}."""
+    ratio > 0.9 (OCR jitter); a 0.6-0.9 near-match is a *changed* line — unless it
+    is only OCR noise (see _is_ocr_noise); everything else is added/removed.
+    Returns {added:[], removed:[], changed:[{old,new}]}."""
     o = _clean_lines(old)
     n = _clean_lines(new)
     used: set[int] = set()
@@ -116,22 +135,19 @@ def diff_texts(old: str, new: str) -> dict:
             r = SequenceMatcher(None, ol.lower(), nl.lower()).ratio()
             if r > best_r:
                 best_r, best_i = r, i
-        if best_i < 0:
-            added.append(nl)
+        if best_i < 0 or best_r < 0.6:
+            added.append(nl)                    # no line is close enough: it's new
             continue
         ol = o[best_i]
-        if best_r >= 0.9:
-            used.add(best_i)
-            # Near-identical text, but if the NUMBERS differ it's a real change
-            # (price 1200 -> 1450, grade, count). Textual ratio alone misses this
-            # because one changed number barely dents a long line's similarity.
-            if _numbers(ol) != _numbers(nl):
-                changed.append({"old": ol, "new": nl})
-        elif best_r >= 0.6:
-            used.add(best_i)
+        used.add(best_i)
+        # One decision for every matched line: is the difference a real edit, or
+        # just the same line read differently? _is_ocr_noise handles both the
+        # near-identical case (a changed number in an otherwise-equal line is real;
+        # pure jitter is not) and the high-ratio case a single word swap hides in
+        # ('brown' -> 'red' in a long line barely dents the char ratio but is a
+        # real change).
+        if not _is_ocr_noise(ol, nl):
             changed.append({"old": ol, "new": nl})
-        else:
-            added.append(nl)
     removed = [ol for i, ol in enumerate(o) if i not in used]
     return {"added": added, "removed": removed, "changed": changed}
 
