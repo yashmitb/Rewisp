@@ -7,6 +7,12 @@ APP=Rewisp.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
+# Stable version is baked here; a developer/pre-release build overrides it via
+# REWISP_VERSION (e.g. 0.28.0-dev.1) so the bundle version carries the -dev.N
+# suffix the updater's semver compare needs. Keep the default in sync with the
+# real stable version on every release.
+VERSION="${REWISP_VERSION:-0.27.1}"
+
 # FoundationModels (on-device AI) is weak-linked: exists on macOS 26+,
 # app still launches on 15.0 where AskEngine falls back to Claude.
 swiftc -O -parse-as-library \
@@ -22,7 +28,7 @@ fi
 cp Rewisp.icns "$APP/Contents/Resources/"
 cp ../docs/MANUAL.md "$APP/Contents/Resources/MANUAL.md"
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -32,7 +38,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleIdentifier</key><string>com.yashmit.rewisp</string>
     <key>CFBundleExecutable</key><string>Rewisp</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.27.1</string>
+    <key>CFBundleShortVersionString</key><string>${VERSION}</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>

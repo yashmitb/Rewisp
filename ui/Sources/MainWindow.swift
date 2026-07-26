@@ -1037,6 +1037,7 @@ struct SettingsTab: View {
     @AppStorage("rewisp.notify") private var notifyMode = "silent"
     @AppStorage("rewisp.ondevice") private var onDeviceFirst = true
     @AppStorage("rewisp.formassist") private var formAssist = true
+    @AppStorage("rewisp.devUpdates") private var devUpdates = false
     @ObservedObject var status = StatusModel.shared
 
     var body: some View {
@@ -1442,6 +1443,20 @@ struct SettingsTab: View {
                 Text("Both stay on this Mac — the manual is bundled in the app, and bug reports are yours to copy or email, never sent anywhere automatically.")
                     .font(.caption).foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+            Card {
+                CardHeader(title: "Updates", symbol: "arrow.triangle.2.circlepath")
+                Toggle(isOn: $devUpdates) {
+                    Text("Developer updates (beta builds)").font(.callout)
+                }
+                .onChange(of: devUpdates) { UpdateChecker.shared.setDevUpdates(devUpdates) }
+                Text("Off by default. When on, Rewisp offers pre-release builds before they go public — for testing. Beta builds may be rough; you'll roll onto the stable release automatically once it ships.")
+                    .font(.caption).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if UpdateChecker.shared.onDevBuild {
+                    Text("You're on a beta build (\(UpdateChecker.shared.currentVersion)).")
+                        .font(.caption).foregroundStyle(Theme.accent)
+                }
             }
             Card {
                 CardHeader(title: "Shortcuts", symbol: "keyboard.fill")

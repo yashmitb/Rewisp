@@ -55,8 +55,17 @@ struct UpdateBanner: View {
                     .font(expanded ? .title2 : .body)
                     .foregroundStyle(Theme.accent)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Rewisp \(updates.latestVersion ?? "") is available")
-                        .font(expanded ? .callout.weight(.semibold) : .caption.weight(.medium))
+                    HStack(spacing: 6) {
+                        Text("Rewisp \(updates.latestVersion ?? "") is available")
+                            .font(expanded ? .callout.weight(.semibold) : .caption.weight(.medium))
+                        if updates.latestIsPrerelease {
+                            Text("BETA")
+                                .font(.system(size: 9, weight: .bold))
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Theme.accent.opacity(0.18), in: Capsule())
+                                .foregroundStyle(Theme.accent)
+                        }
+                    }
                     if expanded {
                         Text("Updates in place — your memories and permissions stay exactly as they are.")
                             .font(.caption).foregroundStyle(.secondary)
