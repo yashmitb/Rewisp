@@ -267,7 +267,8 @@ fully local; nudges never make a cloud call.
 | When | What |
 |---|---|
 | You switch apps / change URL / stop scrolling | Screen captured → OCR'd → text stored → image discarded (never written to disk) |
-| Screen unchanged but you keep reading | Heartbeat capture every ~60s (dedupe drops identical screens) |
+| The page you're on changes in place (new message, content loads) | Captured now, not on the next heartbeat — so nothing's missed while you work |
+| Screen unchanged, you keep reading | Periodic capture: every ~20s while you're active, ~60s otherwise (dedupe drops identical screens) |
 | 5 min without input, screen locked | Capture stops |
 | Messages, WhatsApp, banking sites, password apps frontmost | Capture fully paused (kill list) |
 | Every capture | Commitments detected ("I'll send it Friday") → held as **Promises**; recurring label+numbers → **series**; a semantic fingerprint is stored for meaning-based search — all local |

@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.27.0, 2026-07-22):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 12,500+ wisps). 298 tests. 53 releases (v0.1.0 → v0.27.0).
+**Current status (v0.27.1, 2026-07-22):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 12,500+ wisps). 304 tests. 54 releases (v0.1.0 → v0.27.1).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,27 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.27.1 — catches more, misses less (2026-07-22)
+
+Smarter capture timing so in-place changes aren't missed, without raising cost
+when you're away. Research-backed (adaptive lifelogging capture policy); resource
+cost measured on-device before shipping.
+
+- **Adaptive cadence.** The periodic capture tightens to 20s while you're actively
+  working (recent keyboard/mouse/scroll) and relaxes to 60s otherwise. Cuts the
+  worst-case "missed something" window from 60s to 20s at zero added cost — it's
+  only a timing change.
+- **Same-surface content change.** When the front app/page doesn't change but the
+  screen does — a new chat message, content that loaded in place — it's captured
+  now instead of waiting for the next heartbeat. Kept cheap and bounded: gated on
+  recent input, one ~40ms display check at most every 3s, skipped once any other
+  trigger fired, and the frame is reused so the display is grabbed once. Added
+  load is ~1.3% of one core *while active* and exactly 0 when you step away; the
+  5-minute idle guard still stops capture entirely.
+- Runs strictly after every kill-list / private-window guard, so those surfaces
+  are never probed. In-memory only; redaction still applies. Toggle:
+  `ADAPTIVE_CAPTURE`.
 
 ## v0.27.0 — privacy + smarter memory (2026-07-22)
 
