@@ -87,6 +87,20 @@ IDLE_GUARD_SECONDS = 300  # 5 min no input -> stop capturing
 DEDUPE_THUMB_SIZE = 32  # NxN grayscale thumbnail for pixel diff
 DEDUPE_CHANGED_FRACTION = 0.05  # <5% pixels changed -> discard
 DEDUPE_PIXEL_DELTA = 24  # per-pixel gray delta (0-255) counted as "changed"
+
+# Adaptive capture: catch in-place content changes (a new chat message, content
+# loading on the page you're already on) that no app-switch/URL/scroll trigger
+# fires for — WITHOUT raising idle cost. Everything below is gated on recent
+# input, so when you walk away nothing extra runs; the idle guard still stops
+# capture entirely after IDLE_GUARD_SECONDS.
+ADAPTIVE_CAPTURE = True
+ACTIVE_INPUT_WINDOW = 15       # "active" = keyboard/mouse/scroll within this many seconds
+HEARTBEAT_ACTIVE_SECONDS = 20  # periodic capture cadence while active (vs HEARTBEAT_SECONDS when not)
+CONTENT_CHECK_SECONDS = 3.0    # min gap between same-surface change probes — bounds the added cost.
+                               # A probe is a full-display grab (~40ms), so while active this is the
+                               # only added load: ~1.3% of one core, and exactly 0 when you're away.
+CONTENT_CHANGED_FRACTION = 0.10  # thumbnail fraction that must change to count as NEW content
+                                 # (> DEDUPE_CHANGED_FRACTION, so a detected change is never re-dropped)
 # Height of the macOS menu bar in logical points. Text sitting inside it is
 # never content — the app name, its menus, the clock, the battery — and it
 # appeared in 100% of 500 sampled captures, costing database space, prompt room,

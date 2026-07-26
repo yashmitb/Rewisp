@@ -30,6 +30,7 @@ class Daemon:
         self.last_kill_check = 0.0
         self.private_window = False
         self.last_field_check = 0.0
+        self.last_content_check = 0.0
 
     # -- state checks ---------------------------------------------------------
 
@@ -42,8 +43,11 @@ class Daemon:
     # -- capture --------------------------------------------------------------
 
     def capture(self, app: str, pid: int, title: str | None, url: str | None,
-                reason: str) -> None:
-        img = screen.capture_frontmost_display(pid)
+                reason: str, img=None) -> None:
+        # `img` may be handed in by the content-change probe, which already
+        # grabbed the display — so the frame is captured once, not twice.
+        if img is None:
+            img = screen.capture_frontmost_display(pid)
         # Attempt counts for heartbeat pacing even if deduped — otherwise an
         # unchanged screen would re-screenshot every tick after the interval.
         self.last_capture = time.monotonic()
@@ -214,14 +218,45 @@ class Daemon:
             self.scroll_pending = False
             reason = reason or "scroll-settle"
 
+        # Are we actively working? Gates the adaptive behaviour below so that
+        # walking away costs nothing extra (and the idle guard already stopped us
+        # entirely after IDLE_GUARD_SECONDS).
+        active = screen.seconds_since_any_input() < config.ACTIVE_INPUT_WINDOW
+
         # Heartbeat: dense pages (long reads, homework) change without any trigger
         # firing. Capture periodically; the dedupe layer drops unchanged screens.
-        if not reason and now_mono - self.last_capture > config.HEARTBEAT_SECONDS:
+        # Adaptive: tighter while you're active so in-place changes aren't missed,
+        # relaxed to the idle cadence otherwise — fewer captures when nothing's
+        # happening, more only when they're worth it.
+        heartbeat = (config.HEARTBEAT_ACTIVE_SECONDS
+                     if (config.ADAPTIVE_CAPTURE and active)
+                     else config.HEARTBEAT_SECONDS)
+        if not reason and now_mono - self.last_capture > heartbeat:
             reason = "heartbeat"
+
+        # Same-surface content change: the front app/page didn't change, but the
+        # screen did — a new chat message, content that loaded in place. No other
+        # trigger fires for this; only the heartbeat would, up to a minute later.
+        # Kept cheap and bounded: only while active, at most every
+        # CONTENT_CHECK_SECONDS, and skipped once any other trigger fired. The
+        # grabbed frame is reused for the capture, so the display is grabbed once.
+        grabbed = None
+        if (not reason and config.ADAPTIVE_CAPTURE and active
+                and self.prev_thumb is not None
+                and now_mono - self.last_content_check >= config.CONTENT_CHECK_SECONDS):
+            self.last_content_check = now_mono
+            grabbed = screen.capture_frontmost_display(pid)
+            if grabbed is not None:
+                frac = screen.pixel_change_fraction(
+                    screen.thumbnail_gray(grabbed), self.prev_thumb)
+                if frac >= config.CONTENT_CHANGED_FRACTION:
+                    reason = "content-change"
+                else:
+                    grabbed = None   # nothing meaningful changed — drop the frame
 
         if reason:
             try:
-                self.capture(app, pid, title, url, reason)
+                self.capture(app, pid, title, url, reason, img=grabbed)
             except Exception:
                 log.exception("capture error")
 

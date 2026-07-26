@@ -144,13 +144,19 @@ def thumbnail_gray(cg_image) -> bytes:
     return bytes(data.as_buffer(n * n))
 
 
-def is_duplicate(thumb: bytes, prev_thumb: bytes | None) -> bool:
-    """True if fewer than DEDUPE_CHANGED_FRACTION of pixels changed vs previous thumbnail."""
+def pixel_change_fraction(thumb: bytes, prev_thumb: bytes | None) -> float:
+    """Fraction of thumbnail pixels that changed vs the previous one (0.0–1.0).
+    1.0 when there's nothing to compare against (treated as fully changed)."""
     if prev_thumb is None or len(thumb) != len(prev_thumb):
-        return False
+        return 1.0
     changed = sum(1 for a, b in zip(thumb, prev_thumb)
                   if abs(a - b) > config.DEDUPE_PIXEL_DELTA)
-    return changed / len(thumb) < config.DEDUPE_CHANGED_FRACTION
+    return changed / len(thumb)
+
+
+def is_duplicate(thumb: bytes, prev_thumb: bytes | None) -> bool:
+    """True if fewer than DEDUPE_CHANGED_FRACTION of pixels changed vs previous thumbnail."""
+    return pixel_change_fraction(thumb, prev_thumb) < config.DEDUPE_CHANGED_FRACTION
 
 
 # --- OCR --------------------------------------------------------------------
