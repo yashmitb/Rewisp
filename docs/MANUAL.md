@@ -118,6 +118,10 @@ vs "always use my engine" for max quality on every question; form field
 detection on/off; digest notification; **Report a bug** opens a prefilled
 GitHub issue (nothing from your history is attached — only what you type).
 
+**Developer updates** (Settings → Help, off by default): flip this on to get
+pre-release beta builds early and help test them. They may be rough; leave it off
+to stay on stable. Either way you land on each stable release automatically.
+
 **Onboarding** (first launch) now asks for your main browser and triggers the
 one-time macOS automation consent for it right there.
 
@@ -203,6 +207,12 @@ button that crumples the slip away. Overdue slips glow red.
 It only listens where *you* write: Notes, Mail, Slack, Discord, Gmail and the
 like. AI chats, code editors, ads, and random web pages can't create promises —
 so the list stays yours, not noise.
+
+**Catching missed ones.** The live catch is deliberately cautious (a couple per
+screen), so the nightly digest also re-scans the whole day and adds any it missed
+("Follow-ups caught" in the recap). Want it now? Tap **Update** on the Promises
+card — it scans everything since your last check, so tapping it again right away
+just says "Up to date." Nothing is ever added twice.
 
 **Confirming a promise arms its reminder:** on the due day (and while overdue) a
 small pill slides down from the menu bar with the full commitment — one reminder

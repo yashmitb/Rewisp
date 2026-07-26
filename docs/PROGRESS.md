@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.27.1, 2026-07-22):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 12,500+ wisps). 304 tests. 54 releases (v0.1.0 → v0.27.1).
+**Current status (v0.28.0, 2026-07-22):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 12,500+ wisps). 311 tests. 55 releases (v0.1.0 → v0.28.0).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,22 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.28.0 — never miss a promise, and opt-in betas (2026-07-22)
+
+- **Promise sweep.** The live commitment detector is capped per capture for
+  precision, so a genuine "I'll send it Friday" can slip past. Now the nightly
+  digest re-scans the day with a higher cap and the same bar (deduped, local, no
+  extra cloud call) and notes anything it caught ("Follow-ups caught"), and a new
+  **Update** button on the Promises card scans on demand — only captures since the
+  last check, so a rapid re-click is an instant no-op. No double promises: dedup
+  now runs against every open promise regardless of age, not just the last 14 days.
+- **Developer updates channel.** A new opt-in toggle (**Settings → Help →
+  Developer updates**, off by default) puts you on pre-release builds for testing;
+  everyone else stays on stable, and testers roll onto the stable release
+  automatically once it ships. Controlled entirely by GitHub's prerelease flag;
+  version comparison is now semver-aware (`0.28.0-dev.1 < 0.28.0`). See
+  `docs/RELEASING.md`.
 
 ## v0.27.1 — catches more, misses less (2026-07-22)
 
