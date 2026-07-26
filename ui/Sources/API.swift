@@ -140,6 +140,7 @@ struct RewispAPI {
         var status: String
     }
     struct Promises: Decodable { var pending: [Promise]; var active: [Promise] }
+    struct SweepResult: Decodable { var added: Int; var scanned: Int }
 
     struct SeriesItem: Decodable, Identifiable, Hashable {
         var key: String

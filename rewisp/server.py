@@ -481,6 +481,11 @@ class Handler(BaseHTTPRequestHandler):
                 # confirm | done | dismissed
                 db.set_promise_status(conn, int(body.get("id", 0)), body.get("status", "dismissed"))
                 self._json({"ok": True})
+            elif self.path == "/promises/sweep":
+                # Manual "Update promises": scan only captures since the last sweep.
+                # Idempotent — a rapid re-click finds nothing new and returns 0.
+                from . import promises
+                self._json(promises.sweep_since(conn))
             elif self.path == "/nudge/feedback":
                 nid = int(body.get("id", 0))
                 db.nudge_feedback(conn, nid, body.get("vote", ""))

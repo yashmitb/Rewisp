@@ -252,6 +252,23 @@ def run(day: datetime | None = None, force: bool = False) -> dict | None:
     except Exception:  # noqa: BLE001 — rescue is a bonus, never breaks the digest
         log.exception("about-to-fade failed")
 
+    # Missed-promise sweep: the live detector is capped per capture for precision,
+    # so a genuine commitment can slip past. Re-scan the day with a higher cap and
+    # the same bar (deduped, local, no extra cloud call), and note anything caught.
+    swept_md = ""
+    try:
+        from . import promises
+        since, until = _local_day_bounds(day)
+        day_rows = conn.execute(
+            "SELECT id, app, url, ocr_text FROM captures WHERE ts >= ? AND ts < ? ORDER BY id",
+            (since, until)).fetchall()
+        missed = promises.sweep_missed(conn, day_rows)
+        if missed:
+            swept_md = (f"\n\n### Follow-ups caught\n- {missed} commitment(s) the live "
+                        f"scan had missed are now in **Promises** for review.")
+    except Exception:  # noqa: BLE001 — the sweep is a bonus, never breaks the digest
+        log.exception("digest promise sweep failed")
+
     conn.execute(
         "INSERT INTO summaries (date, summary_md, threads_md, time_report_json) VALUES (?, ?, ?, ?) "
         "ON CONFLICT(date) DO UPDATE SET summary_md=excluded.summary_md, "
@@ -259,7 +276,7 @@ def run(day: datetime | None = None, force: bool = False) -> dict | None:
         (date_str,
          sections["Summary"] + ("\n\n### Subtext\n" + sections["Subtext"]
                                 if sections["Subtext"] not in ("", "None.") else "")
-         + fade_md,
+         + fade_md + swept_md,
          sections["Threads"],
          json.dumps(time_report)))
     conn.commit()

@@ -9,6 +9,8 @@ struct PromisesCard: View {
     @State private var pending: [RewispAPI.Promise] = []
     @State private var active: [RewispAPI.Promise] = []
     @State private var gone: Set<Int> = []          // locally removed (mid-animation)
+    @State private var sweeping = false
+    @State private var sweepMsg: String? = nil
 
     private var owe: [RewispAPI.Promise] { (pending + active).filter { $0.who == "me" && !gone.contains($0.id) } }
     private var waiting: [RewispAPI.Promise] { (pending + active).filter { $0.who == "them" && !gone.contains($0.id) } }
@@ -18,15 +20,18 @@ struct PromisesCard: View {
         // conditional Group. SwiftUI won't fire .task if the view resolves to
         // EmptyView, so gating it behind "no promises" meant it never fetched.
         VStack(spacing: 0) {
-            if !owe.isEmpty || !waiting.isEmpty {
-                Card {
-                    CardHeader(title: "Promises", symbol: "hand.raised.fingers.spread.fill")
-                    if !owe.isEmpty {
-                        lane("You said you'd", owe)
-                    }
-                    if !waiting.isEmpty {
-                        lane("Waiting on them", waiting)
-                    }
+            Card {
+                header
+                if !owe.isEmpty {
+                    lane("You said you'd", owe)
+                }
+                if !waiting.isEmpty {
+                    lane("Waiting on them", waiting)
+                }
+                if owe.isEmpty && waiting.isEmpty {
+                    Text("No open follow-ups. Tap Update to scan for any you've made since the last check.")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                } else {
                     Text("Caught from your screen — never typed. Confirm to keep, or dismiss.")
                         .font(.caption2).foregroundStyle(.tertiary)
                 }
@@ -38,6 +43,45 @@ struct PromisesCard: View {
                 try? await Task.sleep(for: .seconds(6))
             }
         }
+    }
+
+    // Header with a manual "Update" button. The sweep only looks at captures since
+    // the last check, so a rapid re-click finds nothing new and returns instantly;
+    // the button is still disabled mid-sweep to keep the UI honest.
+    private var header: some View {
+        HStack(spacing: 8) {
+            CardHeader(title: "Promises", symbol: "hand.raised.fingers.spread.fill")
+            Button(action: { Task { await sweep() } }) {
+                HStack(spacing: 4) {
+                    if sweeping {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    Text(sweepMsg ?? "Update").font(.caption.weight(.medium))
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Theme.accent)
+            .disabled(sweeping)
+            .help("Scan captures since the last check for follow-ups you've made")
+        }
+    }
+
+    @MainActor private func sweep() async {
+        if sweeping { return }
+        sweeping = true
+        sweepMsg = nil
+        defer { sweeping = false }
+        if let data = try? await RewispAPI.post("promises/sweep"),
+           let r = try? JSONDecoder().decode(RewispAPI.SweepResult.self, from: data) {
+            sweepMsg = r.added > 0 ? "+\(r.added) found" : "Up to date"
+            await reload()
+        } else {
+            sweepMsg = "Try again"
+        }
+        try? await Task.sleep(for: .seconds(2.5))
+        sweepMsg = nil
     }
 
     private func lane(_ title: String, _ items: [RewispAPI.Promise]) -> some View {

@@ -377,6 +377,63 @@ def scan_and_store(conn, wisp_id: int, text: str, app: str | None = None,
     return _scan(conn, wisp_id, text, src, max_per_capture)
 
 
+# ── missed-promise sweeps ────────────────────────────────────────────────────
+#
+# The live per-capture detector is deliberately precision-first: it caps at
+# max_per_capture (2) so one busy screen can't flood the list. That cap, plus the
+# rare transient scan error, means a genuine commitment can slip through. A sweep
+# re-runs detection over a batch of captures with a higher cap and the SAME bar
+# and gating — so precision is unchanged and scan_and_store's dedup keeps it from
+# ever storing a promise twice. Only the truly missed ones get added. Local; no
+# cloud call. Used by the nightly digest (over the day) and the manual
+# "Update promises" button (over everything since the last sweep).
+
+def sweep_missed(conn, rows, max_per_capture: int = 8) -> int:
+    """Re-scan `rows` (each: id, app, url, ocr_text) for commitments the live
+    detector dropped. Returns how many NEW promises were stored."""
+    added = 0
+    for wid, app, url, text in rows:
+        try:
+            added += scan_and_store(conn, wid, text, app=app, url=url,
+                                    max_per_capture=max_per_capture)
+        except Exception:  # noqa: BLE001 — one bad capture must not abort the sweep
+            log.debug("promise sweep: capture %s failed", wid, exc_info=True)
+    if added:
+        log.info("promises: sweep added %d missed", added)
+    return added
+
+
+def sweep_since(conn, first_window_hours: int = 24, max_per_capture: int = 8) -> dict:
+    """Manual sweep: scan only captures newer than the last sweep, then remember
+    the new high-water mark. Returns {'added', 'scanned'}.
+
+    Edge cases, handled by the id watermark rather than a timer:
+    - **Rapid re-clicks / barely any time passed:** the watermark already sits at
+      the latest capture, so there's nothing newer to scan — an instant no-op
+      ({'added': 0, 'scanned': 0}), no wasted work, no double storage.
+    - **First ever click:** there's no watermark, so instead of re-scanning all of
+      history (tens of thousands of rows) it looks back only `first_window_hours`.
+    - **A capture already scanned live:** dedup in scan_and_store drops it, so the
+      overlap is harmless.
+    """
+    wm = db.get_meta(conn, "promise_sweep_id")
+    if wm:
+        rows = conn.execute(
+            "SELECT id, app, url, ocr_text FROM captures WHERE id > ? ORDER BY id",
+            (int(wm),)).fetchall()
+    else:
+        from datetime import datetime, timedelta, timezone
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=first_window_hours)
+                  ).strftime("%Y-%m-%d %H:%M:%S")
+        rows = conn.execute(
+            "SELECT id, app, url, ocr_text FROM captures WHERE ts >= ? ORDER BY id",
+            (cutoff,)).fetchall()
+    added = sweep_missed(conn, rows, max_per_capture=max_per_capture)
+    if rows:
+        db.set_meta(conn, "promise_sweep_id", rows[-1][0])
+    return {"added": added, "scanned": len(rows)}
+
+
 # Past-tense completion cues — a promise is only closed when later text shows the
 # ACTION was actually carried out ("sent the invoice", "emailed Dana").
 _DONE_CUE = re.compile(
@@ -452,8 +509,13 @@ def _scan(conn, wisp_id: int, text: str, src: str, max_per_capture: int) -> int:
     found = found[:max_per_capture]
     if not found:
         return 0
+    # Dedup against every OPEN promise regardless of age — those are what the user
+    # actually sees, so they must never double, even one the sweep re-encounters
+    # weeks later — PLUS anything from the last 14 days (so a just-handled promise
+    # isn't immediately re-added and made to nag again).
     recent = conn.execute(
-        "SELECT what FROM promises WHERE created_at >= datetime('now','-14 days')"
+        "SELECT what FROM promises WHERE status IN ('pending','confirmed') "
+        "OR created_at >= datetime('now','-14 days')"
     ).fetchall()
     known = [r[0] for r in recent]
     added = 0

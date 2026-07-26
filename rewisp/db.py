@@ -164,6 +164,18 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def get_meta(conn: sqlite3.Connection, key: str, default: str | None = None) -> str | None:
+    """Read a value from the small key/value meta table (migration flags,
+    watermarks). Returns `default` when the key is absent."""
+    row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+    return row[0] if row else default
+
+
+def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)", (key, str(value)))
+    conn.commit()
+
+
 def _migrate(conn: sqlite3.Connection) -> None:
     """Idempotent column adds. SQLite has no ADD COLUMN IF NOT EXISTS, so probe."""
     cols = {r[1] for r in conn.execute("PRAGMA table_info(captures)")}
