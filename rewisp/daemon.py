@@ -31,6 +31,7 @@ class Daemon:
         self.private_window = False
         self.last_field_check = 0.0
         self.last_content_check = 0.0
+        self.excluded = config.excluded_apps()
 
     # -- state checks ---------------------------------------------------------
 
@@ -117,11 +118,12 @@ class Daemon:
             STATE["capture"] = "idle"
             return
 
-        # Settings-window kill list edits apply live (cheap mtime check ~2s).
+        # Settings-window kill list + excluded-apps edits apply live (~2s).
         now_mono = time.monotonic()
         if now_mono - self.last_kill_check > 2:
             self.last_kill_check = now_mono
             self.kill.reload_if_changed()
+            self.excluded = config.excluded_apps()
 
         app, pid, title = screen.frontmost_info()
         if not app:
@@ -135,6 +137,13 @@ class Daemon:
         # whole desktop "frontmost" and stores a junk desktop capture.
         if app == "Rewisp" or app in config.CAPTURE_SKIP_APPS:
             STATE["capture"] = "idle"
+            return
+
+        # User-excluded apps — games, media, anything they've said not to remember.
+        # Cleaned + lowercased so an invisible-prefix or case difference can't slip
+        # a flood of game frames past the check (the WhatsApp ‎ lesson).
+        if screen._clean_app_name(app).lower() in self.excluded:
+            STATE["capture"] = "excluded"
             return
 
         # Kill-list app frontmost: full pause, reset trigger state so nothing leaks.

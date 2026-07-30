@@ -76,7 +76,19 @@ DEFAULT_SETTINGS = {
     # MCP server: external agents can query screen memory; the Vault (identity
     # documents) stays out unless explicitly opted in.
     "mcp_expose_vault": False,
+    # Apps the user never wants remembered — games, media players, anything noisy.
+    # Distinct from the kill list (which is privacy): this is "don't bother", not
+    # "don't dare". Matched case-insensitively against the cleaned frontmost app
+    # name. Empty by default; the user adds their own (e.g. a game showing up as
+    # "java" or "Lunar Client" that would otherwise flood the database).
+    "excluded_apps": [],
 }
+
+
+def excluded_apps() -> set[str]:
+    """Lowercased set of app names the user has chosen not to capture."""
+    raw = load_settings().get("excluded_apps") or []
+    return {str(a).strip().lower() for a in raw if str(a).strip()}
 
 # (browser support lives in browser.BROWSERS — Chromium family, Safari, Firefox title-only)
 

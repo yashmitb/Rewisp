@@ -319,6 +319,18 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/series":
                 from . import numbers
                 self._json({"series": numbers.active_series(conn, limit=6)})
+            elif self.path == "/capture-stats":
+                # Top apps by capture volume (last 30 days) so Settings can surface
+                # "you've stored X of this — ignore it?" for noisy apps like games.
+                rows = conn.execute(
+                    "SELECT app, COUNT(*) n FROM captures "
+                    "WHERE ts >= datetime('now','-30 days') AND app IS NOT NULL AND app != '' "
+                    "GROUP BY app ORDER BY n DESC LIMIT 15").fetchall()
+                total = conn.execute(
+                    "SELECT COUNT(*) FROM captures WHERE ts >= datetime('now','-30 days')").fetchone()[0]
+                self._json({"total": total,
+                            "apps": [{"app": a, "count": n} for a, n in rows],
+                            "excluded": sorted(config.excluded_apps())})
             elif self.path == "/precog":
                 from . import precog
                 self._json({"suggestions": precog.suggest(conn, limit=3)})

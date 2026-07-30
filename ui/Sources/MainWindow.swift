@@ -1015,6 +1015,9 @@ struct SettingsTab: View {
     @State private var kill: RewispAPI.KillList?
     @State private var newApp = ""
     @State private var newPattern = ""
+    @State private var excluded: [String] = []
+    @State private var newExcluded = ""
+    @State private var topApps: [RewispAPI.CaptureStat] = []
     @State private var exportResult: String?
     @State private var showUninstall = false
     @State private var settings: RewispAPI.Settings?
@@ -1333,6 +1336,13 @@ struct SettingsTab: View {
     }
 
     private var privacySection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            killCard
+            excludedCard
+        }
+    }
+
+    private var killCard: some View {
         Card {
             CardHeader(title: "Kill list — capture fully pauses", symbol: "hand.raised.fill")
             Text("\(kill?.default_apps.count ?? 0) apps + \(kill?.default_url_patterns.count ?? 0) banking/finance domains are built in and can't be removed.")
@@ -1377,6 +1387,53 @@ struct SettingsTab: View {
                     .onSubmit { addPattern() }
                 Button("Add", action: addPattern)
                     .disabled(newPattern.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+    }
+
+    // "Apps Rewisp ignores" — not privacy, just noise. Surfaces your highest-volume
+    // apps (games, media) so a single tap drops something that would otherwise
+    // flood the database.
+    private var excludedCard: some View {
+        Card {
+            CardHeader(title: "Apps Rewisp ignores — noise, not private", symbol: "eye.slash.fill")
+            Text("Games, media players, anything not worth remembering. Capture skips them entirely.")
+                .font(.caption).foregroundStyle(.tertiary)
+            ForEach(excluded, id: \.self) { app in
+                HStack {
+                    Text(app).font(.callout)
+                    Spacer()
+                    Button { removeExcluded(app) } label: {
+                        Image(systemName: "minus.circle").foregroundStyle(.secondary)
+                    }.buttonStyle(HoverButton())
+                }
+            }
+            HStack {
+                TextField("Add app (e.g. Lunar Client)", text: $newExcluded)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { addExcluded(newExcluded) }
+                Button("Add") { addExcluded(newExcluded) }
+                    .disabled(newExcluded.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            // Data-driven suggestions: your busiest apps not already ignored.
+            let suggestions = topApps.filter {
+                !excluded.contains($0.app) && $0.app != "Rewisp"
+            }.prefix(4)
+            if !suggestions.isEmpty {
+                Divider().opacity(0.35)
+                Text("YOUR BUSIEST APPS (last 30 days)")
+                    .font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+                ForEach(Array(suggestions), id: \.app) { s in
+                    HStack {
+                        Text(s.app).font(.callout)
+                        Text("\(s.count) captured").font(.caption).foregroundStyle(.tertiary)
+                        Spacer()
+                        Button { addExcluded(s.app) } label: {
+                            Label("Ignore", systemImage: "eye.slash")
+                                .font(.caption.weight(.medium))
+                        }.buttonStyle(HoverButton())
+                    }
+                }
             }
         }
     }
@@ -1500,6 +1557,22 @@ struct SettingsTab: View {
         }
     }
 
+    private func addExcluded(_ raw: String) {
+        let a = raw.trimmingCharacters(in: .whitespaces)
+        guard !a.isEmpty, !excluded.contains(where: { $0.caseInsensitiveCompare(a) == .orderedSame })
+        else { newExcluded = ""; return }
+        excluded.append(a)
+        newExcluded = ""
+        saveExcluded()
+    }
+    private func removeExcluded(_ a: String) {
+        excluded.removeAll { $0 == a }
+        saveExcluded()
+    }
+    private func saveExcluded() {
+        saveSettings(["excluded_apps": excluded])
+    }
+
     @MainActor private func reload() async {
         kill = try? await RewispAPI.get("killlist", as: RewispAPI.KillList.self)
         if let s = try? await RewispAPI.get("settings", as: RewispAPI.Settings.self) {
@@ -1514,6 +1587,10 @@ struct SettingsTab: View {
             digestHour = s.digest_hour
             digestInterval = s.digest_interval_days
             nudgesEnabled = s.nudges_enabled ?? false
+            excluded = s.excluded_apps ?? []
+        }
+        if let cs = try? await RewispAPI.get("capture-stats", as: RewispAPI.CaptureStats.self) {
+            topApps = cs.apps
         }
         if let d = try? await RewispAPI.get("digest/status", as: RewispAPI.DigestStatus.self) {
             digestRunning = d.running
