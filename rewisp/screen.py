@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -351,6 +352,18 @@ def _boxes_tiled(cg_image, width: int, height: int) -> list[tuple[float, float, 
     return boxes
 
 
+# Adjacent identical WORD tokens are the tile-overlap signature: a UI label in the
+# seam between two tiles gets read twice ("Ask  Ask", "Google Google"). Collapse
+# them. Restricted to alphabetic tokens of 2+ chars so numeric tables ("0 0 0",
+# "426K 26K") and single glyphs are never touched. Case-insensitive backref so an
+# OCR case wobble ("Ask ask") still collapses.
+_DUP_WORD = re.compile(r"\b([A-Za-z]{2,})(?:\s+\1\b)+", re.IGNORECASE)
+
+
+def _collapse_doubled_words(line: str) -> str:
+    return _DUP_WORD.sub(lambda m: m.group(1), line)
+
+
 def _assemble(boxes: list[tuple[float, float, str]], height: int) -> str:
     """Menu-bar cutoff + reading-order assembly. Shared by both engines so an A/B
     comparison differs only in recognition, not in post-processing.
@@ -384,8 +397,9 @@ def _assemble(boxes: list[tuple[float, float, str]], height: int) -> str:
             rows.append([])
             row_y = mid_y
         rows[-1].append((x, text))
-    return "\n".join("  ".join(t for _, t in sorted(row, key=lambda b: b[0]))
-                     for row in rows)
+    return "\n".join(
+        _collapse_doubled_words("  ".join(t for _, t in sorted(row, key=lambda b: b[0])))
+        for row in rows)
 
 
 def ocr_cgimage(cg_image, app: str | None = None) -> str:

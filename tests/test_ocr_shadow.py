@@ -28,11 +28,13 @@ def test_token_overlap_is_a_ratio_not_text():
 def test_shadow_log_writes_metrics_only_no_screen_text(tmp_path, monkeypatch):
     log = tmp_path / "ocr_ab.jsonl"
     monkeypatch.setattr(config, "OCR_AB_LOG", log)
-    # Stub both engines: tiled has doubling + a secret word, swift is clean.
+    # Stub both engines: tiled has doubling + a secret word, swift is clean. The
+    # double is numeric ("1234 1234") on purpose — a doubled WORD would be
+    # collapsed by _assemble, so a numeric pair is what still exercises the metric.
     monkeypatch.setattr(screen, "_boxes_tiled",
-                        lambda cg, w, h: [(0.5, 0.1, "SECRETPASSWORD SECRETPASSWORD")])
+                        lambda cg, w, h: [(0.5, 0.1, "1234 1234 SECRETPASSWORD")])
     monkeypatch.setattr(screen, "_document_boxes_swift",
-                        lambda cg: [(0.5, 0.1, "SECRETPASSWORD")])
+                        lambda cg: [(0.5, 0.1, "1234 SECRETPASSWORD")])
 
     screen._log_ocr_ab(object(), 1920, 1080, app="Mail")
 
