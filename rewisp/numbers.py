@@ -41,9 +41,12 @@ _CHROME_LABEL = re.compile(
 # modifiers, must consist ENTIRELY of known metric words. Money/price/count
 # metrics are excluded on purpose — they're indistinguishable from ad/UI noise on
 # the open web.
+# "step" (singular) removed on purpose: live data showed it only ever caught
+# wizard/recipe step counters ("Step 1", "Step 2 of 5") — values 1,2,3, never a
+# metric. "steps" (plural, the fitness count) stays.
 _METRIC_WORDS = {
     "weight", "bodyweight", "bmi", "grade", "gpa", "score", "sleep", "streak",
-    "steps", "step", "calorie", "calories", "cal", "cals", "kcal", "macros",
+    "steps", "calorie", "calories", "cal", "cals", "kcal", "macros",
     "protein", "carbs", "heart", "rate", "bpm", "pulse", "hydration", "hrv",
     "spo2", "rank", "elo", "rating", "level", "reps", "sets", "pace", "mileage",
     "temperature", "temp", "streaks",
@@ -112,6 +115,13 @@ def detect(text: str) -> list[dict]:
             try:
                 value = float(num_str.replace(",", ""))
             except ValueError:
+                continue
+            # A metric reading of exactly zero is almost always an empty or
+            # not-yet-started field — "Score: 0%" on an unopened assignment,
+            # "0 steps" before you've moved. Live data showed these were the main
+            # source of junk series (a "score" stuck at 0.0). Drop them; a real
+            # series just starts at its first non-zero reading.
+            if value == 0.0:
                 continue
             if _looks_like_id(num_str, value):
                 continue

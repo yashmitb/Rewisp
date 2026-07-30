@@ -231,6 +231,18 @@ def _migrate(conn: sqlite3.Connection) -> None:
     except Exception:  # noqa: BLE001 — a fuzzy-recall index is optional; never block open
         log.exception("trigram backfill skipped")
 
+    # One-time purge of junk series the old detector stored: readings of exactly
+    # zero ("Score: 0%" on an unopened assignment) and the singular "step" label
+    # (wizard/recipe counters, not a metric). The detector no longer creates these;
+    # this clears what it already did so the charts stop showing nonsense.
+    try:
+        if not conn.execute("SELECT 1 FROM meta WHERE key='series_junk_purged'").fetchone():
+            conn.execute("DELETE FROM series WHERE value = 0.0 OR label = 'step'")
+            conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('series_junk_purged','1')")
+            conn.commit()
+    except Exception:  # noqa: BLE001 — cleanup is best-effort
+        log.exception("series junk purge skipped")
+
 
 def _driver():
     """SQLCipher when it is available, plain sqlite3 otherwise.
