@@ -53,6 +53,25 @@ class TestActivityQuestions:
             ctx, _ = ask.build_context(conn, "what did I work on today", compact=True)
         assert "[vault:" not in ctx
 
+    def test_activity_overview_covers_whole_window_not_just_tail(self, conn):
+        # Morning: one Mail session. Then 20 evening browser captures, so the raw
+        # "recent N" tail would be ALL Dia and miss the morning entirely. The
+        # window overview must still surface the morning app.
+        def cap(app, pkey, text, ago):
+            conn.execute("INSERT INTO captures (ts, app, window_title, url, ocr_text, page_key) "
+                         "VALUES (datetime('now', ?), ?, NULL, NULL, ?, ?)", (ago, app, text, pkey))
+        # Mail is inserted FIRST (lowest id), so the id-ordered "recent N" tail is
+        # all Dia and excludes it — only the whole-window overview can surface it.
+        # Kept inside today (small offset) to avoid the local-midnight flakiness.
+        cap("Mail", "mail::inbox", "emailing the professor about a deadline extension request", "-3 minutes")
+        for i in range(20):
+            cap("Dia", f"dia::page{i}", f"reading a long web article number {i} about databases", "-2 minutes")
+        conn.commit()
+        with mock.patch("rewisp.embed.embed_vec", return_value=None):
+            ctx, _ = ask.build_context(conn, "what did I do today?", compact=True)
+        assert "Everything you did in this window" in ctx    # the clustered overview is present
+        assert "Mail" in ctx                                  # morning surfaced despite the evening tail
+
     def test_past_window_hides_current_screen_block(self, conn):
         _wisp(conn, "yesterday content delta", "-1 days")
         _wisp(conn, "right now content epsilon", "-1 minutes")

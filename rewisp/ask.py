@@ -490,6 +490,35 @@ def build_context(conn, question: str, compact: bool = False) -> tuple[str, dict
             parts.append(f"{hdr}{loc}\n{r['ocr_text']}")
     recent_ids = {r["id"] for r in recent}
     rows = [r for r in rows if r["id"] not in recent_ids]
+    # For a generic activity question ("what did I do today?") the raw "recent N"
+    # rows above are only the tail of the window — usually the evening — so the
+    # model answers from the last few frames and misses the morning entirely.
+    # Give it a representative overview of the WHOLE window instead, reusing the
+    # digest's topic clustering: every app/page grouped, ordered by how much of the
+    # window it carried, with time spans and visit counts. Bounded so it never
+    # blows the (small on-device) context.
+    if generic and (since or until):
+        try:
+            from . import digest
+            wsql = "SELECT ts, app, window_title, url, ocr_text FROM captures WHERE 1=1"
+            wp: list = []
+            if since:
+                wsql += " AND ts >= ?"; wp.append(since)
+            if until:
+                wsql += " AND ts <= ?"; wp.append(until)
+            wcaps = conn.execute(wsql + " ORDER BY ts", wp).fetchall()
+            if wcaps:
+                # Breadth over depth: for "what did I do today" every distinct
+                # activity should show (a brief morning email matters as much as an
+                # afternoon of browsing), so keep per-topic detail small and let
+                # more topics fit under the budget.
+                overview = digest.compress_captures(wcaps, per_topic_lines=2 if compact else 5)
+                overview = overview[: 5000 if compact else 9000]
+                if overview.strip():
+                    parts.append("## Everything you did in this window "
+                                 "(grouped by topic, most time first)\n" + overview)
+        except Exception:  # noqa: BLE001 — the overview is a bonus, never break the answer
+            log.debug("activity overview failed", exc_info=True)
     # The 48-token FTS snippet often clips the actual answer a sentence away from
     # the matched keyword. Give the top matches fuller text around the hit.
     top_ids = [r["id"] for r in rows[: (3 if compact else 5)]]
