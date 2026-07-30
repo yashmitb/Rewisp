@@ -916,4 +916,19 @@ def run_retention(conn: sqlite3.Connection) -> tuple[int, int]:
     c1 = delete_captures(conn, old)   # cascade choke point (fts + embedding + promises)
     c2 = conn.execute(f"DELETE FROM chats WHERE ts < {cutoff}").rowcount
     conn.commit()
+    # Reclaim disk. Deleting rows alone doesn't shrink the file — SQLite parks the
+    # freed pages for reuse, and the WAL grows unbounded between checkpoints. A
+    # checkpoint truncates the WAL cheaply every pass; a full VACUUM (which rewrites
+    # the file and briefly needs its size again in free space) runs only when a
+    # meaningful amount was freed, since it's the expensive part.
+    try:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        if c1 >= config.VACUUM_MIN_DELETED:
+            prior = conn.isolation_level
+            conn.isolation_level = None       # VACUUM cannot run inside a transaction
+            conn.execute("VACUUM")
+            conn.isolation_level = prior
+            log.info("retention: vacuumed after freeing %d captures", c1)
+    except Exception:  # noqa: BLE001 — reclaim is best-effort; never fail retention over it
+        log.exception("retention: disk reclaim failed")
     return c1, c2

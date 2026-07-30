@@ -166,6 +166,11 @@ URL_POLL_SECONDS = 2.0  # throttle AppleScript URL queries — each osascript sp
 HEARTBEAT_SECONDS = 60  # periodic capture when no trigger fired; dedupe drops unchanged screens
 
 RETENTION_DAYS = 183  # ~6 months for captures and chats
+# SQLite keeps deleted pages in the file (auto_vacuum=NONE), so without a VACUUM
+# the database only ever grows — even as months age out. Reclaim disk after a
+# retention pass that freed at least this many captures (VACUUM rewrites the whole
+# file, so it's gated to only run when there's real space to recover).
+VACUUM_MIN_DELETED = 500
 
 # Semantic memory: local static-embedding model (model2vec, pure numpy, ~0.1ms).
 # Retrieval merges FTS keyword rank with vector-similarity rank via RRF.
