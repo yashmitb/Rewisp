@@ -89,6 +89,18 @@ itself the first time you open it. Illustrated walkthrough: `site/install.html`.
 Questions understand time: *"what was that repo last tuesday"*, *"the pdf from
 yesterday morning"*, *"what did I read 3 days ago"*.
 
+As of 0.29 that also covers the rolling and calendar windows people actually
+type — *"the past 3 days"*, *"the last 2 hours"*, *"the last 30 minutes"*,
+*"this month"*, *"last month"*, *"this weekend"*, *"last weekend"*, *"tonight"*,
+*"last night"*, *"the past week"* (rolling seven days, as opposed to *"last week"*,
+which means the calendar week) — including counted phrasings like *"a couple of
+weeks"* and *"the last few days"*. Before, these parsed to nothing and quietly
+answered about today instead.
+
+Asking *"what did I do today"* or *"summarize my day"* now reads the whole
+window rather than just the last few captures, so your morning shows up
+alongside your evening.
+
 ### Which AI answers?
 | Question type | Engine | Cost |
 |---|---|---|
@@ -238,6 +250,12 @@ seen 3+ times with variance. Ask *"how has my weight moved?"* → current value,
 change, and recent points, charted from your own screen. No integrations.
 (Credential-shaped and menu-bar numbers are refused.)
 
+0.29 tightened what counts as a metric at all: a reading of exactly zero is
+ignored — that's an empty or not-yet-started field, like `Score: 0%` on an
+assignment you haven't opened — and `Step 1 / Step 2` wizard counters no longer
+register as a series. Anything junk already tracked is cleared automatically on
+first launch. Real metrics (GPA, weight, scores, fitness steps) are unaffected.
+
 ### Precognition (guessed questions)
 Summon ⌘⇧Space without typing and the suggestion chips are **guessed from what's
 on your screen + your history** — a page you've seen before offers *"What changed
@@ -284,13 +302,28 @@ fully local; nudges never make a cloud call.
 | Every capture | Commitments detected ("I'll send it Friday") → held as **Promises**; recurring label+numbers → **series**; a semantic fingerprint is stored for meaning-based search — all local |
 | 9:00 PM daily | **Digest** — the one automated Claude call: daily summary, loose threads, memory proposals. Mac asleep at 9? Runs on wake. |
 | Nightly | **Consolidation** — older wisps folded into episodes; wisps you've asked about reinforced. Local, no AI call. |
-| Daily | Retention: captures + chats older than ~6 months deleted (reinforced wisps kept longer); summaries + episodes kept forever |
+| Daily | Retention: captures + chats older than ~6 months deleted (reinforced wisps kept longer); summaries + episodes kept forever. Since 0.29 the freed space is handed back to the disk, not just marked unused inside the database file |
 | Login / reboot | Daemon + menu bar app start automatically |
 
 ### Kill list
 Defaults: Messages, WhatsApp, password managers, ~20 banking/finance domains,
 private/incognito windows. Defaults can't be removed. Add your own apps/domains in
 the main window → **Settings** tab — changes apply live, no restart needed.
+
+### Apps Rewisp ignores (new in 0.29)
+Different question from the kill list. The kill list is *"don't dare"* — privacy.
+This is *"don't bother"* — noise. A game, a media player, anything whose screens
+are never worth remembering but which quietly fills your database and crowds out
+the things that are. (In one week of real use, a single game was **24% of every
+capture**.)
+
+**Settings → Privacy → Apps Rewisp ignores.** The card lists your busiest apps
+from the last 30 days with capture counts, so ignoring a noisy one is a single
+tap — or type any app name by hand. Empty by default; Rewisp never presumes.
+Changes apply live, and an ignored app is skipped entirely: no capture, no row,
+nothing to clean up afterwards.
+
+Already-stored captures stay. Use **Forget 10 min** or let retention age them out.
 
 ### Browsers
 URL capture + the banking-site kill list work in **Dia, Chrome, Arc, Edge,

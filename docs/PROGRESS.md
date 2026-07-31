@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.28.0, 2026-07-22):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 12,500+ wisps). 311 tests. 55 releases (v0.1.0 → v0.28.0).
+**Current status (stable v0.28.0; v0.29.0-dev.1 on the developer channel, 2026-07-30):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 12,500+ wisps). 340 tests. 55 stable releases (v0.1.0 → v0.28.0).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,55 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.29.0 — a week of real data, answered (developer channel, 2026-07-30)
+
+Currently shipping as `v0.29.0-dev.1` on the developer channel only. Every item
+below came out of reading a week of the live database rather than guessing at
+what needed work.
+
+- **Apps Rewisp ignores.** One game (reported as `java` / `Lunar Client`) was
+  **24% of all captures** — pure OCR noise crowding out real memory. A new list in
+  **Settings → Privacy** says "don't bother remembering this", distinct from the
+  kill list, which says "don't dare". The daemon skips those apps outright,
+  matched on the cleaned + lowercased name so a case or invisible-prefix
+  difference can't slip a flood past it, and reloads live every ~2s. Data-driven:
+  the Settings card lists your busiest apps of the last 30 days so ignoring a
+  noisy one is a single tap. Empty by default — nothing is presumed.
+- **"What did I do today" sees the whole day.** The generic-activity path answered
+  from only the most recent N captures by id — i.e. the evening — so mornings
+  vanished. It now builds a representative overview of the entire window, reusing
+  the digest's topic clustering: every page grouped, ordered by how much of the
+  window it carried, with spans and visit counts. Bounded so it never blows the
+  on-device model's context.
+- **Retention reclaims disk instead of only deleting rows.** The week's data
+  showed 259 MB in 23 days with a 76 MB WAL. SQLite parks freed pages inside the
+  file (`auto_vacuum=NONE`), so ageing months out never shrank anything — an
+  always-on memory app that could only grow. Every retention pass now truncates
+  the WAL (cheap), and a full `VACUUM` runs when a pass freed ≥
+  `VACUUM_MIN_DELETED` captures. Best-effort: a reclaim failure never breaks
+  retention.
+- **Relative time windows people actually type.** Every logged query is
+  time-based, yet `past 3 days`, `last 2 hours`, `last 30 minutes`, `this month`,
+  `last month`, `this/last weekend`, `tonight`, `last night`, and rolling
+  `past week` all parsed to nothing and silently fell back to *today*. All added,
+  with quantity words (*"a couple of weeks"*, *"few days"*), and guarded so
+  "this weekend" isn't swallowed by the "this week" rule.
+- **The number tracker stops promoting junk.** Live data had it charting
+  `Score: 0%` on unopened assignments (a series pinned at 0.0) and `Step 1/2/3`
+  wizard counters read as a metric. Readings of exactly zero are rejected (empty /
+  not-started fields), and the singular `step` label is dropped — `steps`, the
+  fitness count, stays. A one-time migration purges what was already stored.
+- **OCR stops reading seam words twice.** The overlapping tile pass was producing
+  ~0.6 doubled pairs per capture where a UI label sat in the seam (*"Ask Ask"*,
+  *"Google Google"*). Assembly now collapses adjacent identical alphabetic tokens,
+  restricted to words so numeric tables (*"0 0 0"*, *"426K 26K"*) are never
+  touched. Measured **42% of the doubling removed** (0.64 → 0.37 per capture).
+- **The activity-overview error handler crashed on its own logger.** `ask.py` had
+  never defined `log`, so any failure inside the new overview block raised
+  `NameError` out of `build_context` and killed the whole answer — a handler
+  strictly worse than none. Fixed with a regression test; an AST sweep confirmed
+  it was the only undefined name in the package.
 
 ## v0.28.0 — never miss a promise, and opt-in betas (2026-07-22)
 

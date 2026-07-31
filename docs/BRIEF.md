@@ -4,7 +4,7 @@ An ambient memory for macOS. Rewisp quietly captures the **text** of what you se
 
 Owner: Yashmit. Single user, his Mac only. Nothing leaves the machine except the prompt of a question or the nightly digest, and only to the engine you choose.
 
-**Current version: v0.28.0** (55 releases across 2026-07-08 → 07-22). In daily use (~180+ wisps/day, 12,500+ wisps). 311 tests.
+**Current version: v0.28.0 stable** — `v0.29.0-dev.1` is on the developer channel (55 stable releases across 2026-07-08 → 07-22). In daily use (~180+ wisps/day, 12,500+ wisps). 340 tests.
 
 The arc so far: v0.8 shipped the "intelligent memory" cycle (semantic search, delta, promises, numbers, precognition, dream/reinforcement, nudges); v0.9 was the precision cycle, closing the promise loop with due-day reminders and failed-search near-miss rescue; v0.10 added the Forgetting Model; v0.11 exposed the whole memory to external agents over MCP; v0.12 made it installable by someone who isn't a developer — the app bundles its own Python runtime and provisions its background helper on first launch, so there is nothing to run and no system dependency.
 
@@ -69,7 +69,9 @@ Capture (Python daemon) --> Store (SQLite FTS5) --> Digest (1 cloud call/night)
 
 ### Privacy
 - Kill list (apps + URL patterns), hot-reloadable, with incognito detection across Chromium + Safari.
+- **Excluded apps** — a separate "don't bother remembering this" list (games, media players) for noise rather than privacy. Settings surfaces your busiest apps of the last 30 days so ignoring one is a single tap. Empty by default.
 - Credentials refused at Vault ingest. "Forget last 10 minutes" button.
+- Validated card numbers and SSNs stripped before storage, embedding, or index.
 
 ### The Vault
 Ingest .md / .txt / .docx / .pdf / .rtf, FTS-indexed, **Touch ID locked**, treated as trusted truth (Vault wins over screen data on conflict).

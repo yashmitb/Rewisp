@@ -42,6 +42,7 @@ So Rewisp remembers it for me, and I ask instead of digging.
 - **Numbers over time** — a label and number you see repeatedly (weight, grade, price) becomes a tracked sparkline.
 - **Precognition** — the suggested questions are guessed from what's on screen right now plus what you usually ask.
 - **The forgetting model** — Rewisp learns *how you forget*, strengthens what you look up, and lets the rest fade.
+- **Nothing worth remembering gets crowded out** — a separate "don't bother" list keeps games and media players out of the database entirely, and Settings shows which apps are actually filling it.
 - **Connect your agents** — expose your memory to Claude Desktop, Cursor, or any MCP client as read-only tools. Local stdio, no network listener, Vault excluded.
 
 <div align="center">
@@ -100,7 +101,7 @@ Contributions are welcome, and the first outside PR ([#1](https://github.com/yas
 git clone https://github.com/yashmitb/Rewisp.git
 cd Rewisp
 pip3 install pyobjc model2vec pytest    # model2vec powers semantic search; optional
-python3 -m pytest tests/ -q             # 223 tests, should be green
+python3 -m pytest tests/ -q             # 340 tests, should be green
 python3 -m rewisp daemon                # grant Screen Recording when prompted
 cd ui && ./build.sh --install           # builds + installs /Applications/Rewisp.app
 ```
