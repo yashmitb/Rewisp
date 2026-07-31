@@ -113,8 +113,11 @@ struct DayMapCard: View {
 
     var body: some View {
         Card {
+            // Count the dots that are actually drawn, not every page the day
+            // touched: the header said "56 places" over a picture of fifteen,
+            // which reads as the map having quietly dropped most of the day.
             CardHeader(title: "Your day, mapped", symbol: "sparkles",
-                       trailing: map.map { "\($0.totals.pages) places · \(minutesLabel($0.totals.minutes))" })
+                       trailing: map.map { "\($0.nodes.count) places · \(minutesLabel($0.totals.minutes))" })
 
             if loading {
                 loadingState
@@ -134,8 +137,9 @@ struct DayMapCard: View {
                     controls(m, progress: progress(now: tl.date))
                 }
 
-                Text("Placed by meaning — things you worked on together sit together. "
-                     + "The bright line is the order you moved. Tap a point to go back to it.")
+                Text("Placed by meaning — things you worked on together sit together, and the "
+                     + "faint curves are places you kept bouncing between. Press replay to "
+                     + "watch the order you moved. Tap any point to go back to it.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -264,7 +268,7 @@ struct ConstellationCanvas: View {
     /// Labels are the scarcest resource on the map — 18 of them at once is a wall
     /// of text with the picture behind it. Only the places that actually held the
     /// day get named, plus whatever is under the pointer.
-    private let maxLabels = 6
+    private let maxLabels = 9
 
     var body: some View {
         GeometryReader { geo in
@@ -316,7 +320,7 @@ struct ConstellationCanvas: View {
     /// labels are centred under their dot and run wide; the vertical inset leaves
     /// the glow room to bloom without being clipped by the card edge.
     static func layout(_ nodes: [DayMap.Node], in size: CGSize) -> [Int: CGPoint] {
-        let hInset: CGFloat = 74, vInset: CGFloat = 40
+        let hInset: CGFloat = 86, vInset: CGFloat = 42
         let w = max(size.width - hInset * 2, 1)
         let h = max(size.height - vInset * 2 - 12, 1)
         var out: [Int: CGPoint] = [:]
@@ -361,23 +365,38 @@ struct ConstellationCanvas: View {
             let cy = points.map(\.y).reduce(0, +) / CGFloat(points.count)
             let spread = points.map { hypot($0.x - cx, $0.y - cy) }.max() ?? 40
             let breathe = 1 + 0.05 * sin(t * 0.5 + Double(cluster) * 1.7)
-            let r = (spread + 46) * breathe
+            let r = (spread + 34) * breathe
             ctx.fill(Circle().path(in: CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)),
                      with: .radialGradient(
-                        Gradient(colors: [hue(cluster).opacity(0.11), .clear]),
+                        Gradient(colors: [hue(cluster).opacity(0.085), .clear]),
                         center: CGPoint(x: cx, y: cy), startRadius: 0, endRadius: r))
         }
     }
 
-    /// The bounce edges. Kept deliberately faint: there can be twenty of them
-    /// spanning the whole field, and at full strength they read as a tangle that
-    /// buries the one line that matters — the trace.
+    /// The bounce edges — and the hardest thing on this canvas to get right.
+    ///
+    /// Twenty edges spanning a field of dots is a hairball: they cross everything,
+    /// they are the same colour and weight as the trace, and the eye cannot tell
+    /// the two apart. The insight they carry ("you bounced between these twenty
+    /// times") is real, but it does not need to be legible all at once — it needs
+    /// to be there when you look for it.
+    ///
+    /// So: only the strongest few are drawn at rest, and barely. Hovering a node
+    /// brings *its* edges up to full strength and pushes the rest almost out of
+    /// sight, which turns the tangle into an on-demand answer to "what did this
+    /// one pull me between".
     private func drawEdges(_ ctx: GraphicsContext, pts: [Int: CGPoint]) {
         let maxW = CGFloat(map.edges.first?.weight ?? 1)
+        // `map.edges` arrives sorted by weight, so this is the top few loops.
+        let resting = map.edges.prefix(6)
         for e in map.edges {
             guard let a = pts[e.a], let b = pts[e.b],
                   isRevealed(e.a), isRevealed(e.b) else { continue }
-            let focused = hovered == nil || hovered == e.a || hovered == e.b
+            let touchesHovered = hovered == e.a || hovered == e.b
+            if hovered == nil && !resting.contains(where: { $0.a == e.a && $0.b == e.b }) {
+                continue
+            }
+            let focused = hovered == nil || touchesHovered
             let strength = CGFloat(e.weight) / max(maxW, 1)
             var path = Path()
             path.move(to: a)
@@ -387,13 +406,19 @@ struct ConstellationCanvas: View {
             let bow: CGFloat = 0.14 * hypot(b.x - a.x, b.y - a.y)
             path.addQuadCurve(to: b, control: CGPoint(x: mid.x + n.x / len * bow,
                                                       y: mid.y + n.y / len * bow))
-            let base = (0.07 + 0.26 * strength) * (focused ? 1 : 0.15)
+            // At rest these sit just above the background — present, not legible.
+            // Under the pointer they become the answer to "what did this pull me
+            // between", so they get real weight.
+            let base = touchesHovered ? (0.22 + 0.38 * strength)
+                                      : (0.05 + 0.07 * strength) * (focused ? 1 : 0.25)
             let colors = [hue(map.nodes[safe: e.a]?.cluster ?? 0).opacity(base),
                           hue(map.nodes[safe: e.b]?.cluster ?? 0).opacity(base)]
             ctx.stroke(path,
                        with: .linearGradient(Gradient(colors: colors),
                                              startPoint: a, endPoint: b),
-                       style: StrokeStyle(lineWidth: 0.5 + strength * 2.0, lineCap: .round))
+                       style: StrokeStyle(lineWidth: touchesHovered ? 0.9 + strength * 2.4
+                                                                    : 0.5 + strength * 1.0,
+                                          lineCap: .round))
         }
     }
 
@@ -406,32 +431,52 @@ struct ConstellationCanvas: View {
         let shown = Int(exact)
         guard shown >= 1 || exact > 0 else { return }
 
-        var path = Path()
-        var previous: CGPoint?
-        for step in map.trace[0...max(shown, 0)] {
-            guard let p = pts[step.node] else { continue }
-            if previous == nil { path.move(to: p) } else { path.addLine(to: p) }
-            previous = p
+        // A COMET TAIL, not the whole path.
+        //
+        // Drawing every step of the day at once was the single worst thing on this
+        // canvas, and it could not be tuned away: the layout puts things near each
+        // other by MEANING, so two moments that are adjacent in time are usually
+        // far apart in space. A polyline through 130 of those crosses the whole
+        // field over and over — the map disappeared behind its own trace.
+        //
+        // So the path is something you *play*, not something you stare at. Only
+        // the last stretch is ever drawn, fading out behind the head, and at rest
+        // there is no line at all — just the places and their loops. The order you
+        // moved is genuinely temporal information, and it belongs in time.
+        let dimmed = hovered != nil
+        if progress >= 0.999 || dimmed { return }
+
+        let tail = 14
+        let from = max(shown - tail, 0)
+        var points: [CGPoint] = []
+        for step in map.trace[from...max(shown, from)] {
+            if let p = pts[step.node] { points.append(p) }
         }
-        // Interpolate the final segment so the head glides between nodes rather
-        // than stepping — at 60fps the difference is the whole feel of the replay.
-        var head = previous
-        if shown < map.trace.count - 1, let from = previous,
+        // Interpolate the leading segment so the head glides between nodes rather
+        // than stepping — at 60fps that is the whole feel of the replay.
+        var head = points.last
+        if shown < map.trace.count - 1, let last = points.last,
            let to = pts[map.trace[shown + 1].node] {
             let f = CGFloat(exact - Double(shown))
-            let tip = CGPoint(x: from.x + (to.x - from.x) * f,
-                              y: from.y + (to.y - from.y) * f)
-            path.addLine(to: tip)
+            let tip = CGPoint(x: last.x + (to.x - last.x) * f,
+                              y: last.y + (to.y - last.y) * f)
+            points.append(tip)
             head = tip
         }
+        guard points.count >= 2 else { return }
 
-        ctx.stroke(path, with: .color(Theme.accent.opacity(0.22)),
-                   style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
-        ctx.stroke(path,
-                   with: .linearGradient(
-                    Gradient(colors: [Theme.accent.opacity(0.75), Theme.accent2.opacity(0.95)]),
-                    startPoint: .zero, endPoint: CGPoint(x: 700, y: 300)),
-                   style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+        // Per-segment so the tail can fade. Fourteen strokes is nothing, and a
+        // single gradient-stroked path cannot follow an arbitrary polyline.
+        for i in 1..<points.count {
+            let f = Double(i) / Double(points.count - 1)      // 0 at tail, 1 at head
+            var seg = Path()
+            seg.move(to: points[i - 1])
+            seg.addLine(to: points[i])
+            ctx.stroke(seg, with: .color(.white.opacity(0.06 + 0.10 * f)),
+                       style: StrokeStyle(lineWidth: 4.5, lineCap: .round))
+            ctx.stroke(seg, with: .color(.white.opacity(0.12 + 0.72 * f)),
+                       style: StrokeStyle(lineWidth: 0.7 + 1.1 * f, lineCap: .round))
+        }
 
         if progress < 0.999, let head {
             let pulse = 1 + 0.22 * sin(t * 5)
@@ -454,11 +499,13 @@ struct ConstellationCanvas: View {
             let twinkle = 1 + 0.045 * sin(t * 1.3 + Double(n.id) * 2.1)
             let r = radius(n) * entry * twinkle * (isHot ? 1.22 : 1) * (isDown ? 0.88 : 1)
             let c = hue(n.cluster)
-            let dim: Double = (hovered == nil || isHot) ? 1 : 0.3
+            // Same reasoning as the labels: 0.3 made the unhovered map look
+            // broken rather than out of focus.
+            let dim: Double = (hovered == nil || isHot) ? 1 : 0.55
 
             let gr = r * (isHot ? 3.4 : 2.5)
             ctx.fill(Circle().path(in: CGRect(x: p.x - gr, y: p.y - gr, width: gr * 2, height: gr * 2)),
-                     with: .radialGradient(Gradient(colors: [c.opacity(0.32 * dim), .clear]),
+                     with: .radialGradient(Gradient(colors: [c.opacity(0.42 * dim), .clear]),
                                            center: p, startRadius: 0, endRadius: gr))
             ctx.fill(Circle().path(in: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)),
                      with: .radialGradient(
@@ -480,53 +527,111 @@ struct ConstellationCanvas: View {
     /// unlabelled dot is still a dot you can hover, whereas two labels on top of
     /// each other cost both of them.
     private func drawLabels(_ ctx: GraphicsContext, size: CGSize, pts: [Int: CGPoint]) {
-        var taken: [CGRect] = []
+        // Dots are claimed before any label is placed, so a label can never be
+        // written across a node — that was the ugliest thing on the canvas, and no
+        // amount of label-to-label collision checking would have caught it.
+        var taken: [CGRect] = map.nodes.compactMap { n in
+            guard isRevealed(n.id), let p = pts[n.id] else { return nil }
+            let r = radius(n) + 3
+            return CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)
+        }
+
         var candidates = map.nodes.filter { isRevealed($0.id) && $0.id != hovered }
             .sorted { $0.minutes > $1.minutes }
             .prefix(maxLabels)
             .map { $0 }
-        // The hovered node is always named, and drawn last so it sits on top.
         if let h = hovered, let node = map.nodes.first(where: { $0.id == h }), isRevealed(h) {
-            candidates.append(node)
+            candidates.append(node)          // always named, and last so it sits on top
         }
 
         for n in candidates {
             guard let p = pts[n.id] else { continue }
             let isHot = hovered == n.id
-            let dim: Double = (hovered == nil || isHot) ? 1 : 0.32
+            // Resting labels used to fall to 0.32 opacity the moment anything was
+            // hovered, which washed the whole map out and read as a rendering
+            // fault rather than as focus. Recede, don't disappear.
+            let dim: Double = (hovered == nil || isHot) ? 1 : 0.62
             let r = radius(n)
 
-            var text = ctx.resolve(Text(n.label)
+            var text = ctx.resolve(Text(Self.short(n.label))
                 .font(.system(size: isHot ? 11.5 : 10.5,
                               weight: isHot ? .semibold : .medium, design: .rounded)))
-            text.shading = .color(.white.opacity(isHot ? 1.0 : 0.86 * dim))
+            text.shading = .color(.white.opacity(isHot ? 1.0 : 0.88 * dim))
             let ts = text.measure(in: CGSize(width: 168, height: 40))
 
-            // Prefer below the dot; flip above when the card edge is close.
-            let below = p.y + r + 10 + ts.height < size.height - 4
-            let ly = below ? p.y + r + 10 + ts.height / 2 : p.y - r - 10 - ts.height / 2
-            let lx = min(max(p.x, ts.width / 2 + 6), size.width - ts.width / 2 - 6)
-            let rect = CGRect(x: lx - ts.width / 2, y: ly - ts.height / 2,
-                              width: ts.width, height: ts.height).insetBy(dx: -5, dy: -3)
+            // The hovered label carries a second line, and it has to be budgeted
+            // for BEFORE placement — sizing the block to the title alone is what
+            // left "1m · 2 visits" sliced off by the bottom edge.
+            var sub: GraphicsContext.ResolvedText?
+            var subSize = CGSize.zero
+            if isHot {
+                var s = ctx.resolve(Text(minutesShort(n.minutes) + " · \(n.visits) visits")
+                    .font(.system(size: 9.5, weight: .medium, design: .rounded)))
+                s.shading = .color(.white.opacity(0.7))
+                subSize = s.measure(in: CGSize(width: 168, height: 40))
+                sub = s
+            }
+            let blockH = ts.height + (sub == nil ? 0 : subSize.height + 2)
+            let blockW = max(ts.width, subSize.width)
 
-            if !isHot && taken.contains(where: { $0.intersects(rect) }) { continue }
+            // Try several placements before giving up on a label.
+            //
+            // With one fixed position (below the dot) and every node reserved as
+            // an obstacle, a packed map placed four labels out of sixteen — the
+            // picture was almost entirely anonymous dots. Cartographers solve this
+            // by trying positions around the point in preference order, which is
+            // all this is: below, above, then out to either side.
+            let gap = r + 9
+            let options: [(CGFloat, CGFloat)] = [
+                (p.x, p.y + gap),                                  // below
+                (p.x, p.y - gap - blockH),                         // above
+                (p.x + gap + blockW / 2, p.y - blockH / 2),        // right
+                (p.x - gap - blockW / 2, p.y - blockH / 2),        // left
+                (p.x + blockW / 3, p.y + gap),                     // below, nudged right
+                (p.x - blockW / 3, p.y + gap),                     // below, nudged left
+            ]
+
+            var placed: CGRect?
+            var at: (CGFloat, CGFloat) = options[0]
+            for (ox, oy) in options {
+                let cx = min(max(ox, blockW / 2 + 7), size.width - blockW / 2 - 7)
+                let top = min(max(oy, 5), max(size.height - blockH - 5, 5))
+                let rect = CGRect(x: cx - blockW / 2, y: top,
+                                  width: blockW, height: blockH).insetBy(dx: -6, dy: -4)
+                if isHot || !taken.contains(where: { $0.intersects(rect) }) {
+                    placed = rect
+                    at = (cx, top)
+                    break
+                }
+            }
+            guard let rect = placed else { continue }
+            let (cx, top) = at
             taken.append(rect)
 
-            if isHot {
-                ctx.fill(RoundedRectangle(cornerRadius: 6, style: .continuous).path(in: rect),
-                         with: .color(.black.opacity(0.62)))
-            }
-            ctx.draw(text, at: CGPoint(x: lx, y: ly), anchor: .center)
+            // Every label gets a plate, not just the hovered one. Text sitting
+            // directly on a nebula or an edge was the reason the resting labels
+            // looked muddy; a faint backing makes them readable anywhere without
+            // making them shout.
+            ctx.fill(RoundedRectangle(cornerRadius: 6, style: .continuous).path(in: rect),
+                     with: .color(.black.opacity(isHot ? 0.66 : 0.34 * dim)))
 
-            if isHot {
-                var sub = ctx.resolve(Text(minutesShort(n.minutes) + " · \(n.visits) visits")
-                    .font(.system(size: 9.5, weight: .medium, design: .rounded)))
-                sub.shading = .color(.white.opacity(0.66))
-                let ss = sub.measure(in: CGSize(width: 168, height: 40))
-                ctx.draw(sub, at: CGPoint(x: lx, y: ly + (below ? 1 : -1) * (ts.height / 2 + ss.height / 2 + 2)),
+            ctx.draw(text, at: CGPoint(x: cx, y: top + ts.height / 2), anchor: .center)
+            if let sub {
+                ctx.draw(sub, at: CGPoint(x: cx, y: top + ts.height + 2 + subSize.height / 2),
                          anchor: .center)
             }
         }
+    }
+
+    /// Map labels are tighter than the label the daemon computed: 48 characters
+    /// is right for the reinstatement sheet, but on the canvas one long title
+    /// steals the space of the two shorter ones beside it.
+    static func short(_ s: String, limit: Int = 34) -> String {
+        guard s.count > limit else { return s }
+        let cut = String(s.prefix(limit))
+        let head = cut.contains(" ") ? String(cut[..<cut.lastIndex(of: " ")!]) : cut
+        return (head.count >= limit / 2 ? head : cut)
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ,-–—|")) + "…"
     }
 
     private func minutesShort(_ m: Double) -> String {
