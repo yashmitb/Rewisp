@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (stable v0.28.0; v0.29.0-dev.1 on the developer channel, 2026-07-30):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~180+ wisps/day, 12,500+ wisps). 340 tests. 55 stable releases (v0.1.0 → v0.28.0).
+**Current status (v0.29.0, 2026-07-31):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~1,150 wisps/day, 27,600+ wisps). 371 tests. 56 releases (v0.1.0 → v0.29.0).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -193,11 +193,11 @@ What it actually produced, in order of usefulness:
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
 
-## v0.29.0 — a week of real data, answered (developer channel, 2026-07-30)
+## v0.29.0 — your day as a map, and threads that show their age (2026-07-31)
 
-Currently shipping as `v0.29.0-dev.1` on the developer channel only. Every item
-below came out of reading a week of the live database rather than guessing at
-what needed work.
+Shipped stable after seven builds on the developer channel. Every item below came
+out of reading a week of the live database, or out of looking at the thing on a
+real day — not out of guessing at what needed work.
 
 - **Your day, mapped.** The Today tab now opens with the day drawn as a *map of
   meaning* instead of another list. Every competitor in this category ships the

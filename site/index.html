@@ -6,7 +6,7 @@
 <title>Rewisp — an ambient memory for your Mac</title>
 <meta name="description" content="Rewisp remembers the text of everything you see on your Mac, so you can ask about it later. Private by construction — screenshots never touch disk.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23181c2c'/%3E%3Cpath d='M 1.44 14.80 L 1.97 15.86 L 2.50 16.79 L 3.02 17.55 L 3.55 18.13 L 4.08 18.52 L 4.61 18.71 L 5.14 18.69 L 5.66 18.48 L 6.19 18.07 L 6.72 17.50 L 7.25 16.78 L 7.78 15.93 L 8.30 14.98 L 8.83 13.96 L 9.36 12.91 L 9.89 11.86 L 10.42 10.84 L 10.94 9.87 L 11.47 8.99 L 12.00 8.23 L 12.53 7.59 L 13.06 7.10 L 13.58 6.77 L 14.11 6.60 L 14.64 6.60 L 15.17 6.76 L 15.70 7.07 L 16.22 7.52 L 16.75 8.09 L 17.28 8.75 L 17.81 9.50 L 18.34 10.30 L 18.86 11.13 L 19.39 11.96 L 19.92 12.77 L 20.45 13.52 L 20.98 14.21 L 21.50 14.82 L 22.03 15.32 L 22.56 15.70' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Ccircle cx='22.56' cy='15.70' r='1.0' fill='%23fff'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="css/styles.css?v=20260722a">
+<link rel="stylesheet" href="css/styles.css?v=20260731a">
 </head>
 <body>
 
@@ -78,7 +78,47 @@
     <p class="lead reveal d2">No screenshots below — these are live, running in your browser. The real app does the same on your Mac.</p>
 
     <div class="demos">
-      <!-- promises — first, because it's the thing nothing else does -->
+      <!-- the day map — leads, because it's the first thing you see in the app.
+           Everything in this illustration is invented: it shows the shape of a
+           day, never anyone's actual pages. -->
+      <div class="panel reveal wide" id="map-demo">
+        <div class="ph"><span class="tag">Your day, mapped</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div class="map-stage">
+          <svg viewBox="0 0 600 250" class="map-svg" aria-label="A day drawn as a map: dots for places, grouped by topic">
+            <defs>
+              <radialGradient id="neb1"><stop offset="0" stop-color="#8ea2ff" stop-opacity=".13"/><stop offset="1" stop-color="#8ea2ff" stop-opacity="0"/></radialGradient>
+              <radialGradient id="neb2"><stop offset="0" stop-color="#8cedd1" stop-opacity=".12"/><stop offset="1" stop-color="#8cedd1" stop-opacity="0"/></radialGradient>
+              <radialGradient id="neb3"><stop offset="0" stop-color="#ffc48e" stop-opacity=".11"/><stop offset="1" stop-color="#ffc48e" stop-opacity="0"/></radialGradient>
+            </defs>
+            <!-- topic clouds -->
+            <circle cx="150" cy="120" r="105" fill="url(#neb1)"/>
+            <circle cx="415" cy="90"  r="88"  fill="url(#neb2)"/>
+            <circle cx="405" cy="195" r="66"  fill="url(#neb3)"/>
+            <!-- the loops: places you kept bouncing between -->
+            <path class="map-edge" d="M150 118 Q210 92 268 104"/>
+            <path class="map-edge" d="M150 118 Q140 165 116 186"/>
+            <path class="map-edge" d="M405 78 Q380 120 405 190"/>
+            <!-- the path you took, drawn as a travelling comet -->
+            <path class="map-trace" d="M116 186 L150 118 L268 104 L405 78 L448 108 L405 190"/>
+            <!-- places, sized by how long you were there -->
+            <g class="map-node"><circle cx="150" cy="118" r="19" fill="#8ea2ff"/></g>
+            <g class="map-node"><circle cx="116" cy="186" r="8"  fill="#8ea2ff"/></g>
+            <g class="map-node"><circle cx="268" cy="104" r="10" fill="#b08cff"/></g>
+            <g class="map-node"><circle cx="405" cy="78"  r="14" fill="#8cedd1"/></g>
+            <g class="map-node"><circle cx="448" cy="108" r="7"  fill="#8cedd1"/></g>
+            <g class="map-node"><circle cx="405" cy="190" r="12" fill="#ffc48e"/></g>
+            <!-- labels -->
+            <g class="map-lab"><rect x="96"  y="142" width="112" height="19" rx="6"/><text x="152" y="155">Thesis — chapter 3</text></g>
+            <g class="map-lab"><rect x="222" y="122" width="94"  height="19" rx="6"/><text x="269" y="135">Stack Overflow</text></g>
+            <g class="map-lab"><rect x="366" y="44"  width="80"  height="19" rx="6"/><text x="406" y="57">Course site</text></g>
+            <g class="map-lab"><rect x="366" y="210" width="80"  height="19" rx="6"/><text x="406" y="223">YouTube</text></g>
+          </svg>
+        </div>
+        <h3>Your whole day, in one picture</h3>
+        <p class="cap">Not a timeline — a map. Every place you spent real time becomes a point, positioned by <em>what it was about</em>, so work that belongs together sits together. The faint curves are the loops you fell into. Press replay and watch the route you actually took. Tap any point to go back to that moment: what was on screen, and what you were doing either side of it.</p>
+      </div>
+
+      <!-- promises — the thing nothing else does -->
       <div class="panel reveal wide" id="promise-demo">
         <div class="ph"><span class="tag">Promises</span><span class="dots"><i></i><i></i><i></i></span></div>
         <div class="pr-stage">
@@ -216,6 +256,10 @@
     <h2 class="reveal d1">Not just a search box.<br><span class="soft">A memory that reasons.</span></h2>
     <p class="lead reveal d2">Rewisp keeps clean text, not video — so it can do things a screen recorder can't. All of this runs on your Mac, for free.</p>
     <div class="grid">
+      <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="6" cy="8" r="2.2"/><circle cx="17" cy="6" r="1.6"/><circle cx="12" cy="15" r="2.8"/><circle cx="19" cy="17" r="1.6"/><path d="M8.1 8.6 15.4 6.4M13.9 13.2 17.6 7.6M14.6 15.6 17.4 16.6"/></svg></div><h3>Loose ends, with their age</h3><p>The digest lists what you left unfinished — and now says how many nights each one has survived. “New tonight” is a note; “5 nights” is a decision you keep not making, and it’s coloured to match.</p></div>
+
+      <div class="card reveal d2"><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 6h10M4 12h7M4 18h12"/><circle cx="18" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/></svg></div><h3>Only what’s worth keeping</h3><p>A separate “don’t bother” list keeps games and media players out of your memory entirely — different from the kill list, which is about privacy. Settings shows which apps are actually filling it, so ignoring a noisy one is a tap.</p></div>
+
       <div class="card reveal"><div class="ic"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></div><h3>Search by meaning</h3><p>Ask “that article about burnout” and it finds the page that said “exhaustion.” No shared words needed — it understands what you meant, and it’s typo-proof: it still finds words the screen text misread.</p></div>
       <div class="card reveal d1"><div class="ic"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></div><h3>What changed here?</h3><p>Rewisp keeps every version of a page. Ask what’s new since Tuesday and it shows exactly what was added, changed, or removed.</p></div>
       <div class="card reveal d2"><div class="ic"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg></div><h3>Keeps your promises</h3><p>“I’ll send it Friday” — caught where you write, never typed. It reads deadlines like “by EOD” or “next week”, tells a real promise from a “maybe”, and closes the slip once you’ve done it. Confirm it and Rewisp reminds you on the due day, once. Ads and AI chats can’t fake one.</p></div>
@@ -432,7 +476,7 @@
   <img alt="Rewisp — an ambient memory for your Mac - See it once. Ask forever. | Product Hunt" width="250" height="54" loading="lazy" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1199790&theme=dark&t=1784448393504">
 </a>
 
-<script src="js/demos.js?v=20260722a"></script>
+<script src="js/demos.js?v=20260731a"></script>
 
 <!-- Analytics: GoatCounter. No cookies, no personal data, no cross-site tracking,
      nothing that needs a consent banner — which matters here, because a page

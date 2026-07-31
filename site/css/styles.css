@@ -609,3 +609,50 @@ footer a:hover { color: var(--text); }
 }
 .notice a { color: #ffb057; }
 @media (max-width: 560px) { .notice { padding: 15px 16px; gap: 11px; } }
+
+/* ── the day map illustration ─────────────────────────────────────────────
+   Mirrors what the app draws: places positioned by meaning, faint loops
+   between the ones you bounced across, and the route you took travelling
+   over the top. Everything in the markup is invented — it shows the SHAPE
+   of a day, never anyone's real pages. */
+.map-stage {
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, #14172250, #0f111b60);
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.map-svg { display: block; width: 100%; height: auto; }
+
+.map-edge { fill: none; stroke: #8ea2ff; stroke-opacity: .22; stroke-width: 1.6; stroke-linecap: round; }
+
+/* The route draws itself, pauses, and repeats — the same idea as Replay in
+   the app, where the path is something you play rather than a static tangle. */
+.map-trace {
+  fill: none; stroke: #fff; stroke-opacity: .85; stroke-width: 1.6;
+  stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 420; stroke-dashoffset: 420;
+  filter: drop-shadow(0 0 4px rgba(255,255,255,.35));
+}
+.reveal.in .map-trace { animation: map-draw 5.5s ease-in-out infinite; }
+@keyframes map-draw {
+  0%   { stroke-dashoffset: 420; }
+  45%  { stroke-dashoffset: 0; }
+  80%  { stroke-dashoffset: 0; opacity: 1; }
+  95%, 100% { stroke-dashoffset: 0; opacity: 0; }
+}
+
+.map-node circle { filter: drop-shadow(0 0 9px currentColor); }
+.map-node { color: #8ea2ff; }
+.map-node circle[fill="#8cedd1"] { color: #8cedd1; }
+.map-node circle[fill="#ffc48e"] { color: #ffc48e; }
+.map-node circle[fill="#b08cff"] { color: #b08cff; }
+
+.map-lab rect { fill: rgba(0,0,0,.42); }
+.map-lab text {
+  fill: rgba(255,255,255,.9); font-size: 11px; font-weight: 500;
+  text-anchor: middle; font-family: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal.in .map-trace { animation: none; stroke-dashoffset: 0; }
+}
