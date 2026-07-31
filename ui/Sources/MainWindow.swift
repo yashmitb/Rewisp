@@ -312,37 +312,14 @@ struct TodayTab: View {
 
                 SeriesCard()
 
-                if let r = recap {
-                    Card {
-                        CardHeader(title: r.source == "digest" ? "Your day, digested" : "Today so far",
-                                   symbol: r.source == "digest" ? "moon.stars.fill" : "clock")
-                        if r.source == "digest", let text = r.recap {
-                            RichText(text: text.replacingOccurrences(of: "### Subtext", with: "**Subtext**"))
-                                .font(.callout)
-                                .lineSpacing(3)
-                        } else if let tr = r.time_report, !tr.isEmpty {
-                            let top = tr.sorted { $0.value > $1.value }.prefix(5).filter { $0.value > 0 }
-                            ForEach(Array(top), id: \.key) { app, m in
-                                TimeBar(label: app, minutes: m, maxMinutes: top.first?.value ?? 1)
-                            }
-                        } else {
-                            Text("No wisps yet — go live your day.")
-                                .font(.callout).foregroundStyle(.secondary)
-                        }
+                if let t = threads {
+                    LooseThreadsCard(threads: t) {
+                        Task { threads = try? await RewispAPI.get("threads", as: RewispAPI.Threads.self) }
                     }
                 }
 
-                if let t = threads, !t.threads.isEmpty, t.threads != "None." {
-                    Card {
-                        CardHeader(title: "Loose threads", symbol: "point.topleft.down.curvedto.point.bottomright.up")
-                        RichText(text: t.threads)
-                            .font(.callout)
-                            .lineSpacing(3)
-                        if let d = t.date {
-                            Text("from the \(d) digest")
-                                .font(.caption2).foregroundStyle(.tertiary)
-                        }
-                    }
+                if let r = recap {
+                    DigestCard(recap: r)
                 }
 
                 if let rep = report {

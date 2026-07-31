@@ -207,11 +207,16 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"source": "local", "time_report": report,
                                 "recent_titles": titles})
             elif self.path == "/threads":
+                # `threads` (the raw markdown) stays for older clients; `items`
+                # carries the same threads aged against every previous digest, so
+                # the UI can say how long each has actually been hanging.
                 row = conn.execute(
                     "SELECT date, threads_md FROM summaries ORDER BY date DESC LIMIT 1"
                 ).fetchone()
+                from . import threads as _threads
                 self._json({"date": row[0] if row else None,
-                            "threads": row[1] if row else ""})
+                            "threads": row[1] if row else "",
+                            "items": _threads.open_threads(conn)})
             elif self.path == "/memory":
                 confirmed, pending = memory.read_sections()
                 self._json({"confirmed": confirmed, "pending": pending})
@@ -502,6 +507,15 @@ class Handler(BaseHTTPRequestHandler):
                 n = db.delete_captures(conn, ids)  # cascade choke point (fts + embedding)
                 log.info("deleted last-10-min captures: %d rows", n)
                 self._json({"deleted": n})
+            elif self.path == "/thread/dismiss":
+                # Keyed on content words, not the sentence: the digest rewords a
+                # thread every night, and a dismissed thread must stay dismissed
+                # when tomorrow describes it differently.
+                from . import threads as _threads
+                text = (body.get("text") or "").strip()
+                if not text:
+                    return self._json({"error": "text required"}, 400)
+                self._json({"ok": True, "key": _threads.dismiss(conn, text)})
             elif self.path == "/precog/tapped":
                 from . import precog
                 precog.mark_tapped(conn, body.get("text", ""))

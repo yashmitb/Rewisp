@@ -127,11 +127,8 @@ struct DayMapCard: View {
                     ConstellationCanvas(map: m, progress: progress(now: tl.date)) {
                         selected = $0
                     }
-                    .frame(height: 300)
+                    .frame(height: 296)
                     .background(sky)
-                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .strokeBorder(.white.opacity(0.07)))
                 }
                 TimelineView(.animation(minimumInterval: 1 / 15)) { tl in
                     controls(m, progress: progress(now: tl.date))
@@ -166,28 +163,27 @@ struct DayMapCard: View {
             let t = tl.date.timeIntervalSinceReferenceDate
             RoundedRectangle(cornerRadius: 13, style: .continuous)
                 .fill(.quaternary.opacity(0.16 + 0.05 * (0.5 + 0.5 * sin(t * 1.6))))
-                .frame(height: 300)
+                .frame(height: 296)
                 .overlay(Text("Reading your day…")
                     .font(.caption).foregroundStyle(.tertiary))
         }
     }
 
-    /// The field the map sits in.
+    /// The field the map sits in — or rather, the absence of one.
     ///
-    /// Deliberately close in value to the surrounding cards rather than the near
-    /// black it started as: every other surface on Today is a translucent graphite
-    /// panel, so a hard dark rectangle read as a screenshot pasted into the page
-    /// instead of part of it. Dark enough for the dots to glow, light enough to
-    /// belong.
+    /// This started as a dark panel with a border, and it read as a screenshot
+    /// pasted into the page: every other surface on Today is a translucent
+    /// graphite card, so a hard-edged near-black rectangle inside one is a box
+    /// within a box. There is now no panel and no border at all. The map is drawn
+    /// straight onto the card, and all that remains is two very faint accent
+    /// glows to give the dots somewhere to sit — enough for depth, not enough to
+    /// announce itself as a separate surface.
     private var sky: some View {
         ZStack {
-            LinearGradient(colors: [Color(red: 0.105, green: 0.115, blue: 0.165),
-                                    Color(red: 0.075, green: 0.080, blue: 0.120)],
-                           startPoint: .top, endPoint: .bottom)
-            RadialGradient(colors: [Theme.accent.opacity(0.13), .clear],
-                           center: .init(x: 0.20, y: 0.15), startRadius: 4, endRadius: 300)
-            RadialGradient(colors: [Theme.accent2.opacity(0.11), .clear],
-                           center: .init(x: 0.84, y: 0.88), startRadius: 4, endRadius: 320)
+            RadialGradient(colors: [Theme.accent.opacity(0.07), .clear],
+                           center: .init(x: 0.20, y: 0.18), startRadius: 4, endRadius: 300)
+            RadialGradient(colors: [Theme.accent2.opacity(0.06), .clear],
+                           center: .init(x: 0.84, y: 0.86), startRadius: 4, endRadius: 320)
         }
     }
 
@@ -391,7 +387,7 @@ struct ConstellationCanvas: View {
             let bow: CGFloat = 0.14 * hypot(b.x - a.x, b.y - a.y)
             path.addQuadCurve(to: b, control: CGPoint(x: mid.x + n.x / len * bow,
                                                       y: mid.y + n.y / len * bow))
-            let base = (0.05 + 0.20 * strength) * (focused ? 1 : 0.15)
+            let base = (0.07 + 0.26 * strength) * (focused ? 1 : 0.15)
             let colors = [hue(map.nodes[safe: e.a]?.cluster ?? 0).opacity(base),
                           hue(map.nodes[safe: e.b]?.cluster ?? 0).opacity(base)]
             ctx.stroke(path,
@@ -429,7 +425,7 @@ struct ConstellationCanvas: View {
             head = tip
         }
 
-        ctx.stroke(path, with: .color(Theme.accent.opacity(0.16)),
+        ctx.stroke(path, with: .color(Theme.accent.opacity(0.22)),
                    style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
         ctx.stroke(path,
                    with: .linearGradient(
@@ -503,7 +499,7 @@ struct ConstellationCanvas: View {
             var text = ctx.resolve(Text(n.label)
                 .font(.system(size: isHot ? 11.5 : 10.5,
                               weight: isHot ? .semibold : .medium, design: .rounded)))
-            text.shading = .color(.white.opacity(isHot ? 0.98 : 0.74 * dim))
+            text.shading = .color(.white.opacity(isHot ? 1.0 : 0.86 * dim))
             let ts = text.measure(in: CGSize(width: 168, height: 40))
 
             // Prefer below the dot; flip above when the card edge is close.

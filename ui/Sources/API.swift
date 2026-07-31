@@ -53,6 +53,20 @@ struct RewispAPI {
     struct Threads: Decodable {
         var date: String?
         var threads: String
+        /// Same threads, aged against every previous digest. Optional so an older
+        /// daemon (which only sends the raw markdown) still decodes.
+        var items: [ThreadItem]?
+    }
+
+    struct ThreadItem: Decodable, Identifiable {
+        var text: String
+        var first_seen: String
+        var days_open: Int
+        /// How many consecutive nightly digests this has survived. The number
+        /// that actually creates pressure.
+        var nights: Int
+        var key: String
+        var id: String { key }
     }
 
     struct Memory: Decodable {

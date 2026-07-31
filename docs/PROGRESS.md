@@ -217,6 +217,30 @@ what needed work.
   38% fewer false memories, but only when the cue creates presence). All local,
   numpy over stored vectors, no model call. `rewisp/constellation.py`,
   `GET /day-map`, `GET /reinstate`.
+- **Loose threads know how old they are.** The digest has always listed the
+  unfinished things; what it could never say is the part that creates pressure —
+  *this one has been open five nights*. Each night's digest re-derives its threads
+  from that day alone, so the same loose end returns reworded ("Gmail inbox
+  untouched all day" → "Gmail opened and scanned but nothing answered"), which
+  character similarity cannot see. Matching is on stemmed content words with an
+  overlap coefficient, so a rewrite still resolves to one thread; a single shared
+  word can't fuse two ("Amazon" appears in three unrelated threads on a real day).
+  Verified on the live database: the Gmail thread correctly reads 5 nights, and no
+  two surfaced threads over-merge. The card is now a hanging thread with a knot per
+  item, coloured by age (calm → violet → amber → red), longest-running first,
+  because sorting by recency buries the ones that need you. Hover gives **Ask**
+  (hands it to the search panel) and **Done** (keyed on meaning, so tomorrow's
+  rewording stays dismissed). `rewisp/threads.py`, `GET /threads` (now with
+  `items`), `POST /thread/dismiss`.
+- **The digest opens folded.** A real summary is 1,900–4,000 characters and it was
+  printed in full, pushing the rest of Today below the fold. It now shows its
+  opening under a soft fade with **Read the rest** — and the control only appears
+  when something is actually hidden.
+- **The map stopped being a box in a box.** It shipped as a near-black panel with
+  its own border, sitting inside a translucent graphite card, which read as a
+  screenshot pasted into the page. The panel and border are gone entirely: the map
+  draws straight onto the card over two very faint accent glows, with the marks
+  lifted to hold contrast against the lighter ground.
 - **Apps Rewisp ignores.** One game (reported as `java` / `Lunar Client`) was
   **24% of all captures** — pure OCR noise crowding out real memory. A new list in
   **Settings → Privacy** says "don't bother remembering this", distinct from the

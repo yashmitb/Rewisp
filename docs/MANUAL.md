@@ -207,6 +207,31 @@ from data already stored; no AI call, nothing leaves the machine.
 
 Days with only a page or two show a short note instead — there's no map to draw yet.
 
+### Loose threads, with their age (new in 0.29)
+The unfinished things from the digest — but now each one says **how long it's been
+hanging**. "New tonight" is a note; "5 nights" is a decision you keep not making,
+and it's coloured to match (calm → violet → amber → red as it ages).
+
+Rewisp works this out by comparing tonight's threads against every previous
+digest. It matches on what a thread is *about* rather than its exact words,
+because the digest rewrites each one every night — *"Gmail inbox untouched all
+day"* and *"Gmail opened and scanned but nothing answered"* are the same loose end,
+and it counts them as one.
+
+Hover any thread for two actions:
+- **Ask** — hands it to the search panel, so you get the latest on it from your
+  own history.
+- **Done** — clears it. Keyed on meaning, so tomorrow's rewording of the same
+  thread stays cleared too.
+
+Longest-running threads sort to the top, because sorting by recency buries exactly
+the ones that need you.
+
+### The digest opens folded (new in 0.29)
+A nightly summary runs to a few thousand characters, which pushed everything else
+on Today below the fold. It now shows its opening and fades out, with **Read the
+rest** to expand. Nothing is lost — it's the same text, just not all at once.
+
 ## Thinking features (new in 0.8)
 
 Rewisp doesn't just store your screen — it reasons over it. These run locally
