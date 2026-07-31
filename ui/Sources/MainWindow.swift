@@ -380,10 +380,24 @@ struct TodayTab: View {
         }
     }
 
+    /// Busiest app so far today.
+    ///
+    /// `/recap` only carries a time report BEFORE the digest has run — afterwards
+    /// it returns the digest prose instead, and this tile silently went to "—"
+    /// every evening at 9pm for the rest of the night. The weekly report computes
+    /// today's row live, so fall back to it and the tile stays true all day.
     private var topAppToday: String {
-        guard let tr = recap?.time_report,
-              let best = tr.max(by: { $0.value < $1.value }) else { return "—" }
-        return best.key
+        if let tr = recap?.time_report, let best = tr.max(by: { $0.value < $1.value }),
+           best.value > 0 {
+            return best.key
+        }
+        let today = Date.now.formatted(.iso8601.year().month().day()
+            .dateSeparator(.dash))
+        if let day = report?.days[today], let best = day.max(by: { $0.value < $1.value }),
+           best.value > 0 {
+            return best.key
+        }
+        return "—"
     }
 }
 

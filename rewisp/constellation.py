@@ -45,9 +45,11 @@ MAX_NODES = 18
 # Same cap the time report uses: a gap longer than this means you walked away,
 # so it must not be credited to whatever happened to be on screen.
 DWELL_CAP_SECONDS = 300
-# Cosine bar for "these two places are the same topic". Measured: 0.5 gives 12
-# blobs from 70 pages, which reads as topics; 0.7 gives 31, which reads as noise.
-CLUSTER_SIM = 0.50
+# Cosine bar for "these two places are the same topic". Single-link chains, so a
+# low bar collapses a whole day into one colour — at 0.50 a real day rendered as
+# 16 violet dots and one cyan, which tells the eye nothing. 0.62 keeps genuine
+# groups together while actually separating the day into distinguishable regions.
+CLUSTER_SIM = 0.62
 # An edge needs to be walked twice before it's drawn. Once is a passing move.
 MIN_EDGE_WEIGHT = 2
 
@@ -258,8 +260,22 @@ def _spread(coords, min_gap: float = 0.18, iterations: int = 60):
                 c[k] -= push
         if not moved:
             break
-    span = max(float(np.abs(c).max()), 1e-6)
-    return c / span                             # back into roughly [-1, 1]
+    # Normalise each axis to its OWN range rather than dividing both by one
+    # global maximum. MDS's second eigenvalue is routinely a fraction of the
+    # first, so a uniform scale left every node squeezed into a horizontal band
+    # with the top and bottom of the canvas empty — the layout was correct and
+    # unreadable. Stretching per axis costs strict distance fidelity, which this
+    # picture never claimed: what has to survive is *which things sit together*,
+    # and that is preserved by an axis-aligned scale.
+    for axis in (0, 1):
+        col = c[:, axis]
+        lo, hi = float(col.min()), float(col.max())
+        span = hi - lo
+        if span < 1e-6:
+            c[:, axis] = 0.0                    # degenerate axis: keep it centred
+        else:
+            c[:, axis] = (col - lo) / span * 2.0 - 1.0
+    return c
 
 
 def _cluster(mat, threshold: float = CLUSTER_SIM) -> list[int]:

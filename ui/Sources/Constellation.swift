@@ -85,12 +85,31 @@ private func hue(_ cluster: Int) -> Color {
 struct DayMapCard: View {
     @State private var map: DayMap?
     @State private var loading = true
-    @State private var progress: Double = 0        // 0…1 — how much of the day is revealed
-    @State private var scrubbing = false
+    /// When the current replay started. Progress is derived from this against a
+    /// live clock rather than stored and animated — see `progress(now:)`.
+    @State private var replayStart: Date?
+    /// Non-nil while the user is driving the day by hand; takes over from replay.
+    @State private var scrub: Double?
     @State private var selected: DayMap.Node?
-    @State private var replayID = 0
+
+    private let replayDuration: TimeInterval = 3.4
 
     private var hasMap: Bool { (map?.nodes.count ?? 0) >= 2 }
+
+    /// How much of the day is revealed, at `now`.
+    ///
+    /// This is computed from a Date every frame instead of being held in
+    /// `@State` and animated, because `withAnimation { progress = 1 }` does NOT
+    /// walk the stored value from 0 to 1 — it assigns 1 immediately and animates
+    /// animatable view modifiers. A `Canvas` closure reads the stored value, so
+    /// it saw 1 on the very next frame and the replay "played" instantly. Deriving
+    /// it from the clock the TimelineView is already ticking makes the animation
+    /// real, and makes scrubbing and replaying share one definition of "when".
+    private func progress(now: Date) -> Double {
+        if let scrub { return scrub }
+        guard let replayStart else { return 1 }
+        return min(max(now.timeIntervalSince(replayStart) / replayDuration, 0), 1)
+    }
 
     var body: some View {
         Card {
@@ -100,20 +119,26 @@ struct DayMapCard: View {
             if loading {
                 loadingState
             } else if hasMap, let m = map {
-                ConstellationCanvas(map: m, progress: progress,
-                                    onSelect: { node in
-                                        selected = node
-                                    })
-                    .frame(height: 340)
-                    .background(skyBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(.white.opacity(0.05)))
-
-                controls(m)
+                // Two clocks on purpose. The canvas wants every frame it can get;
+                // the controls do not, and rebuilding a Slider sixty times a
+                // second is both wasteful and a good way to make dragging it feel
+                // sticky. Fifteen is far more than the thumb needs to look live.
+                TimelineView(.animation(minimumInterval: 1 / 60)) { tl in
+                    ConstellationCanvas(map: m, progress: progress(now: tl.date)) {
+                        selected = $0
+                    }
+                    .frame(height: 300)
+                    .background(sky)
+                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .strokeBorder(.white.opacity(0.07)))
+                }
+                TimelineView(.animation(minimumInterval: 1 / 15)) { tl in
+                    controls(m, progress: progress(now: tl.date))
+                }
 
                 Text("Placed by meaning — things you worked on together sit together. "
-                     + "The line is the order you moved. Tap a point to go back to it.")
+                     + "The bright line is the order you moved. Tap a point to go back to it.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -122,12 +147,9 @@ struct DayMapCard: View {
             }
         }
         .task { await load() }
-        .sheet(item: $selected) { node in
-            ReinstateSheet(node: node)
-        }
+        .sheet(item: $selected) { ReinstateSheet(node: $0) }
     }
 
-    // A day only becomes a map once there are at least a couple of places in it.
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Not enough of the day yet")
@@ -140,72 +162,69 @@ struct DayMapCard: View {
     }
 
     private var loadingState: some View {
-        // Breathing placeholder rather than a spinner: the map fades in over it,
-        // so the card never jumps height when the data lands.
         TimelineView(.animation(minimumInterval: 1 / 30)) { tl in
             let t = tl.date.timeIntervalSinceReferenceDate
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.quaternary.opacity(0.18 + 0.06 * (0.5 + 0.5 * sin(t * 1.6))))
-                .frame(height: 340)
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(.quaternary.opacity(0.16 + 0.05 * (0.5 + 0.5 * sin(t * 1.6))))
+                .frame(height: 300)
                 .overlay(Text("Reading your day…")
                     .font(.caption).foregroundStyle(.tertiary))
         }
     }
 
-    private var skyBackground: some View {
+    /// The field the map sits in.
+    ///
+    /// Deliberately close in value to the surrounding cards rather than the near
+    /// black it started as: every other surface on Today is a translucent graphite
+    /// panel, so a hard dark rectangle read as a screenshot pasted into the page
+    /// instead of part of it. Dark enough for the dots to glow, light enough to
+    /// belong.
+    private var sky: some View {
         ZStack {
-            Color(red: 0.055, green: 0.06, blue: 0.10)
-            // Two vast, soft glows so the field has depth instead of being a flat
-            // dark rectangle. Kept very low opacity — they should be felt, not seen.
-            RadialGradient(colors: [Theme.accent.opacity(0.16), .clear],
-                           center: .init(x: 0.22, y: 0.18), startRadius: 4, endRadius: 320)
-            RadialGradient(colors: [Theme.accent2.opacity(0.14), .clear],
-                           center: .init(x: 0.82, y: 0.86), startRadius: 4, endRadius: 340)
+            LinearGradient(colors: [Color(red: 0.105, green: 0.115, blue: 0.165),
+                                    Color(red: 0.075, green: 0.080, blue: 0.120)],
+                           startPoint: .top, endPoint: .bottom)
+            RadialGradient(colors: [Theme.accent.opacity(0.13), .clear],
+                           center: .init(x: 0.20, y: 0.15), startRadius: 4, endRadius: 300)
+            RadialGradient(colors: [Theme.accent2.opacity(0.11), .clear],
+                           center: .init(x: 0.84, y: 0.88), startRadius: 4, endRadius: 320)
         }
     }
 
     @ViewBuilder
-    private func controls(_ m: DayMap) -> some View {
+    private func controls(_ m: DayMap, progress p: Double) -> some View {
         HStack(spacing: 12) {
-            Button {
-                replay()
-            } label: {
-                Label("Replay", systemImage: "play.fill")
+            Button { replay() } label: {
+                Label(p < 1 && scrub == nil ? "Playing" : "Replay",
+                      systemImage: p < 1 && scrub == nil ? "waveform" : "play.fill")
                     .font(.caption.weight(.semibold))
+                    .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 12).padding(.vertical, 6)
-            .background(Theme.accent.opacity(0.16),
-                        in: Capsule())
+            .background(Theme.accent.opacity(0.16), in: Capsule())
             .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.28)))
 
-            // Scrubbing the day is the whole reason this is a map and not a chart:
-            // dragging re-runs your own attention forward and backward through it.
-            Slider(value: Binding(
-                get: { progress },
-                set: { v in
-                    scrubbing = true
-                    progress = v
-                }
-            ), in: 0...1) { editing in
-                if !editing { scrubbing = false }
-            }
-            .controlSize(.mini)
-            .tint(Theme.accent)
+            // Scrubbing is the reason this is a map and not a chart: dragging runs
+            // your own attention forward and backward through the day.
+            Slider(value: Binding(get: { p },
+                                  set: { v in scrub = v; replayStart = nil }),
+                   in: 0...1)
+                .controlSize(.mini)
+                .tint(Theme.accent)
 
-            Text(timeLabel(m))
+            Text(timeLabel(m, progress: p))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
-                .frame(width: 74, alignment: .trailing)
-                .contentTransition(.numericText())
+                .frame(width: 72, alignment: .trailing)
         }
     }
 
-    /// Local clock time at the current scrub position — read off the trace, so it
-    /// reflects when things actually happened rather than a linear slice of the day.
-    private func timeLabel(_ m: DayMap) -> String {
+    /// Local clock time at the scrub position, read off the trace — so it says
+    /// when things actually happened, not where a linear slice of the day lands.
+    private func timeLabel(_ m: DayMap, progress p: Double) -> String {
         guard !m.trace.isEmpty else { return "" }
-        let idx = min(max(Int(progress * Double(m.trace.count - 1)), 0), m.trace.count - 1)
+        let idx = min(max(Int(p * Double(m.trace.count - 1)), 0), m.trace.count - 1)
         return Self.clock(m.trace[idx].ts)
     }
 
@@ -225,19 +244,14 @@ struct DayMapCard: View {
     }
 
     private func replay() {
-        replayID += 1
-        progress = 0
-        // Long and eased: the day unspooling is the moment the card earns its
-        // place, and rushing it makes the whole thing read as a loading bar.
-        withAnimation(.easeInOut(duration: 2.6)) { progress = 1 }
+        scrub = nil
+        replayStart = Date()
     }
 
     private func load() async {
         map = try? await RewispAPI.get("day-map", as: DayMap.self)
         loading = false
-        if hasMap {
-            withAnimation(.easeInOut(duration: 2.6).delay(0.25)) { progress = 1 }
-        }
+        if hasMap { replayStart = Date().addingTimeInterval(0.25) }  // brief beat, then unspool
     }
 }
 
@@ -251,20 +265,25 @@ struct ConstellationCanvas: View {
     @State private var hovered: Int?
     @State private var pressed: Int?
 
+    /// Labels are the scarcest resource on the map — 18 of them at once is a wall
+    /// of text with the picture behind it. Only the places that actually held the
+    /// day get named, plus whatever is under the pointer.
+    private let maxLabels = 6
+
     var body: some View {
         GeometryReader { geo in
-            // One continuous clock drives every ambient motion — twinkle, the
-            // comet's tail, the pulse on the node you're pointing at. Reading it
-            // from a TimelineView (rather than N repeating animations) keeps it
-            // all in phase and costs one redraw instead of one per node.
-            TimelineView(.animation(minimumInterval: 1 / 30)) { tl in
+            // One clock drives every ambient motion — twinkle, the comet, the
+            // pulse under the pointer — so it all stays in phase and costs one
+            // redraw rather than one per node.
+            TimelineView(.animation(minimumInterval: 1 / 60)) { tl in
                 let t = tl.date.timeIntervalSinceReferenceDate
                 Canvas { ctx, size in
                     let pts = Self.layout(map.nodes, in: size)
-                    drawNebulae(ctx, size: size, pts: pts, t: t)
+                    drawNebulae(ctx, pts: pts, t: t)
                     drawEdges(ctx, pts: pts)
                     drawTrace(ctx, pts: pts, t: t)
-                    drawNodes(ctx, size: size, pts: pts, t: t)
+                    drawNodes(ctx, pts: pts, t: t)
+                    drawLabels(ctx, size: size, pts: pts)
                 }
             }
             .contentShape(Rectangle())
@@ -272,9 +291,9 @@ struct ConstellationCanvas: View {
                 let pts = Self.layout(map.nodes, in: geo.size)
                 switch phase {
                 case .active(let p):
-                    let hit = Self.nearest(to: p, pts: pts, within: 34)
+                    let hit = Self.nearest(to: p, pts: pts, within: 30)
                     if hit != hovered {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.7)) {
                             hovered = hit
                         }
                     }
@@ -284,7 +303,7 @@ struct ConstellationCanvas: View {
             }
             .onTapGesture { location in
                 let pts = Self.layout(map.nodes, in: geo.size)
-                guard let hit = Self.nearest(to: location, pts: pts, within: 34),
+                guard let hit = Self.nearest(to: location, pts: pts, within: 30),
                       let node = map.nodes.first(where: { $0.id == hit }) else { return }
                 withAnimation(.spring(response: 0.22, dampingFraction: 0.55)) { pressed = hit }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
@@ -297,16 +316,17 @@ struct ConstellationCanvas: View {
 
     // MARK: layout + hit testing
 
-    /// Normalised [-1,1] coordinates → view space, with a margin that leaves room
-    /// for labels and for a node's glow to bloom without being clipped.
+    /// Normalised [-1,1] → view space. The horizontal inset is larger because
+    /// labels are centred under their dot and run wide; the vertical inset leaves
+    /// the glow room to bloom without being clipped by the card edge.
     static func layout(_ nodes: [DayMap.Node], in size: CGSize) -> [Int: CGPoint] {
-        let inset: CGFloat = 46
-        let w = max(size.width - inset * 2, 1)
-        let h = max(size.height - inset * 2 - 14, 1)   // extra bottom room for labels
+        let hInset: CGFloat = 74, vInset: CGFloat = 40
+        let w = max(size.width - hInset * 2, 1)
+        let h = max(size.height - vInset * 2 - 12, 1)
         var out: [Int: CGPoint] = [:]
         for n in nodes {
-            out[n.id] = CGPoint(x: inset + (CGFloat(n.x) + 1) / 2 * w,
-                                y: inset + (CGFloat(n.y) + 1) / 2 * h)
+            out[n.id] = CGPoint(x: hInset + (CGFloat(n.x) + 1) / 2 * w,
+                                y: vInset + (CGFloat(n.y) + 1) / 2 * h)
         }
         return out
     }
@@ -320,15 +340,12 @@ struct ConstellationCanvas: View {
         return best?.0
     }
 
-    /// Dot radius from dwell. Square root, not linear: a 200-minute movie would
-    /// otherwise produce a disc that swallows the entire canvas while everything
-    /// else collapsed to specks.
+    /// Square root, not linear: a 200-minute film would otherwise produce a disc
+    /// that swallows the canvas while everything else collapsed to specks.
     private func radius(_ n: DayMap.Node) -> CGFloat {
-        min(6 + sqrt(max(n.minutes, 0)) * 2.0, 26)
+        min(5 + sqrt(max(n.minutes, 0)) * 1.9, 23)
     }
 
-    /// When in the day this node was first visited, as a 0…1 position along the
-    /// trace — so nodes light up in the order they actually happened.
     private func revealPoint(_ id: Int) -> Double {
         guard let i = map.trace.firstIndex(where: { $0.node == id }) else { return 0 }
         return Double(i) / Double(max(map.trace.count - 1, 1))
@@ -338,10 +355,7 @@ struct ConstellationCanvas: View {
 
     // MARK: drawing
 
-    /// Soft coloured clouds behind each topic group — the thing that makes the
-    /// clusters legible before you've read a single label.
-    private func drawNebulae(_ ctx: GraphicsContext, size: CGSize,
-                             pts: [Int: CGPoint], t: TimeInterval) {
+    private func drawNebulae(_ ctx: GraphicsContext, pts: [Int: CGPoint], t: TimeInterval) {
         var groups: [Int: [CGPoint]] = [:]
         for n in map.nodes where isRevealed(n.id) {
             if let p = pts[n.id] { groups[n.cluster, default: []].append(p) }
@@ -350,20 +364,18 @@ struct ConstellationCanvas: View {
             let cx = points.map(\.x).reduce(0, +) / CGFloat(points.count)
             let cy = points.map(\.y).reduce(0, +) / CGFloat(points.count)
             let spread = points.map { hypot($0.x - cx, $0.y - cy) }.max() ?? 40
-            // Breathe, slowly and out of phase per cluster. Slow enough that it
-            // reads as depth rather than as animation.
             let breathe = 1 + 0.05 * sin(t * 0.5 + Double(cluster) * 1.7)
-            let r = (spread + 54) * breathe
-            let rect = CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)
-            ctx.fill(Circle().path(in: rect),
+            let r = (spread + 46) * breathe
+            ctx.fill(Circle().path(in: CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)),
                      with: .radialGradient(
-                        Gradient(colors: [hue(cluster).opacity(0.13), .clear]),
+                        Gradient(colors: [hue(cluster).opacity(0.11), .clear]),
                         center: CGPoint(x: cx, y: cy), startRadius: 0, endRadius: r))
         }
     }
 
-    /// The bounce edges: how often you moved between two places. A thick line is
-    /// a loop you were caught in — the thing you cannot feel from the inside.
+    /// The bounce edges. Kept deliberately faint: there can be twenty of them
+    /// spanning the whole field, and at full strength they read as a tangle that
+    /// buries the one line that matters — the trace.
     private func drawEdges(_ ctx: GraphicsContext, pts: [Int: CGPoint]) {
         let maxW = CGFloat(map.edges.first?.weight ?? 1)
         for e in map.edges {
@@ -373,51 +385,61 @@ struct ConstellationCanvas: View {
             let strength = CGFloat(e.weight) / max(maxW, 1)
             var path = Path()
             path.move(to: a)
-            // Bow each edge slightly. Straight lines through a field of dots read
-            // as a mesh; arcs read as movement, and they stop two edges between
-            // the same pair of regions from overlapping into one stripe.
             let mid = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
             let n = CGPoint(x: -(b.y - a.y), y: b.x - a.x)
             let len = max(hypot(n.x, n.y), 1)
-            let bow: CGFloat = 0.12 * hypot(b.x - a.x, b.y - a.y)
+            let bow: CGFloat = 0.14 * hypot(b.x - a.x, b.y - a.y)
             path.addQuadCurve(to: b, control: CGPoint(x: mid.x + n.x / len * bow,
                                                       y: mid.y + n.y / len * bow))
-            let colors = [hue(map.nodes[safe: e.a]?.cluster ?? 0),
-                          hue(map.nodes[safe: e.b]?.cluster ?? 0)]
+            let base = (0.05 + 0.20 * strength) * (focused ? 1 : 0.15)
+            let colors = [hue(map.nodes[safe: e.a]?.cluster ?? 0).opacity(base),
+                          hue(map.nodes[safe: e.b]?.cluster ?? 0).opacity(base)]
             ctx.stroke(path,
-                       with: .linearGradient(
-                        Gradient(colors: colors.map { $0.opacity((0.13 + 0.42 * strength)
-                                                                 * (focused ? 1 : 0.22)) }),
-                        startPoint: a, endPoint: b),
-                       style: StrokeStyle(lineWidth: 0.6 + strength * 2.6, lineCap: .round))
+                       with: .linearGradient(Gradient(colors: colors),
+                                             startPoint: a, endPoint: b),
+                       style: StrokeStyle(lineWidth: 0.5 + strength * 2.0, lineCap: .round))
         }
     }
 
-    /// The order you moved, drawn as one continuous thread and revealed by the
-    /// scrubber — with a comet head so the eye has something to follow.
+    /// The order you moved. Drawn twice — a wide soft pass and a thin bright one —
+    /// so it separates from the faint edge tangle underneath instead of getting
+    /// lost in it.
     private func drawTrace(_ ctx: GraphicsContext, pts: [Int: CGPoint], t: TimeInterval) {
         guard map.trace.count >= 2 else { return }
-        let shown = Int(round(progress * Double(map.trace.count - 1)))
-        guard shown >= 1 else { return }
+        let exact = progress * Double(map.trace.count - 1)
+        let shown = Int(exact)
+        guard shown >= 1 || exact > 0 else { return }
+
         var path = Path()
         var previous: CGPoint?
-        for step in map.trace[0...shown] {
+        for step in map.trace[0...max(shown, 0)] {
             guard let p = pts[step.node] else { continue }
             if previous == nil { path.move(to: p) } else { path.addLine(to: p) }
             previous = p
         }
+        // Interpolate the final segment so the head glides between nodes rather
+        // than stepping — at 60fps the difference is the whole feel of the replay.
+        var head = previous
+        if shown < map.trace.count - 1, let from = previous,
+           let to = pts[map.trace[shown + 1].node] {
+            let f = CGFloat(exact - Double(shown))
+            let tip = CGPoint(x: from.x + (to.x - from.x) * f,
+                              y: from.y + (to.y - from.y) * f)
+            path.addLine(to: tip)
+            head = tip
+        }
+
+        ctx.stroke(path, with: .color(Theme.accent.opacity(0.16)),
+                   style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
         ctx.stroke(path,
                    with: .linearGradient(
-                    Gradient(colors: [Theme.accent.opacity(0.30), Theme.accent2.opacity(0.55)]),
-                    startPoint: .zero, endPoint: CGPoint(x: 400, y: 340)),
-                   style: StrokeStyle(lineWidth: 1.3, lineCap: .round, lineJoin: .round))
+                    Gradient(colors: [Theme.accent.opacity(0.75), Theme.accent2.opacity(0.95)]),
+                    startPoint: .zero, endPoint: CGPoint(x: 700, y: 300)),
+                   style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
 
-        // Comet head — a soft pulsing dot at "now", the anchor for the eye during
-        // a replay. Only while the day is still unspooling; a parked dot at the
-        // end would just look like a stray node.
-        if progress < 0.999, let head = previous {
+        if progress < 0.999, let head {
             let pulse = 1 + 0.22 * sin(t * 5)
-            for (r, o) in [(11.0 * pulse, 0.18), (6.0 * pulse, 0.35), (2.6, 0.95)] {
+            for (r, o) in [(12.0 * pulse, 0.20), (6.5 * pulse, 0.38), (2.8, 1.0)] {
                 ctx.fill(Circle().path(in: CGRect(x: head.x - r, y: head.y - r,
                                                   width: r * 2, height: r * 2)),
                          with: .color(.white.opacity(o)))
@@ -425,78 +447,88 @@ struct ConstellationCanvas: View {
         }
     }
 
-    private func drawNodes(_ ctx: GraphicsContext, size: CGSize,
-                           pts: [Int: CGPoint], t: TimeInterval) {
-        // Biggest last, so the important dots sit on top of the small ones.
+    private func drawNodes(_ ctx: GraphicsContext, pts: [Int: CGPoint], t: TimeInterval) {
+        // Biggest last, so the places that held the day sit on top.
         for n in map.nodes.sorted(by: { $0.minutes < $1.minutes }) {
-            guard let p = pts[n.id] else { continue }
-            let reveal = revealPoint(n.id)
-            guard progress >= reveal - 0.001 else { continue }
-
-            // Pop in as the trace arrives, then settle. Purely a function of how
-            // far past its reveal point the scrubber is, so scrubbing backwards
-            // un-pops it exactly the same way.
-            let age = min((progress - reveal) / 0.06, 1)
-            let entry = 0.35 + 0.65 * Self.easeOutBack(age)
-
+            guard let p = pts[n.id], isRevealed(n.id) else { continue }
+            let age = min((progress - revealPoint(n.id)) / 0.05, 1)
+            let entry = 0.35 + 0.65 * Self.easeOutBack(max(age, 0))
             let isHot = hovered == n.id
             let isDown = pressed == n.id
             let twinkle = 1 + 0.045 * sin(t * 1.3 + Double(n.id) * 2.1)
-            let scale = entry * twinkle * (isHot ? 1.22 : 1) * (isDown ? 0.88 : 1)
-            let r = radius(n) * scale
+            let r = radius(n) * entry * twinkle * (isHot ? 1.22 : 1) * (isDown ? 0.88 : 1)
             let c = hue(n.cluster)
-            let dim: Double = (hovered == nil || isHot) ? 1 : 0.34
+            let dim: Double = (hovered == nil || isHot) ? 1 : 0.3
 
-            // Glow, ring, core — three passes, cheap, and it makes a flat circle
-            // read as something luminous instead of a bullet point.
-            let gr = r * (isHot ? 3.4 : 2.6)
+            let gr = r * (isHot ? 3.4 : 2.5)
             ctx.fill(Circle().path(in: CGRect(x: p.x - gr, y: p.y - gr, width: gr * 2, height: gr * 2)),
-                     with: .radialGradient(
-                        Gradient(colors: [c.opacity(0.34 * dim), .clear]),
-                        center: p, startRadius: 0, endRadius: gr))
+                     with: .radialGradient(Gradient(colors: [c.opacity(0.32 * dim), .clear]),
+                                           center: p, startRadius: 0, endRadius: gr))
             ctx.fill(Circle().path(in: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)),
                      with: .radialGradient(
                         Gradient(colors: [.white.opacity(0.95 * dim), c.opacity(0.92 * dim)]),
                         center: CGPoint(x: p.x - r * 0.3, y: p.y - r * 0.35),
                         startRadius: 0, endRadius: r * 1.4))
             ctx.stroke(Circle().path(in: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)),
-                       with: .color(.white.opacity((isHot ? 0.75 : 0.30) * dim)),
+                       with: .color(.white.opacity((isHot ? 0.8 : 0.28) * dim)),
                        lineWidth: isHot ? 1.4 : 0.8)
+        }
+    }
 
-            // Label the places worth naming, plus whatever is under the pointer.
-            // Labelling all 18 turns the sky into a wall of text.
-            if isHot || n.minutes >= 5 {
-                let text = Text(n.label)
-                    .font(.system(size: isHot ? 11 : 10,
-                                  weight: isHot ? .semibold : .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(isHot ? 0.98 : 0.72 * dim))
-                var resolved = ctx.resolve(text)
-                resolved.shading = .color(.white.opacity(isHot ? 0.98 : 0.72 * dim))
-                let ts = resolved.measure(in: CGSize(width: 190, height: 40))
-                // Flip the label above the dot near the bottom edge so it is never
-                // clipped by the card.
-                let below = p.y + r + 11 + ts.height / 2 < size.height - 4
-                let ly = below ? p.y + r + 11 + ts.height / 2 : p.y - r - 11 - ts.height / 2
-                let lx = min(max(p.x, ts.width / 2 + 4), size.width - ts.width / 2 - 4)
-                if isHot {
-                    // A dark plate under the hovered label so it stays readable
-                    // wherever it lands — over a nebula, over an edge, anywhere.
-                    let plate = CGRect(x: lx - ts.width / 2 - 6, y: ly - ts.height / 2 - 3,
-                                       width: ts.width + 12, height: ts.height + 6)
-                    ctx.fill(RoundedRectangle(cornerRadius: 6, style: .continuous).path(in: plate),
-                             with: .color(.black.opacity(0.55)))
-                }
-                ctx.draw(resolved, at: CGPoint(x: lx, y: ly), anchor: .center)
+    /// Labels last, and collision-checked.
+    ///
+    /// The first version drew one under every node above five minutes and let
+    /// them land wherever they fell, which on a real day produced four overlapping
+    /// strings across the middle of the map. Now the biggest places claim their
+    /// space first and anything that would collide is simply not drawn — an
+    /// unlabelled dot is still a dot you can hover, whereas two labels on top of
+    /// each other cost both of them.
+    private func drawLabels(_ ctx: GraphicsContext, size: CGSize, pts: [Int: CGPoint]) {
+        var taken: [CGRect] = []
+        var candidates = map.nodes.filter { isRevealed($0.id) && $0.id != hovered }
+            .sorted { $0.minutes > $1.minutes }
+            .prefix(maxLabels)
+            .map { $0 }
+        // The hovered node is always named, and drawn last so it sits on top.
+        if let h = hovered, let node = map.nodes.first(where: { $0.id == h }), isRevealed(h) {
+            candidates.append(node)
+        }
 
-                if isHot {
-                    let sub = Text(minutesShort(n.minutes) + " · \(n.visits) visits")
-                        .font(.system(size: 9, weight: .medium, design: .rounded))
-                    var rs = ctx.resolve(sub)
-                    rs.shading = .color(.white.opacity(0.62))
-                    let ss = rs.measure(in: CGSize(width: 190, height: 40))
-                    ctx.draw(rs, at: CGPoint(x: lx, y: ly + (below ? 1 : -1) * (ts.height / 2 + ss.height / 2 + 2)),
-                             anchor: .center)
-                }
+        for n in candidates {
+            guard let p = pts[n.id] else { continue }
+            let isHot = hovered == n.id
+            let dim: Double = (hovered == nil || isHot) ? 1 : 0.32
+            let r = radius(n)
+
+            var text = ctx.resolve(Text(n.label)
+                .font(.system(size: isHot ? 11.5 : 10.5,
+                              weight: isHot ? .semibold : .medium, design: .rounded)))
+            text.shading = .color(.white.opacity(isHot ? 0.98 : 0.74 * dim))
+            let ts = text.measure(in: CGSize(width: 168, height: 40))
+
+            // Prefer below the dot; flip above when the card edge is close.
+            let below = p.y + r + 10 + ts.height < size.height - 4
+            let ly = below ? p.y + r + 10 + ts.height / 2 : p.y - r - 10 - ts.height / 2
+            let lx = min(max(p.x, ts.width / 2 + 6), size.width - ts.width / 2 - 6)
+            let rect = CGRect(x: lx - ts.width / 2, y: ly - ts.height / 2,
+                              width: ts.width, height: ts.height).insetBy(dx: -5, dy: -3)
+
+            if !isHot && taken.contains(where: { $0.intersects(rect) }) { continue }
+            taken.append(rect)
+
+            if isHot {
+                ctx.fill(RoundedRectangle(cornerRadius: 6, style: .continuous).path(in: rect),
+                         with: .color(.black.opacity(0.62)))
+            }
+            ctx.draw(text, at: CGPoint(x: lx, y: ly), anchor: .center)
+
+            if isHot {
+                var sub = ctx.resolve(Text(minutesShort(n.minutes) + " · \(n.visits) visits")
+                    .font(.system(size: 9.5, weight: .medium, design: .rounded)))
+                sub.shading = .color(.white.opacity(0.66))
+                let ss = sub.measure(in: CGSize(width: 168, height: 40))
+                ctx.draw(sub, at: CGPoint(x: lx, y: ly + (below ? 1 : -1) * (ts.height / 2 + ss.height / 2 + 2)),
+                         anchor: .center)
             }
         }
     }
@@ -506,8 +538,7 @@ struct ConstellationCanvas: View {
         return i >= 60 ? String(format: "%dh %02dm", i / 60, i % 60) : "\(i)m"
     }
 
-    /// Slight overshoot on entry — the difference between a dot appearing and a
-    /// dot arriving.
+    /// Slight overshoot — the difference between a dot appearing and a dot arriving.
     static func easeOutBack(_ x: Double) -> Double {
         let c1 = 1.70158, c3 = c1 + 1
         let p = x - 1
