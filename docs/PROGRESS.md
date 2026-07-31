@@ -199,6 +199,24 @@ Currently shipping as `v0.29.0-dev.1` on the developer channel only. Every item
 below came out of reading a week of the live database rather than guessing at
 what needed work.
 
+- **Your day, mapped.** The Today tab now opens with the day drawn as a *map of
+  meaning* instead of another list. Every competitor in this category ships the
+  same picture — a linear scrubber — which can only ever answer "what was on
+  screen at 3pm", because time is its only axis. Here the layout comes from the
+  embeddings already stored per capture, so work that belongs together sits
+  together, and time is drawn back on top as a trace you can scrub or replay.
+  Measured on real data before a line was written: an ordinary day is ~976
+  captures across 70 pages, but only **6 pages carry more than five minutes** and
+  17 carry more than one — so the picture is a 6–18 node sky, not a hairball, and
+  the filtering had to live in the daemon rather than the view. The edges are the
+  part no scrubber can show: how often you bounced between two places. One real
+  day had **207 crossings between a practice test and Gemini**, which is not
+  something you can feel from the inside. Tapping a point is **context
+  reinstatement**, not a snippet list — what was on screen, and what you were
+  doing either side of it (VR study PMC9732332: +16 points recall at one week,
+  38% fewer false memories, but only when the cue creates presence). All local,
+  numpy over stored vectors, no model call. `rewisp/constellation.py`,
+  `GET /day-map`, `GET /reinstate`.
 - **Apps Rewisp ignores.** One game (reported as `java` / `Lunar Client`) was
   **24% of all captures** — pure OCR noise crowding out real memory. A new list in
   **Settings → Privacy** says "don't bother remembering this", distinct from the

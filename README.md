@@ -36,6 +36,7 @@ So Rewisp remembers it for me, and I ask instead of digging.
 
 ## It thinks, not just stores
 
+- **Your day, mapped** — the day drawn by *meaning*, not by the clock: places you spent time, positioned by what they were about, with the path you actually took traced over the top. Tap any point to go back to that moment.
 - **Promises** — it catches commitments as they scroll past (*"I'll send it Friday"*) and brings them back the morning they're due. You never typed a reminder.
 - **What changed on this page?** — every version of a page is kept as text, so Rewisp can diff them and tell you what was added, changed, or removed.
 - **Meaning-based search** — ask for *"that article about burnout"* and find the page that said *"exhaustion"*. Local embeddings fused with keyword search, and typo-proof: a trigram signal finds words OCR mangled (`client` → `cl1ent`).

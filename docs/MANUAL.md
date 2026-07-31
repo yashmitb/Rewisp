@@ -180,6 +180,33 @@ anything on its own.
 
 ---
 
+### Your day, mapped (new in 0.29)
+The first thing on **Today**. Your day drawn as a map rather than a list.
+
+Each dot is a place you actually spent time — sized by how long, coloured by
+topic. The dots are **positioned by meaning**, using the same semantic
+fingerprints that power search, so things you worked on together end up near each
+other and unrelated work drifts to the other side of the sky. The soft clouds
+behind them are those topic groups.
+
+- **The thin line** is the order you moved through the day. Drag the slider to
+  scrub it, or press **Replay** to watch the day unspool.
+- **The thicker curved lines** are the bounces: how often you went back and forth
+  between two places. A thick line is a loop you were stuck in — the thing you
+  genuinely can't feel while it's happening.
+- **Hover** any dot for its name, time spent, and visit count.
+- **Tap a dot to go back to that moment.** Not a list of timestamps — it rebuilds
+  the scene: what was on screen, and what you were doing immediately before and
+  after. That "either side" part is the bit that actually brings a moment back,
+  because it's the cue your memory kept when it offloaded the details.
+
+Only places that held you for **at least a minute** get a dot, up to 18 of them —
+a day has hundreds of pages, and drawing all of them is a hairball, not a map. New
+tabs and redirects are left out on purpose. Everything is computed on your Mac
+from data already stored; no AI call, nothing leaves the machine.
+
+Days with only a page or two show a short note instead — there's no map to draw yet.
+
 ## Thinking features (new in 0.8)
 
 Rewisp doesn't just store your screen — it reasons over it. These run locally

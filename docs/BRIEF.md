@@ -59,6 +59,9 @@ Capture (Python daemon) --> Store (SQLite FTS5) --> Digest (1 cloud call/night)
 - **Proactive recall** — a nudge pill surfaces a relevant past memory (off by default). Detection local; nudges never call the cloud.
 - Single cascade delete choke point so forget/kill/retention purge every derived table.
 
+### Your day as a map (v0.29)
+The Today tab leads with the day laid out by **meaning** — dots positioned from stored embeddings (classical MDS, deterministic), sized by dwell, coloured by semantic cluster, with the time trace scrubbable on top and transition edges showing how often attention bounced between two places. Tapping a dot is **context reinstatement** (scene + what came either side), not a snippet list. Filtered to the ~6–18 places that held ≥1 minute, because a real day is ~70 pages. Local, numpy-only, no model call. `constellation.py`.
+
 ### Answering
 - **Engine chain with auto-fallback:** Apple on-device → Claude → Codex (ChatGPT Plus) → Gemini (free) → Ollama. Falls through when one comes up thin. `Auto` picks the best you've set up; answers badge which engine replied.
 - Apple on-device Foundation Model prompt heavily tuned (no hallucination, synthesizes, multi-thread coverage), with whiff-detection that auto-escalates to a stronger engine.

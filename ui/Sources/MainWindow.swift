@@ -306,6 +306,8 @@ struct TodayTab: View {
                 .opacity(appeared ? 1 : 0)
                 .offset(y: appeared ? 0 : 8)
 
+                DayMapCard()
+
                 PromisesCard()
 
                 SeriesCard()

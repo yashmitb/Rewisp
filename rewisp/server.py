@@ -331,6 +331,32 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"total": total,
                             "apps": [{"app": a, "count": n} for a, n in rows],
                             "excluded": sorted(config.excluded_apps())})
+            elif self.path.split("?")[0] == "/day-map":
+                # The day laid out by MEANING (embeddings) rather than by clock,
+                # with the time trace and the transition edges on top. ?date=
+                # (YYYY-MM-DD, local) for any past day; default today.
+                import urllib.parse as _up
+                from datetime import datetime as _dt
+                from . import constellation
+                q = _up.parse_qs(_up.urlparse(self.path).query)
+                day = None
+                if q.get("date"):
+                    try:
+                        day = _dt.strptime(q["date"][0], "%Y-%m-%d").astimezone()
+                    except ValueError:
+                        return self._json({"error": "bad date"}, 400)
+                self._json(constellation.day_map(conn, day))
+            elif self.path.split("?")[0] == "/reinstate":
+                # Context reinstatement for one place on the map: what was on
+                # screen, and what you were doing either side of it.
+                import urllib.parse as _up
+                from . import constellation
+                q = _up.parse_qs(_up.urlparse(self.path).query)
+                key = q.get("page_key", [""])[0]
+                if not key:
+                    return self._json({"error": "page_key required"}, 400)
+                card = constellation.reinstate(conn, key, q.get("at", [None])[0])
+                self._json(card or {"error": "no captures for that page"})
             elif self.path == "/precog":
                 from . import precog
                 self._json({"suggestions": precog.suggest(conn, limit=3)})
