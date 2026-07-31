@@ -2,6 +2,7 @@
 subscription, never an API key) -> answer with sources -> saved to chats."""
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -10,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import config, db, timeparse
+
+log = logging.getLogger("rewisp")
 
 
 def _fallback_cli_paths(name: str) -> tuple[Path, ...]:

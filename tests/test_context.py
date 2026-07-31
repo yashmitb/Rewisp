@@ -72,6 +72,20 @@ class TestActivityQuestions:
         assert "Everything you did in this window" in ctx    # the clustered overview is present
         assert "Mail" in ctx                                  # morning surfaced despite the evening tail
 
+    def test_overview_failure_degrades_instead_of_killing_the_answer(self, conn):
+        # The overview is explicitly a bonus — its except handler must swallow a
+        # failure and leave the rest of the context intact. It didn't: the handler
+        # called `log`, which this module never defined, so ANY failure inside the
+        # overview turned into a NameError escaping build_context and taking the
+        # whole answer with it. Exactly the failure the try/except exists to stop.
+        _wisp(conn, "TODAY writing the release notes", TODAY)
+        with mock.patch("rewisp.embed.embed_vec", return_value=None), \
+             mock.patch("rewisp.digest.compress_captures",
+                        side_effect=RuntimeError("boom")):
+            ctx, _ = ask.build_context(conn, "what did I do today?", compact=True)
+        assert "Everything you did in this window" not in ctx   # overview dropped
+        assert "TODAY writing" in ctx                            # answer survived
+
     def test_past_window_hides_current_screen_block(self, conn):
         _wisp(conn, "yesterday content delta", "-1 days")
         _wisp(conn, "right now content epsilon", "-1 minutes")
