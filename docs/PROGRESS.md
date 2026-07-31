@@ -217,6 +217,24 @@ what needed work.
   38% fewer false memories, but only when the cue creates presence). All local,
   numpy over stored vectors, no model call. `rewisp/constellation.py`,
   `GET /day-map`, `GET /reinstate`.
+- **The update stops looking like it dies at 99%.** Reported as a hang; it wasn't
+  one. The download had a real progress bar and everything after it had an
+  indeterminate spinner — and "everything after it" is mounting a disk image and
+  copying **220 MB across 6,182 files** out of it, the slowest step of the whole
+  operation, reporting nothing for ten to twenty seconds. The bar filled, vanished,
+  and a spinner sat still. Now there is one continuous bar across five named steps
+  (download 68% of it, unpack 6%, install 20%, check 2%, restart 4%), and the copy
+  reports genuine progress by measuring the destination as it grows — the same
+  trick the local-model download already used. Progress is high-watermarked so a
+  late callback can never drag the bar backwards, and it is driven cleanly to 100%
+  before the app quits, because quitting mid-animation is what made it look like it
+  died. The download line now carries size, speed and time remaining, throttled to
+  ~8/s so it is readable rather than a blur. Poll interval was chosen from a
+  measurement, not a guess: a size walk costs 71–111 ms on this bundle, so the
+  original 140 ms polling would have burned most of a core measuring the copy and
+  slowed the thing it was watching; it runs at 500 ms. Also fixes a real leak — the
+  URLSession was never invalidated, so every download retained its delegate for the
+  life of the process.
 - **Loose threads know how old they are.** The digest has always listed the
   unfinished things; what it could never say is the part that creates pressure —
   *this one has been open five nights*. Each night's digest re-derives its threads

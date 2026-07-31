@@ -134,6 +134,14 @@ GitHub issue (nothing from your history is attached — only what you type).
 pre-release beta builds early and help test them. They may be rough; leave it off
 to stay on stable. Either way you land on each stable release automatically.
 
+**Updating** is one button, and since 0.29 it shows you the whole thing on one
+bar: downloading (with size, speed and time left), unpacking, installing,
+checking, restarting. It used to fill to 99% and then swap to a spinner while it
+copied 220 MB out of the disk image, which looked exactly like a freeze — that
+step now reports real progress like every other one. Nothing is replaced until
+the download has been unpacked and checked, so a failed update leaves your
+working copy alone.
+
 **Onboarding** (first launch) now asks for your main browser and triggers the
 one-time macOS automation consent for it right there.
 
