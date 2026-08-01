@@ -285,3 +285,158 @@ function whenVisible(el, fn, { once = false } = {}) {
 
   whenVisible(root, play);
 })();
+
+/* ── the day map: interactive ──────────────────────────────────────────────
+   The static SVG in the markup is the fallback and renders fine on its own.
+   This only ENHANCES it: controls are injected here, so a visitor with no JS
+   (or a stale cache) still gets the picture rather than an empty box.
+
+   It mirrors what the app actually does — hover to focus a place and its
+   loops, click to reinstate the moment, replay or scrub the route — because
+   the section above it promises these are live and not screenshots. */
+(function dayMap() {
+  const panel = $("#map-demo");
+  if (!panel) return;
+  const svg = panel.querySelector(".map-svg");
+  const stage = panel.querySelector(".map-stage");
+  const trace = panel.querySelector("#map-trace");
+  const nodes = [...panel.querySelectorAll(".map-node")]
+    .sort((a, b) => +a.dataset.i - +b.dataset.i);
+  const edges = [...panel.querySelectorAll(".map-edge")];
+  const labels = [...panel.querySelectorAll(".map-lab")];
+  if (!svg || !trace || nodes.length === 0) return;
+
+  // Taking over means turning off the CSS loop — otherwise the keyframes and
+  // the scrubber fight over stroke-dashoffset and the line stutters.
+  stage.classList.add("js");
+
+  const len = trace.getTotalLength();
+  trace.style.strokeDasharray = len;
+
+  // Each label sits under a node; pair them up by proximity so hovering a dot
+  // can lift its own label without hard-coding the mapping.
+  const labelFor = new Map();
+  for (const n of nodes) {
+    const c = n.querySelector("circle");
+    const cx = +c.getAttribute("cx"), cy = +c.getAttribute("cy");
+    let best = null, bestD = 1e9;
+    for (const l of labels) {
+      const r = l.querySelector("rect");
+      const lx = +r.getAttribute("x") + +r.getAttribute("width") / 2;
+      const ly = +r.getAttribute("y");
+      const d = Math.hypot(lx - cx, ly - cy);
+      if (d < bestD) { bestD = d; best = l; }
+    }
+    if (best && bestD < 60 && !labelFor.has(best)) labelFor.set(best, n);
+  }
+  const ownLabel = n => [...labelFor.entries()].find(([, v]) => v === n)?.[0];
+
+  /* controls */
+  const ctl = document.createElement("div");
+  ctl.className = "map-ctl";
+  ctl.innerHTML =
+    '<button class="map-btn" type="button" aria-label="Replay the day">' +
+      '<span class="map-btn-ic">▶</span><span class="map-btn-tx">Replay</span></button>' +
+    '<input class="map-scrub" type="range" min="0" max="1000" value="1000" ' +
+      'aria-label="Scrub through the day">' +
+    '<span class="map-time">2:30 PM</span>';
+  stage.after(ctl);
+  const btn = ctl.querySelector(".map-btn");
+  const scrub = ctl.querySelector(".map-scrub");
+  const timeEl = ctl.querySelector(".map-time");
+
+  /* the moment card — what tapping a point does in the app */
+  const card = document.createElement("div");
+  card.className = "map-moment";
+  card.hidden = true;
+  ctl.after(card);
+
+  const revealAt = i => nodes.length < 2 ? 0 : i / (nodes.length - 1);
+
+  function render(p) {
+    trace.style.strokeDashoffset = len * (1 - p);
+    let latest = nodes[0];
+    for (const n of nodes) {
+      const shown = p >= revealAt(+n.dataset.i) - 0.001;
+      n.classList.toggle("off", !shown);
+      const l = ownLabel(n);
+      if (l) l.classList.toggle("off", !shown);
+      if (shown) latest = n;
+    }
+    for (const e of edges) {
+      const on = p >= revealAt(+e.dataset.a) && p >= revealAt(+e.dataset.b);
+      e.classList.toggle("off", !on);
+    }
+    timeEl.textContent = latest.dataset.time;
+  }
+
+  /* replay, driven by the clock rather than a stored value that gets stepped */
+  let raf = 0;
+  function play() {
+    cancelAnimationFrame(raf);
+    const dur = 4200, t0 = performance.now();
+    const step = now => {
+      const p = Math.min((now - t0) / dur, 1);
+      scrub.value = String(Math.round(p * 1000));
+      render(p);
+      if (p < 1) raf = requestAnimationFrame(step);
+      else btn.classList.remove("playing");
+    };
+    btn.classList.add("playing");
+    raf = requestAnimationFrame(step);
+  }
+
+  btn.addEventListener("click", play);
+  scrub.addEventListener("input", () => {
+    cancelAnimationFrame(raf);
+    btn.classList.remove("playing");
+    render(+scrub.value / 1000);
+  });
+
+  /* hover / focus: bring one place and its loops forward, push the rest back */
+  function focusNode(n) {
+    panel.classList.add("focusing");
+    for (const m of nodes) m.classList.toggle("hot", m === n);
+    for (const l of labels) l.classList.toggle("hot", labelFor.get(l) === n);
+    const i = n ? +n.dataset.i : -1;
+    for (const e of edges) {
+      e.classList.toggle("hot", +e.dataset.a === i || +e.dataset.b === i);
+    }
+  }
+  function clearFocus() {
+    panel.classList.remove("focusing");
+    for (const m of nodes) m.classList.remove("hot");
+    for (const l of labels) l.classList.remove("hot");
+    for (const e of edges) e.classList.remove("hot");
+  }
+
+  /* click: reinstate the moment — the scene, and what sat either side of it */
+  function reinstate(n) {
+    const d = n.dataset;
+    card.innerHTML =
+      '<div class="mm-head"><b>' + d.label + '</b>' +
+        '<span class="mm-meta">' + d.mins + ' · ' + d.visits + ' · ' + d.time + '</span></div>' +
+      '<div class="mm-screen">' + d.moment + '</div>' +
+      '<div class="mm-around"><span>before <b>' + d.before + '</b></span>' +
+        '<span>after <b>' + d.after + '</b></span></div>';
+    card.hidden = false;
+    for (const m of nodes) m.classList.toggle("picked", m === n);
+  }
+
+  for (const n of nodes) {
+    n.addEventListener("mouseenter", () => focusNode(n));
+    n.addEventListener("mouseleave", clearFocus);
+    n.addEventListener("focus", () => focusNode(n));
+    n.addEventListener("blur", clearFocus);
+    n.addEventListener("click", () => reinstate(n));
+    n.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); reinstate(n); }
+    });
+  }
+
+  // Someone who scrolls past should see it draw itself once, then it holds —
+  // an endlessly looping line beside body copy is a distraction, not a demo.
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  render(1);
+  if (!reduced) whenVisible(panel, () => { render(0); setTimeout(play, 220); }, { once: true });
+})();

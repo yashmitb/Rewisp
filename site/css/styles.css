@@ -685,3 +685,76 @@ footer a:hover { color: var(--text); }
 @media (max-width: 520px) { .map-lab text { font-size: 30px; } }
 @media (min-width: 521px) and (max-width: 700px)  { .map-lab text { font-size: 22px; } }
 @media (min-width: 701px) and (max-width: 1000px) { .map-lab text { font-size: 15px; } }
+
+/* ── day map: interactive states ──────────────────────────────────────────
+   Only the JS path uses these. The CSS loop below is disabled once the script
+   takes over, or the keyframes and the scrubber fight over stroke-dashoffset
+   and the line stutters. */
+/* Every .panel is a fixed 340px box with overflow:hidden. The map is taller
+   than that (a 300-unit stage) and now carries controls and a moment card
+   underneath, so on this one panel the height has to follow the content —
+   otherwise the replay button, the card, the heading and the caption are all
+   silently clipped away, which is exactly what happened. */
+#map-demo { height: auto; }
+
+.map-stage.js .map-trace { animation: none !important; }
+.map-svg { touch-action: manipulation; }
+
+.map-node { cursor: pointer; transition: opacity .25s ease, transform .25s ease; transform-origin: center; transform-box: fill-box; }
+.map-node.off, .map-lab.off, .map-edge.off { opacity: 0; pointer-events: none; }
+.map-lab, .map-edge { transition: opacity .25s ease; }
+
+/* Recede, don't vanish: dropping the rest to near-zero read as a rendering
+   fault in the app, and it reads the same way here. */
+#map-demo.focusing .map-node:not(.hot) { opacity: .38; }
+#map-demo.focusing .map-lab:not(.hot)  { opacity: .35; }
+#map-demo.focusing .map-edge:not(.hot) { opacity: .12; }
+
+.map-node.hot { transform: scale(1.18); }
+.map-node.hot circle { filter: drop-shadow(0 0 14px currentColor); }
+.map-node.picked circle { stroke: rgba(255,255,255,.9); stroke-width: 2; }
+.map-node:focus-visible { outline: none; }
+.map-node:focus-visible circle { stroke: #fff; stroke-width: 2; }
+.map-edge.hot { stroke-opacity: .75; stroke-width: 2.4; }
+.map-lab.hot text { fill: #fff; }
+.map-lab.hot rect { fill: rgba(0,0,0,.72); }
+
+/* controls */
+.map-ctl { display: flex; align-items: center; gap: 12px; margin: 12px 0 4px; }
+.map-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--accent);
+  background: rgba(142,162,255,.14); border: 1px solid rgba(142,162,255,.28);
+  border-radius: 999px; padding: 6px 14px; cursor: pointer;
+  transition: background .2s ease, transform .12s ease;
+}
+.map-btn:hover { background: rgba(142,162,255,.22); }
+.map-btn:active { transform: scale(.97); }
+.map-btn.playing .map-btn-ic { animation: map-pulse 1.1s ease-in-out infinite; }
+@keyframes map-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+.map-scrub { flex: 1; accent-color: var(--accent); height: 3px; cursor: pointer; }
+.map-time { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
+
+/* the moment card — what tapping a point gives you in the app */
+.map-moment {
+  margin-top: 10px; padding: 12px 14px;
+  border: 1px solid rgba(255,255,255,.07); border-radius: var(--radius);
+  background: rgba(20,23,34,.55);
+  animation: mm-in .28s cubic-bezier(.2,.7,.3,1) both;
+}
+@keyframes mm-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.mm-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 13.5px; }
+.mm-meta { font-size: 12px; color: var(--muted); }
+.mm-screen {
+  margin-top: 7px; padding: 8px 10px; font-size: 13px; line-height: 1.5;
+  border-left: 2px solid rgba(142,162,255,.5); background: rgba(0,0,0,.22);
+  border-radius: 0 6px 6px 0; color: rgba(255,255,255,.86);
+}
+.mm-around { display: flex; gap: 18px; margin-top: 8px; font-size: 11.5px; color: var(--muted); flex-wrap: wrap; }
+.mm-around b { color: rgba(255,255,255,.8); font-weight: 500; }
+
+@media (max-width: 520px) {
+  .map-ctl { gap: 8px; }
+  .map-time { min-width: 56px; font-size: 11.5px; }
+}

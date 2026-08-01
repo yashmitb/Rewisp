@@ -6,7 +6,7 @@
 <title>Rewisp — an ambient memory for your Mac</title>
 <meta name="description" content="Rewisp remembers the text of everything you see on your Mac, so you can ask about it later. Private by construction — screenshots never touch disk.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23181c2c'/%3E%3Cpath d='M 1.44 14.80 L 1.97 15.86 L 2.50 16.79 L 3.02 17.55 L 3.55 18.13 L 4.08 18.52 L 4.61 18.71 L 5.14 18.69 L 5.66 18.48 L 6.19 18.07 L 6.72 17.50 L 7.25 16.78 L 7.78 15.93 L 8.30 14.98 L 8.83 13.96 L 9.36 12.91 L 9.89 11.86 L 10.42 10.84 L 10.94 9.87 L 11.47 8.99 L 12.00 8.23 L 12.53 7.59 L 13.06 7.10 L 13.58 6.77 L 14.11 6.60 L 14.64 6.60 L 15.17 6.76 L 15.70 7.07 L 16.22 7.52 L 16.75 8.09 L 17.28 8.75 L 17.81 9.50 L 18.34 10.30 L 18.86 11.13 L 19.39 11.96 L 19.92 12.77 L 20.45 13.52 L 20.98 14.21 L 21.50 14.82 L 22.03 15.32 L 22.56 15.70' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Ccircle cx='22.56' cy='15.70' r='1.0' fill='%23fff'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="css/styles.css?v=20260731c">
+<link rel="stylesheet" href="css/styles.css?v=20260731d">
 </head>
 <body>
 
@@ -102,18 +102,18 @@
             <circle cx="720" cy="115" r="98"  fill="url(#neb2)"/>
             <circle cx="710" cy="228" r="70"  fill="url(#neb3)"/>
 
-            <path class="map-edge" d="M215 130 Q312 105 410 110"/>
-            <path class="map-edge" d="M215 130 Q160 172 130 215"/>
-            <path class="map-edge" d="M700 95 Q660 162 710 228"/>
+            <path class="map-edge" data-a="1" data-b="2" d="M215 130 Q312 105 410 110"/>
+            <path class="map-edge" data-a="0" data-b="1" d="M215 130 Q160 172 130 215"/>
+            <path class="map-edge" data-a="3" data-b="5" d="M700 95 Q660 162 710 228"/>
 
-            <path class="map-trace" d="M130 215 L215 130 L410 110 L700 95 L830 155 L710 228"/>
+            <path class="map-trace" id="map-trace" d="M130 215 L215 130 L410 110 L700 95 L830 155 L710 228"/>
 
-            <g class="map-node n-indigo"><circle cx="215" cy="130" r="17"/></g>
-            <g class="map-node n-indigo"><circle cx="130" cy="215" r="8"/></g>
-            <g class="map-node n-violet"><circle cx="410" cy="110" r="10"/></g>
-            <g class="map-node n-mint"><circle cx="700" cy="95"  r="13"/></g>
-            <g class="map-node n-mint"><circle cx="830" cy="155" r="7"/></g>
-            <g class="map-node n-amber"><circle cx="710" cy="228" r="11"/></g>
+            <g class="map-node n-indigo" data-i="1" data-label="Thesis — chapter 3" data-mins="1h 47m" data-visits="9 visits" data-time="9:26 AM" data-moment="…the argument in 3.2 still needs a citation for the 1994 result." data-before="Reading list" data-after="Stack Overflow" tabindex="0" role="button" aria-label="Thesis — chapter 3, 1h 47m"><circle cx="215" cy="130" r="17"/></g>
+            <g class="map-node n-indigo" data-i="0" data-label="Reading list" data-mins="4m" data-visits="2 visits" data-time="9:12 AM" data-moment="Three papers open on retrieval-augmented memory." data-before="—" data-after="Thesis — chapter 3" tabindex="0" role="button" aria-label="Reading list, 4m"><circle cx="130" cy="215" r="8"/></g>
+            <g class="map-node n-violet" data-i="2" data-label="Stack Overflow" data-mins="12m" data-visits="6 visits" data-time="11:40 AM" data-moment="How do I make a figure caption span two columns in LaTeX?" data-before="Thesis — chapter 3" data-after="Course site" tabindex="0" role="button" aria-label="Stack Overflow, 12m"><circle cx="410" cy="110" r="10"/></g>
+            <g class="map-node n-mint" data-i="3" data-label="Course site" data-mins="34m" data-visits="5 visits" data-time="1:05 PM" data-moment="Problem set 6 — due Friday 11:59 PM.  Submitted: no." data-before="Stack Overflow" data-after="Lecture slides" tabindex="0" role="button" aria-label="Course site, 34m"><circle cx="700" cy="95"  r="13"/></g>
+            <g class="map-node n-mint" data-i="4" data-label="Lecture slides" data-mins="8m" data-visits="2 visits" data-time="1:52 PM" data-moment="Week 9 — asymptotic bounds. Slide 14 of 31." data-before="Course site" data-after="YouTube" tabindex="0" role="button" aria-label="Lecture slides, 8m"><circle cx="830" cy="155" r="7"/></g>
+            <g class="map-node n-amber" data-i="5" data-label="YouTube" data-mins="28m" data-visits="3 visits" data-time="2:30 PM" data-moment="Up next: “A Day in the Life of a PhD Student”." data-before="Lecture slides" data-after="—" tabindex="0" role="button" aria-label="YouTube, 28m"><circle cx="710" cy="228" r="11"/></g>
 
             <g class="map-lab"><rect x="157" y="155" width="116" height="19" rx="6"/><text x="215" y="168">Thesis — chapter 3</text></g>
             <g class="map-lab"><rect x="365" y="128" width="90"  height="19" rx="6"/><text x="410" y="141">Stack Overflow</text></g>
@@ -122,7 +122,7 @@
           </svg>
         </div>
         <h3>Your whole day, in one picture</h3>
-        <p class="cap">Not a timeline — a map. Every place you spent real time becomes a point, positioned by <em>what it was about</em>, so work that belongs together sits together. The faint curves are the loops you fell into. Press replay and watch the route you actually took.</p>
+        <p class="cap">Not a timeline — a map. Every place you spent real time becomes a point, positioned by <em>what it was about</em>, so work that belongs together sits together. The faint curves are the loops you fell into. <b>Hover a point, or press replay and scrub the day</b> — then tap one to go back to that moment.</p>
       </div>
 
       <!-- promises — the thing nothing else does -->
@@ -483,7 +483,7 @@
   <img alt="Rewisp — an ambient memory for your Mac - See it once. Ask forever. | Product Hunt" width="250" height="54" loading="lazy" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1199790&theme=dark&t=1784448393504">
 </a>
 
-<script src="js/demos.js?v=20260731c"></script>
+<script src="js/demos.js?v=20260731d"></script>
 
 <!-- Analytics: GoatCounter. No cookies, no personal data, no cross-site tracking,
      nothing that needs a consent banner — which matters here, because a page
