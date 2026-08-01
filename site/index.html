@@ -6,7 +6,7 @@
 <title>Rewisp — an ambient memory for your Mac</title>
 <meta name="description" content="Rewisp remembers the text of everything you see on your Mac, so you can ask about it later. Private by construction — screenshots never touch disk.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23181c2c'/%3E%3Cpath d='M 1.44 14.80 L 1.97 15.86 L 2.50 16.79 L 3.02 17.55 L 3.55 18.13 L 4.08 18.52 L 4.61 18.71 L 5.14 18.69 L 5.66 18.48 L 6.19 18.07 L 6.72 17.50 L 7.25 16.78 L 7.78 15.93 L 8.30 14.98 L 8.83 13.96 L 9.36 12.91 L 9.89 11.86 L 10.42 10.84 L 10.94 9.87 L 11.47 8.99 L 12.00 8.23 L 12.53 7.59 L 13.06 7.10 L 13.58 6.77 L 14.11 6.60 L 14.64 6.60 L 15.17 6.76 L 15.70 7.07 L 16.22 7.52 L 16.75 8.09 L 17.28 8.75 L 17.81 9.50 L 18.34 10.30 L 18.86 11.13 L 19.39 11.96 L 19.92 12.77 L 20.45 13.52 L 20.98 14.21 L 21.50 14.82 L 22.03 15.32 L 22.56 15.70' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Ccircle cx='22.56' cy='15.70' r='1.0' fill='%23fff'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="css/styles.css?v=20260731a">
+<link rel="stylesheet" href="css/styles.css?v=20260731b">
 </head>
 <body>
 
@@ -79,43 +79,51 @@
 
     <div class="demos">
       <!-- the day map — leads, because it's the first thing you see in the app.
-           Everything in this illustration is invented: it shows the shape of a
-           day, never anyone's actual pages. -->
-      <div class="panel reveal wide" id="map-demo">
+           Everything here is invented: it shows the SHAPE of a day, never
+           anyone's real pages.
+
+           The viewBox is authored at the size this ACTUALLY renders — 448px, in
+           a half-width panel inside a .wrap capped at 1060px — so the scale
+           factor is ~1 and an 11px label is genuinely 11px on screen. Two
+           earlier attempts got this wrong in opposite directions: a `wide` panel
+           with a 600-unit box scaled ~3x and blew the dots up past the card,
+           then a 1000-unit box scaled 0.45 and shrank the labels to 6px.
+           Measured in the browser, not guessed. -->
+      <div class="panel reveal" id="map-demo">
         <div class="ph"><span class="tag">Your day, mapped</span><span class="dots"><i></i><i></i><i></i></span></div>
         <div class="map-stage">
-          <svg viewBox="0 0 600 250" class="map-svg" aria-label="A day drawn as a map: dots for places, grouped by topic">
+          <svg viewBox="0 0 450 190" class="map-svg" role="img"
+               aria-label="A day drawn as a map: dots for the places you spent time, grouped by topic, with the route between them">
             <defs>
-              <radialGradient id="neb1"><stop offset="0" stop-color="#8ea2ff" stop-opacity=".13"/><stop offset="1" stop-color="#8ea2ff" stop-opacity="0"/></radialGradient>
-              <radialGradient id="neb2"><stop offset="0" stop-color="#8cedd1" stop-opacity=".12"/><stop offset="1" stop-color="#8cedd1" stop-opacity="0"/></radialGradient>
-              <radialGradient id="neb3"><stop offset="0" stop-color="#ffc48e" stop-opacity=".11"/><stop offset="1" stop-color="#ffc48e" stop-opacity="0"/></radialGradient>
+              <radialGradient id="neb1"><stop offset="0" stop-color="#8ea2ff" stop-opacity=".18"/><stop offset="1" stop-color="#8ea2ff" stop-opacity="0"/></radialGradient>
+              <radialGradient id="neb2"><stop offset="0" stop-color="#8cedd1" stop-opacity=".15"/><stop offset="1" stop-color="#8cedd1" stop-opacity="0"/></radialGradient>
+              <radialGradient id="neb3"><stop offset="0" stop-color="#ffc48e" stop-opacity=".14"/><stop offset="1" stop-color="#ffc48e" stop-opacity="0"/></radialGradient>
             </defs>
-            <!-- topic clouds -->
-            <circle cx="150" cy="120" r="105" fill="url(#neb1)"/>
-            <circle cx="415" cy="90"  r="88"  fill="url(#neb2)"/>
-            <circle cx="405" cy="195" r="66"  fill="url(#neb3)"/>
-            <!-- the loops: places you kept bouncing between -->
-            <path class="map-edge" d="M150 118 Q210 92 268 104"/>
-            <path class="map-edge" d="M150 118 Q140 165 116 186"/>
-            <path class="map-edge" d="M405 78 Q380 120 405 190"/>
-            <!-- the path you took, drawn as a travelling comet -->
-            <path class="map-trace" d="M116 186 L150 118 L268 104 L405 78 L448 108 L405 190"/>
-            <!-- places, sized by how long you were there -->
-            <g class="map-node"><circle cx="150" cy="118" r="19" fill="#8ea2ff"/></g>
-            <g class="map-node"><circle cx="116" cy="186" r="8"  fill="#8ea2ff"/></g>
-            <g class="map-node"><circle cx="268" cy="104" r="10" fill="#b08cff"/></g>
-            <g class="map-node"><circle cx="405" cy="78"  r="14" fill="#8cedd1"/></g>
-            <g class="map-node"><circle cx="448" cy="108" r="7"  fill="#8cedd1"/></g>
-            <g class="map-node"><circle cx="405" cy="190" r="12" fill="#ffc48e"/></g>
-            <!-- labels -->
-            <g class="map-lab"><rect x="96"  y="142" width="112" height="19" rx="6"/><text x="152" y="155">Thesis — chapter 3</text></g>
-            <g class="map-lab"><rect x="222" y="122" width="94"  height="19" rx="6"/><text x="269" y="135">Stack Overflow</text></g>
-            <g class="map-lab"><rect x="366" y="44"  width="80"  height="19" rx="6"/><text x="406" y="57">Course site</text></g>
-            <g class="map-lab"><rect x="366" y="210" width="80"  height="19" rx="6"/><text x="406" y="223">YouTube</text></g>
+            <circle cx="98"  cy="92"  r="70" fill="url(#neb1)"/>
+            <circle cx="318" cy="72"  r="56" fill="url(#neb2)"/>
+            <circle cx="312" cy="140" r="40" fill="url(#neb3)"/>
+
+            <path class="map-edge" d="M100 78 Q146 60 192 68"/>
+            <path class="map-edge" d="M100 78 Q74 108 62 132"/>
+            <path class="map-edge" d="M308 60 Q288 100 312 140"/>
+
+            <path class="map-trace" d="M62 132 L100 78 L192 68 L308 60 L350 92 L312 140"/>
+
+            <g class="map-node n-indigo"><circle cx="100" cy="78"  r="11"/></g>
+            <g class="map-node n-indigo"><circle cx="62"  cy="132" r="5"/></g>
+            <g class="map-node n-violet"><circle cx="192" cy="68"  r="6"/></g>
+            <g class="map-node n-mint"><circle cx="308" cy="60"  r="8"/></g>
+            <g class="map-node n-mint"><circle cx="350" cy="92"  r="4"/></g>
+            <g class="map-node n-amber"><circle cx="312" cy="140" r="7"/></g>
+
+            <g class="map-lab"><rect x="47"  y="95"  width="106" height="17" rx="5"/><text x="100" y="107">Thesis — chapter 3</text></g>
+            <g class="map-lab"><rect x="151" y="81"  width="82"  height="17" rx="5"/><text x="192" y="93">Stack Overflow</text></g>
+            <g class="map-lab"><rect x="274" y="29"  width="68"  height="17" rx="5"/><text x="308" y="41">Course site</text></g>
+            <g class="map-lab"><rect x="285" y="154" width="54"  height="17" rx="5"/><text x="312" y="166">YouTube</text></g>
           </svg>
         </div>
         <h3>Your whole day, in one picture</h3>
-        <p class="cap">Not a timeline — a map. Every place you spent real time becomes a point, positioned by <em>what it was about</em>, so work that belongs together sits together. The faint curves are the loops you fell into. Press replay and watch the route you actually took. Tap any point to go back to that moment: what was on screen, and what you were doing either side of it.</p>
+        <p class="cap">Not a timeline — a map. Every place you spent real time becomes a point, positioned by <em>what it was about</em>, so work that belongs together sits together. The faint curves are the loops you fell into. Press replay and watch the route you actually took.</p>
       </div>
 
       <!-- promises — the thing nothing else does -->
@@ -476,7 +484,7 @@
   <img alt="Rewisp — an ambient memory for your Mac - See it once. Ask forever. | Product Hunt" width="250" height="54" loading="lazy" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1199790&theme=dark&t=1784448393504">
 </a>
 
-<script src="js/demos.js?v=20260731a"></script>
+<script src="js/demos.js?v=20260731b"></script>
 
 <!-- Analytics: GoatCounter. No cookies, no personal data, no cross-site tracking,
      nothing that needs a consent banner — which matters here, because a page

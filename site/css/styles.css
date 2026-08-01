@@ -612,47 +612,73 @@ footer a:hover { color: var(--text); }
 
 /* ── the day map illustration ─────────────────────────────────────────────
    Mirrors what the app draws: places positioned by meaning, faint loops
-   between the ones you bounced across, and the route you took travelling
-   over the top. Everything in the markup is invented — it shows the SHAPE
-   of a day, never anyone's real pages. */
+   between the ones you bounced across, and the route travelling over the
+   top. Everything in the markup is invented — it shows the SHAPE of a day,
+   never anyone's real pages.
+
+   The viewBox is 1000x270 (~3.7:1) so that inside a normal half-width panel
+   it renders at close to 1:1. The first version was a `wide` panel with a
+   600x250 box, which scaled roughly 3x at full card width: the dots came out
+   the size of buttons, the labels were bigger than the heading, and the
+   bottom of the map was cut clean off. */
 .map-stage {
   border-radius: var(--radius);
-  background: linear-gradient(180deg, #14172250, #0f111b60);
+  background: linear-gradient(180deg, rgba(20,23,34,.5), rgba(15,17,27,.38));
+  border: 1px solid rgba(255,255,255,.05);
   overflow: hidden;
-  margin-bottom: 4px;
+  margin-bottom: 14px;
+  /* .panel is a flex column, so the stage was being flex-shrunk to 129px while
+     the SVG inside wanted 189 — and overflow:hidden quietly ate the bottom
+     third of the map, taking a whole node and its label with it. Nothing about
+     the SVG looked wrong; the container was the problem. */
+  flex-shrink: 0;
 }
-.map-svg { display: block; width: 100%; height: auto; }
+/* Cap the width so the illustration can't balloon. In the single-column
+   layout the panel goes full width, which pushed the SVG to 672px and the
+   labels to 16px — bigger than the body copy under it. Capped and centred,
+   every breakpoint lands near the 11px it was authored for. */
+.map-svg { display: block; width: 100%; max-width: 470px; height: auto; margin: 0 auto; }
 
-.map-edge { fill: none; stroke: #8ea2ff; stroke-opacity: .22; stroke-width: 1.6; stroke-linecap: round; }
 
-/* The route draws itself, pauses, and repeats — the same idea as Replay in
-   the app, where the path is something you play rather than a static tangle. */
+.map-edge { fill: none; stroke: #8ea2ff; stroke-opacity: .2; stroke-width: 1.3; stroke-linecap: round; }
+
+/* The route draws itself, holds, then clears and repeats — the same idea as
+   Replay in the app, where the path is something you play rather than a
+   permanent tangle across the picture. */
 .map-trace {
-  fill: none; stroke: #fff; stroke-opacity: .85; stroke-width: 1.6;
+  fill: none; stroke: #fff; stroke-opacity: .82; stroke-width: 1.5;
   stroke-linecap: round; stroke-linejoin: round;
-  stroke-dasharray: 420; stroke-dashoffset: 420;
-  filter: drop-shadow(0 0 4px rgba(255,255,255,.35));
+  stroke-dasharray: 400; stroke-dashoffset: 400;
+  filter: drop-shadow(0 0 3px rgba(255,255,255,.45));
 }
-.reveal.in .map-trace { animation: map-draw 5.5s ease-in-out infinite; }
+.reveal.in .map-trace { animation: map-draw 6s ease-in-out infinite; }
 @keyframes map-draw {
-  0%   { stroke-dashoffset: 420; }
-  45%  { stroke-dashoffset: 0; }
-  80%  { stroke-dashoffset: 0; opacity: 1; }
-  95%, 100% { stroke-dashoffset: 0; opacity: 0; }
+  0%        { stroke-dashoffset: 400; opacity: 1; }
+  45%       { stroke-dashoffset: 0;   opacity: 1; }
+  85%       { stroke-dashoffset: 0;   opacity: 1; }
+  97%, 100% { stroke-dashoffset: 0;   opacity: 0; }
 }
 
-.map-node circle { filter: drop-shadow(0 0 9px currentColor); }
-.map-node { color: #8ea2ff; }
-.map-node circle[fill="#8cedd1"] { color: #8cedd1; }
-.map-node circle[fill="#ffc48e"] { color: #ffc48e; }
-.map-node circle[fill="#b08cff"] { color: #b08cff; }
+.map-node circle { filter: drop-shadow(0 0 6px currentColor); }
+.n-indigo { color: #8ea2ff; } .n-indigo circle { fill: #8ea2ff; }
+.n-violet { color: #b08cff; } .n-violet circle { fill: #b08cff; }
+.n-mint   { color: #8cedd1; } .n-mint   circle { fill: #8cedd1; }
+.n-amber  { color: #ffc48e; } .n-amber  circle { fill: #ffc48e; }
 
-.map-lab rect { fill: rgba(0,0,0,.42); }
+.map-lab rect { fill: rgba(0,0,0,.5); }
 .map-lab text {
-  fill: rgba(255,255,255,.9); font-size: 11px; font-weight: 500;
+  fill: rgba(255,255,255,.92); font-size: 11px; font-weight: 500;
   text-anchor: middle; font-family: inherit;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .reveal.in .map-trace { animation: none; stroke-dashoffset: 0; }
+}
+
+/* Phone: the container is narrower than the artwork, so labels have to be
+   authored larger and scaled down to stay legible. Must come AFTER the base
+   .map-lab rule above — same specificity, so source order decides, and the
+   first attempt at this sat above it and silently lost. */
+@media (max-width: 640px) {
+  .map-lab text { font-size: 16px; }
 }
