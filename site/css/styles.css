@@ -637,7 +637,7 @@ footer a:hover { color: var(--text); }
    layout the panel goes full width, which pushed the SVG to 672px and the
    labels to 16px — bigger than the body copy under it. Capped and centred,
    every breakpoint lands near the 11px it was authored for. */
-.map-svg { display: block; width: 100%; max-width: 470px; height: auto; margin: 0 auto; }
+.map-svg { display: block; width: 100%; max-width: 980px; height: auto; margin: 0 auto; }
 
 
 .map-edge { fill: none; stroke: #8ea2ff; stroke-opacity: .2; stroke-width: 1.3; stroke-linecap: round; }
@@ -648,12 +648,12 @@ footer a:hover { color: var(--text); }
 .map-trace {
   fill: none; stroke: #fff; stroke-opacity: .82; stroke-width: 1.5;
   stroke-linecap: round; stroke-linejoin: round;
-  stroke-dasharray: 400; stroke-dashoffset: 400;
+  stroke-dasharray: 800; stroke-dashoffset: 800;
   filter: drop-shadow(0 0 3px rgba(255,255,255,.45));
 }
 .reveal.in .map-trace { animation: map-draw 6s ease-in-out infinite; }
 @keyframes map-draw {
-  0%        { stroke-dashoffset: 400; opacity: 1; }
+  0%        { stroke-dashoffset: 800; opacity: 1; }
   45%       { stroke-dashoffset: 0;   opacity: 1; }
   85%       { stroke-dashoffset: 0;   opacity: 1; }
   97%, 100% { stroke-dashoffset: 0;   opacity: 0; }
@@ -667,7 +667,7 @@ footer a:hover { color: var(--text); }
 
 .map-lab rect { fill: rgba(0,0,0,.5); }
 .map-lab text {
-  fill: rgba(255,255,255,.92); font-size: 11px; font-weight: 500;
+  fill: rgba(255,255,255,.92); font-size: 12px; font-weight: 500;
   text-anchor: middle; font-family: inherit;
 }
 
@@ -675,10 +675,13 @@ footer a:hover { color: var(--text); }
   .reveal.in .map-trace { animation: none; stroke-dashoffset: 0; }
 }
 
-/* Phone: the container is narrower than the artwork, so labels have to be
-   authored larger and scaled down to stay legible. Must come AFTER the base
-   .map-lab rule above — same specificity, so source order decides, and the
-   first attempt at this sat above it and silently lost. */
-@media (max-width: 640px) {
-  .map-lab text { font-size: 16px; }
-}
+/* Label size, held roughly constant on screen.
+   SVG text scales with the viewBox, so a single font-size renders anywhere from
+   6px on a phone to 12px on a desktop. Measured svg width tracks (viewport-96),
+   and the required size is 11*960/width — which CSS can't express as one rule,
+   so these tiers approximate it. Every one of these MUST sit after the base
+   .map-lab rule: same specificity, so source order decides, and the first
+   attempt at this sat above it and silently never applied. */
+@media (max-width: 520px) { .map-lab text { font-size: 30px; } }
+@media (min-width: 521px) and (max-width: 700px)  { .map-lab text { font-size: 22px; } }
+@media (min-width: 701px) and (max-width: 1000px) { .map-lab text { font-size: 15px; } }
