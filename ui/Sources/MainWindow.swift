@@ -368,8 +368,14 @@ struct TodayTab: View {
            best.value > 0 {
             return best.key
         }
-        let today = Date.now.formatted(.iso8601.year().month().day()
-            .dateSeparator(.dash))
+        // LOCAL day, not GMT. `.iso8601` formats in GMT, so after 5pm Pacific it
+        // asked for tomorrow's key while /report is keyed by local date — the
+        // tile went back to "—" every evening, which is when you'd look at it.
+        // The daemon had already learned this lesson in _local_day_bounds.
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        fmt.timeZone = .current
+        let today = fmt.string(from: .now)
         if let day = report?.days[today], let best = day.max(by: { $0.value < $1.value }),
            best.value > 0 {
             return best.key

@@ -194,6 +194,28 @@ OCR_MENUBAR_POINTS = 26
 # so screen.py encodes the in-memory CGImage to PNG and pipes it to the helper.
 # Any failure (missing binary, pre-26 macOS, decode error) falls back to the
 # current tiled path — a capture is never lost to it.
+# MEASURED, 2026-08-02, and now a decision rather than an open question. The
+# shadow A/B ran over 80 real captures on macOS 26.5:
+#
+#     chars    tiled 1038   document  838    <- reads 19% LESS of the screen
+#     doubled  tiled 0.54   document 0.40
+#     ms       tiled  738   document  614    <- 1.2x faster, not the assumed 4x
+#     overlap              0.774              <- the engines disagree on content
+#
+# So it loses. On a memory app the character count is the one number that must
+# not regress: an engine that quietly reads a fifth less of every screen degrades
+# every future answer without ever announcing itself, and 77% word overlap means
+# the two are not even reading the same page.
+#
+# That is not a misconfiguration here. RecognizeDocumentsRequest is built for
+# structured documents, while Rewisp OCRs arbitrary interfaces — menus, buttons,
+# scattered labels — which is precisely where document-structure assumptions drop
+# text, and other developers report the new Vision API doing worse than the old
+# one in general (developer.apple.com/forums/thread/766505).
+#
+# Left implemented and switched off: it costs nothing sitting here, the shadow
+# harness makes it a one-flag experiment, and a future OS revision may change the
+# answer. Re-run with REWISP_OCR_SHADOW=1 and `python3 -m rewisp ocr-ab`.
 OCR_USE_DOCUMENTS = False
 
 # Override the helper binary path (dev/testing). Empty = locate it in the bundle.

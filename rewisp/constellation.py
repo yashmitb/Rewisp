@@ -99,10 +99,14 @@ _SITE_SUFFIX = re.compile(r"\s+[-–—|]\s+[A-Za-z][A-Za-z.\s]{0,20}$")
 
 def _clean_title(t: str) -> str:
     t = re.sub(r"\s+", " ", t or "").strip()
-    # Counters can sit after a profile prefix ("Delta: (50) …"), so strip them
-    # wherever they lead a segment, not only at the very start of the string.
-    t = re.sub(r"(^|:\s*)[\(\[]\s*\d+\s*[\)\]]\s*", r"\1", t)
+    # Unread counters turn up anywhere in a title, not just at the ends:
+    # "(50) YouTube", "Inbox (2) - you@gmail.com", "Delta: (50) …". Strip any
+    # standalone parenthesised number — a bracketed count on its own is never
+    # content, it is the thing that changes every time a message arrives and
+    # would otherwise make one page look like several.
+    t = re.sub(r"(?:(?<=^)|(?<=\s)|(?<=:))\s*[\(\[]\s*\d{1,5}\s*[\)\]](?=\s|$)", " ", t)
     t = _COUNTER.sub("", t)
+    t = re.sub(r"\s{2,}", " ", t)
     return t.strip(" ,·|-–—…").strip()
 
 
