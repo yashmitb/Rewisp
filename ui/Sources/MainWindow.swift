@@ -1009,6 +1009,9 @@ struct SettingsTab: View {
     @State private var newApp = ""
     @State private var newPattern = ""
     @State private var excluded: [String] = []
+    @State private var excludedSites: [String] = []
+    @State private var newExcludedSite = ""
+    @State private var topSites: [RewispAPI.SiteStat] = []
     @State private var newExcluded = ""
     @State private var topApps: [RewispAPI.CaptureStat] = []
     @State private var exportResult: String?
@@ -1408,6 +1411,54 @@ struct SettingsTab: View {
                 Button("Add") { addExcluded(newExcluded) }
                     .disabled(newExcluded.trimmingCharacters(in: .whitespaces).isEmpty)
             }
+            // Sites, not just apps. Everything in a browser shares one app
+            // name, so the app list above can never reach the thing most likely
+            // to be flooding the database — on real data a single video was 83%
+            // of a day's captures and nothing here could exclude it.
+            Divider().opacity(0.35)
+            Text("SITES REWISP IGNORES")
+                .font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+            Text("Different from the kill list: that one is about privacy, this is "
+                 + "about noise. Matches anywhere in the address, so \"youtube.com\" "
+                 + "covers the whole site.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            ForEach(excludedSites, id: \.self) { site in
+                HStack {
+                    Image(systemName: "globe").font(.caption).foregroundStyle(.tertiary)
+                    Text(site).font(.callout)
+                    Spacer()
+                    Button { removeExcludedSite(site) } label: {
+                        Image(systemName: "minus.circle").foregroundStyle(.secondary)
+                    }.buttonStyle(HoverButton())
+                }
+            }
+            HStack {
+                TextField("Add site (e.g. youtube.com)", text: $newExcludedSite)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { addExcludedSite(newExcludedSite) }
+                Button("Add") { addExcludedSite(newExcludedSite) }
+                    .disabled(newExcludedSite.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            let siteSuggestions = topSites.filter { s in
+                !excludedSites.contains(where: { s.site.contains($0) })
+            }.prefix(4)
+            if !siteSuggestions.isEmpty {
+                Text("YOUR BUSIEST SITES (last 30 days)")
+                    .font(.caption2.weight(.semibold)).foregroundStyle(.tertiary)
+                ForEach(Array(siteSuggestions), id: \.site) { s in
+                    HStack {
+                        Text(s.site).font(.callout)
+                        Text("\(s.count) captured").font(.caption).foregroundStyle(.tertiary)
+                        Spacer()
+                        Button { addExcludedSite(s.site) } label: {
+                            Label("Ignore", systemImage: "eye.slash")
+                                .font(.caption.weight(.medium))
+                        }.buttonStyle(HoverButton())
+                    }
+                }
+            }
+
             // Data-driven suggestions: your busiest apps not already ignored.
             let suggestions = topApps.filter {
                 !excluded.contains($0.app) && $0.app != "Rewisp"
@@ -1566,6 +1617,27 @@ struct SettingsTab: View {
         saveSettings(["excluded_apps": excluded])
     }
 
+    private func addExcludedSite(_ raw: String) {
+        // Accept a pasted URL as readily as a bare domain — nobody wants to
+        // hand-strip "https://" and a query string to ignore a site.
+        var s = raw.trimmingCharacters(in: .whitespaces).lowercased()
+        for prefix in ["https://", "http://"] where s.hasPrefix(prefix) {
+            s = String(s.dropFirst(prefix.count))
+        }
+        if s.hasPrefix("www.") { s = String(s.dropFirst(4)) }
+        s = s.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !s.isEmpty,
+              !excludedSites.contains(where: { $0.caseInsensitiveCompare(s) == .orderedSame })
+        else { return }
+        excludedSites.append(s)
+        newExcludedSite = ""
+        saveSettings(["excluded_sites": excludedSites])
+    }
+    private func removeExcludedSite(_ s: String) {
+        excludedSites.removeAll { $0 == s }
+        saveSettings(["excluded_sites": excludedSites])
+    }
+
     @MainActor private func reload() async {
         kill = try? await RewispAPI.get("killlist", as: RewispAPI.KillList.self)
         if let s = try? await RewispAPI.get("settings", as: RewispAPI.Settings.self) {
@@ -1581,9 +1653,11 @@ struct SettingsTab: View {
             digestInterval = s.digest_interval_days
             nudgesEnabled = s.nudges_enabled ?? false
             excluded = s.excluded_apps ?? []
+            excludedSites = s.excluded_sites ?? []
         }
         if let cs = try? await RewispAPI.get("capture-stats", as: RewispAPI.CaptureStats.self) {
             topApps = cs.apps
+            topSites = cs.sites ?? []
         }
         if let d = try? await RewispAPI.get("digest/status", as: RewispAPI.DigestStatus.self) {
             digestRunning = d.running

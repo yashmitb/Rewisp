@@ -277,11 +277,23 @@ struct RewispAPI {
         var nudges_enabled: Bool?
         var mcp_expose_vault: Bool?
         var excluded_apps: [String]?
+        var excluded_sites: [String]?
         var available: EngineAvail?
     }
 
     struct CaptureStat: Decodable, Hashable { var app: String; var count: Int }
-    struct CaptureStats: Decodable { var total: Int; var apps: [CaptureStat]; var excluded: [String] }
+    struct CaptureStats: Decodable {
+        var total: Int
+        var apps: [CaptureStat]
+        var excluded: [String]
+        /// Busiest sites. An app row can never surface a noisy website — every
+        /// site shares the browser's app name — so these are what actually
+        /// reveal where the database is going. Optional for older daemons.
+        var sites: [SiteStat]?
+        var excluded_sites: [String]?
+    }
+
+    struct SiteStat: Decodable { var site: String; var count: Int }
 
     // Local MLX model catalog + install/download state (GET /local/status, /hardware).
     struct LocalModel: Decodable {

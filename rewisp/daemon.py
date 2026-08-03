@@ -32,6 +32,7 @@ class Daemon:
         self.last_field_check = 0.0
         self.last_content_check = 0.0
         self.excluded = config.excluded_apps()
+        self.excluded_sites = config.excluded_sites()
 
     # -- state checks ---------------------------------------------------------
 
@@ -124,6 +125,7 @@ class Daemon:
             self.last_kill_check = now_mono
             self.kill.reload_if_changed()
             self.excluded = config.excluded_apps()
+            self.excluded_sites = config.excluded_sites()
 
         app, pid, title = screen.frontmost_info()
         if not app:
@@ -213,6 +215,16 @@ class Daemon:
             if reason:
                 log.info("kill list: blocked capture app=%s url=%s", app, url)
             STATE["capture"] = "killlist"
+            return
+
+        # Sites the user has said not to bother remembering. Checked here, after
+        # the URL is known and after every privacy guard above — so a kill-listed
+        # or private page is still handled as privacy, not quietly reclassified
+        # as noise. Same "don't bother" idea as excluded apps, which cannot reach
+        # a website: a video in a browser is app="Dia", so excluding it by app
+        # would exclude the whole browser.
+        if config.site_excluded(url, self.excluded_sites):
+            STATE["capture"] = "excluded"
             return
 
         if app != self.last_app:

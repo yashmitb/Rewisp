@@ -333,9 +333,29 @@ class Handler(BaseHTTPRequestHandler):
                     "GROUP BY app ORDER BY n DESC LIMIT 15").fetchall()
                 total = conn.execute(
                     "SELECT COUNT(*) FROM captures WHERE ts >= datetime('now','-30 days')").fetchone()[0]
+                # And the busiest SITES. An app row can never surface a noisy
+                # website — every site shares the browser's app name — so without
+                # this the one thing actually filling the database (a video that
+                # was 83% of a day) is invisible in Settings.
+                from urllib.parse import urlsplit
+                hosts: dict[str, int] = {}
+                for (u,) in conn.execute(
+                        "SELECT url FROM captures WHERE ts >= datetime('now','-30 days') "
+                        "AND url IS NOT NULL AND url != ''"):
+                    try:
+                        host = urlsplit(u).netloc.lower()
+                    except ValueError:
+                        continue
+                    if host.startswith("www."):
+                        host = host[4:]
+                    if host:
+                        hosts[host] = hosts.get(host, 0) + 1
+                top_sites = sorted(hosts.items(), key=lambda kv: -kv[1])[:15]
                 self._json({"total": total,
                             "apps": [{"app": a, "count": n} for a, n in rows],
-                            "excluded": sorted(config.excluded_apps())})
+                            "excluded": sorted(config.excluded_apps()),
+                            "sites": [{"site": s, "count": n} for s, n in top_sites],
+                            "excluded_sites": sorted(config.excluded_sites())})
             elif self.path.split("?")[0] == "/day-map":
                 # The day laid out by MEANING (embeddings) rather than by clock,
                 # with the time trace and the transition edges on top. ?date=

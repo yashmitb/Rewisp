@@ -82,6 +82,17 @@ DEFAULT_SETTINGS = {
     # name. Empty by default; the user adds their own (e.g. a game showing up as
     # "java" or "Lunar Client" that would otherwise flood the database).
     "excluded_apps": [],
+    # The same "don't bother" idea, for the web.
+    #
+    # excluded_apps matches the APP name, which cannot reach a noisy website: a
+    # video playing in a browser is app="Dia", so ignoring it would mean ignoring
+    # the whole browser. Live data made the gap obvious — one video accounted for
+    # 83% of a day's captures, and nothing in the app could exclude it. The kill
+    # list does match URLs, but that list is privacy ("don't dare") and its
+    # defaults can never be removed; this is noise ("don't bother"), entirely the
+    # user's own. Substring match against the lowercased URL, same as the kill
+    # list, so "youtube.com" covers the whole site and a full path covers one page.
+    "excluded_sites": [],
 }
 
 
@@ -89,6 +100,46 @@ def excluded_apps() -> set[str]:
     """Lowercased set of app names the user has chosen not to capture."""
     raw = load_settings().get("excluded_apps") or []
     return {str(a).strip().lower() for a in raw if str(a).strip()}
+
+
+def excluded_sites() -> list[str]:
+    """Lowercased URL substrings the user has chosen not to capture."""
+    raw = load_settings().get("excluded_sites") or []
+    return [str(s).strip().lower() for s in raw if str(s).strip()]
+
+
+def site_excluded(url: str | None, patterns: list[str] | None = None) -> bool:
+    """True when this URL is on the user's 'don't bother' list.
+
+    A bare domain matches the HOST, not the whole address. Plain substring
+    matching (what the kill list does) looked equivalent and is not: replayed
+    over 30 days of real URLs, "youtube.com" also caught
+    `accounts.google.com/v3/signin?continue=…m.youtube.com…` — a Google sign-in
+    page skipped because its redirect target happened to mention the site. Host
+    matching is a suffix rule, so "youtube.com" still covers www. and m.
+    subdomains without reaching into anyone's query string.
+
+    A pattern containing "/" is treated as a path prefix and still matches on the
+    full address, so "reddit.com/r/all" can ignore one corner of a site.
+    """
+    if not url:
+        return False
+    pats = excluded_sites() if patterns is None else patterns
+    if not pats:
+        return False
+    u = url.lower()
+    from urllib.parse import urlsplit
+    try:
+        host = urlsplit(u).netloc.split("@")[-1].split(":")[0]
+    except ValueError:
+        host = ""
+    for p in pats:
+        if "/" in p:
+            if p in u:                      # path pattern: match the whole URL
+                return True
+        elif host == p or host.endswith("." + p):
+            return True
+    return False
 
 # (browser support lives in browser.BROWSERS — Chromium family, Safari, Firefox title-only)
 

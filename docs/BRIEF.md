@@ -72,7 +72,7 @@ The Today tab leads with the day laid out by **meaning** — dots positioned fro
 
 ### Privacy
 - Kill list (apps + URL patterns), hot-reloadable, with incognito detection across Chromium + Safari.
-- **Excluded apps** — a separate "don't bother remembering this" list (games, media players) for noise rather than privacy. Settings surfaces your busiest apps of the last 30 days so ignoring one is a single tap. Empty by default.
+- **Excluded apps and sites** — a separate "don't bother remembering this" list for noise rather than privacy. Apps (games, media players) and, since v0.30, **sites** — the app list can't reach a website, since everything in a browser shares the browser's name. Settings surfaces your busiest apps *and* sites of the last 30 days so ignoring one is a single tap. Bare domains match the host (subdomains included, query strings not); paths match a corner of a site. Empty by default.
 - Credentials refused at Vault ingest. "Forget last 10 minutes" button.
 - Validated card numbers and SSNs stripped before storage, embedding, or index.
 

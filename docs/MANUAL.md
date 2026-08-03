@@ -385,6 +385,26 @@ nothing to clean up afterwards.
 
 Already-stored captures stay. Use **Forget 10 min** or let retention age them out.
 
+### Sites Rewisp ignores (new in 0.30)
+The same *"don't bother"* idea as **Apps Rewisp ignores**, for the web — and it
+exists because the app list can't reach a website. Everything you open in a
+browser shares the browser's name, so ignoring a video site by app would mean
+ignoring the entire browser.
+
+**Settings → Privacy → Sites Rewisp ignores.** The card lists your busiest sites
+of the last 30 days with capture counts, so silencing a noisy one is a single
+tap, and you can paste a full URL — Rewisp strips the `https://` and the `www.`
+for you.
+
+- A bare domain covers the whole site: `youtube.com` also covers `m.` and
+  `music.` subdomains.
+- A path covers just that corner: `reddit.com/r/all`.
+- It matches the **address of the page**, not text on it, so a search result that
+  merely mentions an ignored site is still remembered.
+
+Different from the kill list, which is about privacy and whose defaults can never
+be removed. This one is entirely yours, and empty by default.
+
 ### Browsers
 URL capture + the banking-site kill list work in **Dia, Chrome, Arc, Edge,
 Brave, Vivaldi, Opera** (Chromium AppleScript) and **Safari**. Incognito is
@@ -396,8 +416,12 @@ macOS automation consent prompt.
 ### Form assist
 Focused a form field, forgot the value? Hit ⌘⇧Space — the panel notices the
 field behind it ("You were in a 'Email' field") and offers **Find mine**, which
-looks it up in your Vault/history with a Copy button. Rewisp never types into
-or submits forms — you paste it yourself.
+looks it up in your Vault/history with a Copy button.
+
+On a full form, **Fill from Vault** writes your details straight into the page.
+Rewisp **never submits** — you always review and send it yourself — and it never
+fills passwords, card numbers, CVC, or SSNs, no matter what the Vault holds. If
+you'd rather paste by hand, every field still has its own Copy button.
 
 ### Connect to AI agents (MCP)
 Rewisp can hand its memory to **Claude Desktop, Claude Code, or any MCP client**
