@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.29.0, 2026-07-31):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~1,150 wisps/day, 27,600+ wisps). 371 tests. 56 releases (v0.1.0 → v0.29.0).
+**Current status (v0.30.0, 2026-08-02):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~1,150 wisps/day, 27,600+ wisps). 387 tests. 57 releases (v0.1.0 → v0.30.0).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,40 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.30.0 — the menu bar app stops burning your battery (2026-08-02)
+
+- **Fixed: 39.5% CPU, doing nothing.** Reported as "my computer says Rewisp is
+  using a lot of power", and it was — but not where you'd look. The capture
+  daemon, which OCRs a thousand screens a day, was sitting at 1.8%. The *menu bar
+  app* was at 39.5% and had burned **483 minutes of CPU** against the daemon's 54.
+  The cause was the day map shipped in v0.29.0: its animation ran inside
+  `TimelineView(.animation(minimumInterval: 1/60))`, which never stops. A `sample`
+  profile put the time in `sizeThatFits`, `StackLayout.placeChildren` and
+  `NSAttributedString.MetricsCache` — not in drawing. It was re-running the whole
+  card's SwiftUI **layout** sixty times a second, forever, to animate a twinkle
+  nobody could see and to keep a Slider label current while nothing moved.
+  Replaced with state advanced by a self-terminating task: the replay is still
+  clock-driven and smooth, the hover still responds, and an idle map now costs
+  exactly nothing. Four always-on timelines removed; the loading shimmer became a
+  GPU-side opacity animation instead of a 30fps layout pass.
+- **Sites Rewisp ignores.** The "don't bother remembering this" list could only
+  match an app name, and an app name cannot reach a website — everything in a
+  browser shares the browser's. Live data showed the hole plainly: `youtube.com`
+  was **3,783 captures over 30 days, 13.5% of everything stored**, and invisible in
+  a Settings card that lists apps, where it all appears as "Dia". Settings →
+  Privacy now has a sites list beside the apps one, fed by the same busiest-first
+  suggestions, and it accepts a pasted URL. Matching is on the **host**: substring
+  matching (what the kill list does) looked equivalent, but replayed over 16,805
+  real URLs it also caught a Google sign-in page whose redirect target mentioned
+  the site. A bare domain is a host suffix, so subdomains are covered and query
+  strings are not; a pattern with a `/` still matches the full address. Re-replayed:
+  3,790 skipped, zero wrong hosts. Runs after every privacy guard and reports
+  "excluded", not "killlist".
+- **Corrected a false claim in the manual.** It said "Rewisp never types into or
+  submits forms — you paste it yourself", while `form.write()` and `/form-write`
+  do fill fields. `BRIEF.md` had it right. Now states what the app actually does,
+  with the never-submits and never-passwords guarantees kept explicit.
 
 ## v0.29.0 — your day as a map, and threads that show their age (2026-07-31)
 

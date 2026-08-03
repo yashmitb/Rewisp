@@ -85,30 +85,45 @@ private func hue(_ cluster: Int) -> Color {
 struct DayMapCard: View {
     @State private var map: DayMap?
     @State private var loading = true
-    /// When the current replay started. Progress is derived from this against a
-    /// live clock rather than stored and animated — see `progress(now:)`.
-    @State private var replayStart: Date?
-    /// Non-nil while the user is driving the day by hand; takes over from replay.
-    @State private var scrub: Double?
+    @State private var loadingPulse = false
+    /// How much of the day is revealed, 0…1.
+    ///
+    /// Held as state and advanced by `replay()` only while a replay is actually
+    /// running. The previous version derived this from a live clock inside a
+    /// `TimelineView(.animation(minimumInterval: 1/60))`, which fixed the
+    /// original "replay finishes instantly" bug but replaced it with a much worse
+    /// one: that timeline never stopped. It re-ran the SwiftUI layout pass for
+    /// the whole card sixty times a second for as long as the window existed,
+    /// whether anything was moving or not. Measured on a real machine — the menu
+    /// bar app sat at 39.5% CPU and had burned 483 minutes, against 1.8% for the
+    /// capture daemon that actually does the work. A profile showed the time
+    /// going to `sizeThatFits`, `StackLayout.placeChildren` and text metrics, not
+    /// to drawing: it was re-laying-out a Slider and a label, forever, to animate
+    /// nothing.
+    ///
+    /// Now nothing ticks unless something is genuinely moving.
+    @State private var progress: Double = 1
+    @State private var replaying = false
     @State private var selected: DayMap.Node?
 
     private let replayDuration: TimeInterval = 3.4
 
     private var hasMap: Bool { (map?.nodes.count ?? 0) >= 2 }
 
-    /// How much of the day is revealed, at `now`.
-    ///
-    /// This is computed from a Date every frame instead of being held in
-    /// `@State` and animated, because `withAnimation { progress = 1 }` does NOT
-    /// walk the stored value from 0 to 1 — it assigns 1 immediately and animates
-    /// animatable view modifiers. A `Canvas` closure reads the stored value, so
-    /// it saw 1 on the very next frame and the replay "played" instantly. Deriving
-    /// it from the clock the TimelineView is already ticking makes the animation
-    /// real, and makes scrubbing and replaying share one definition of "when".
-    private func progress(now: Date) -> Double {
-        if let scrub { return scrub }
-        guard let replayStart else { return 1 }
-        return min(max(now.timeIntervalSince(replayStart) / replayDuration, 0), 1)
+    /// Walk `progress` to 1 off a clock, then stop. Clock-driven so the motion
+    /// stays smooth and honest about elapsed time; self-terminating so the cost
+    /// is bounded by the length of the animation rather than by uptime.
+    @MainActor private func replay() async {
+        replaying = true
+        let start = Date()
+        while replaying {
+            let p = min(Date().timeIntervalSince(start) / replayDuration, 1)
+            progress = p
+            if p >= 1 { break }
+            // ~60fps while playing. try? so a cancelled task just stops.
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+        replaying = false
     }
 
     var body: some View {
@@ -122,20 +137,13 @@ struct DayMapCard: View {
             if loading {
                 loadingState
             } else if hasMap, let m = map {
-                // Two clocks on purpose. The canvas wants every frame it can get;
-                // the controls do not, and rebuilding a Slider sixty times a
-                // second is both wasteful and a good way to make dragging it feel
-                // sticky. Fifteen is far more than the thumb needs to look live.
-                TimelineView(.animation(minimumInterval: 1 / 60)) { tl in
-                    ConstellationCanvas(map: m, progress: progress(now: tl.date)) {
-                        selected = $0
-                    }
+                // No timeline. The canvas redraws when `progress` or the hover
+                // state changes and at no other time, so an idle window costs
+                // exactly nothing.
+                ConstellationCanvas(map: m, progress: progress) { selected = $0 }
                     .frame(height: 296)
                     .background(sky)
-                }
-                TimelineView(.animation(minimumInterval: 1 / 15)) { tl in
-                    controls(m, progress: progress(now: tl.date))
-                }
+                controls(m, progress: progress)
 
                 Text("Placed by meaning — things you worked on together sit together, and the "
                      + "faint curves are places you kept bouncing between. Press replay to "
@@ -162,15 +170,22 @@ struct DayMapCard: View {
         .frame(maxWidth: .infinity, minHeight: 90, alignment: .leading)
     }
 
+    /// Loading placeholder.
+    ///
+    /// A repeating opacity animation, not a timeline: this one is handed to the
+    /// render server and costs nothing per frame on the main thread, where the
+    /// old 1/30 TimelineView re-ran layout thirty times a second to breathe a
+    /// rectangle.
     private var loadingState: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { tl in
-            let t = tl.date.timeIntervalSinceReferenceDate
-            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(.quaternary.opacity(0.16 + 0.05 * (0.5 + 0.5 * sin(t * 1.6))))
-                .frame(height: 296)
-                .overlay(Text("Reading your day…")
-                    .font(.caption).foregroundStyle(.tertiary))
-        }
+        RoundedRectangle(cornerRadius: 13, style: .continuous)
+            .fill(.quaternary.opacity(0.18))
+            .frame(height: 296)
+            .overlay(Text("Reading your day…")
+                .font(.caption).foregroundStyle(.tertiary))
+            .opacity(loadingPulse ? 1 : 0.75)
+            .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true),
+                       value: loadingPulse)
+            .onAppear { loadingPulse = true }
     }
 
     /// The field the map sits in — or rather, the absence of one.
@@ -194,9 +209,9 @@ struct DayMapCard: View {
     @ViewBuilder
     private func controls(_ m: DayMap, progress p: Double) -> some View {
         HStack(spacing: 12) {
-            Button { replay() } label: {
-                Label(p < 1 && scrub == nil ? "Playing" : "Replay",
-                      systemImage: p < 1 && scrub == nil ? "waveform" : "play.fill")
+            Button { Task { await replay() } } label: {
+                Label(replaying ? "Playing" : "Replay",
+                      systemImage: replaying ? "waveform" : "play.fill")
                     .font(.caption.weight(.semibold))
                     .contentTransition(.symbolEffect(.replace))
             }
@@ -208,7 +223,7 @@ struct DayMapCard: View {
             // Scrubbing is the reason this is a map and not a chart: dragging runs
             // your own attention forward and backward through the day.
             Slider(value: Binding(get: { p },
-                                  set: { v in scrub = v; replayStart = nil }),
+                                  set: { v in replaying = false; progress = v }),
                    in: 0...1)
                 .controlSize(.mini)
                 .tint(Theme.accent)
@@ -243,15 +258,19 @@ struct DayMapCard: View {
         m >= 60 ? String(format: "%dh %02dm", m / 60, m % 60) : "\(m)m"
     }
 
-    private func replay() {
-        scrub = nil
-        replayStart = Date()
-    }
+
 
     private func load() async {
         map = try? await RewispAPI.get("day-map", as: DayMap.self)
         loading = false
-        if hasMap { replayStart = Date().addingTimeInterval(0.25) }  // brief beat, then unspool
+        // One unspool when the card first appears, then it holds. A map that
+        // re-animates forever is a distraction next to the rest of Today, and
+        // it was the thing keeping the CPU awake.
+        if hasMap {
+            progress = 0
+            try? await Task.sleep(for: .milliseconds(250))
+            await replay()
+        }
     }
 }
 
@@ -272,17 +291,23 @@ struct ConstellationCanvas: View {
 
     var body: some View {
         GeometryReader { geo in
-            // One clock drives every ambient motion — twinkle, the comet, the
-            // pulse under the pointer — so it all stays in phase and costs one
-            // redraw rather than one per node.
-            TimelineView(.animation(minimumInterval: 1 / 60)) { tl in
-                let t = tl.date.timeIntervalSinceReferenceDate
+            // Plain Canvas, no clock.
+            //
+            // This used to sit inside TimelineView(.animation(1/60)) so the dots
+            // could twinkle and the nebulae breathe. Those effects were nearly
+            // invisible and they cost a full SwiftUI layout pass sixty times a
+            // second for as long as the window was open — the single reason the
+            // menu bar app was measured at 39.5% CPU while doing nothing. A
+            // Canvas only redraws when its inputs change, so an idle map is now
+            // free, and the motion that actually communicates something (the
+            // replay unspooling, the hover response) is driven by state changes.
+            Group {
                 Canvas { ctx, size in
                     let pts = Self.layout(map.nodes, in: size)
-                    drawNebulae(ctx, pts: pts, t: t)
+                    drawNebulae(ctx, pts: pts)
                     drawEdges(ctx, pts: pts)
-                    drawTrace(ctx, pts: pts, t: t)
-                    drawNodes(ctx, pts: pts, t: t)
+                    drawTrace(ctx, pts: pts)
+                    drawNodes(ctx, pts: pts)
                     drawLabels(ctx, size: size, pts: pts)
                 }
             }
@@ -355,7 +380,7 @@ struct ConstellationCanvas: View {
 
     // MARK: drawing
 
-    private func drawNebulae(_ ctx: GraphicsContext, pts: [Int: CGPoint], t: TimeInterval) {
+    private func drawNebulae(_ ctx: GraphicsContext, pts: [Int: CGPoint]) {
         var groups: [Int: [CGPoint]] = [:]
         for n in map.nodes where isRevealed(n.id) {
             if let p = pts[n.id] { groups[n.cluster, default: []].append(p) }
@@ -364,8 +389,7 @@ struct ConstellationCanvas: View {
             let cx = points.map(\.x).reduce(0, +) / CGFloat(points.count)
             let cy = points.map(\.y).reduce(0, +) / CGFloat(points.count)
             let spread = points.map { hypot($0.x - cx, $0.y - cy) }.max() ?? 40
-            let breathe = 1 + 0.05 * sin(t * 0.5 + Double(cluster) * 1.7)
-            let r = (spread + 34) * breathe
+            let r = spread + 34
             ctx.fill(Circle().path(in: CGRect(x: cx - r, y: cy - r, width: r * 2, height: r * 2)),
                      with: .radialGradient(
                         Gradient(colors: [hue(cluster).opacity(0.085), .clear]),
@@ -425,7 +449,7 @@ struct ConstellationCanvas: View {
     /// The order you moved. Drawn twice — a wide soft pass and a thin bright one —
     /// so it separates from the faint edge tangle underneath instead of getting
     /// lost in it.
-    private func drawTrace(_ ctx: GraphicsContext, pts: [Int: CGPoint], t: TimeInterval) {
+    private func drawTrace(_ ctx: GraphicsContext, pts: [Int: CGPoint]) {
         guard map.trace.count >= 2 else { return }
         let exact = progress * Double(map.trace.count - 1)
         let shown = Int(exact)
@@ -479,8 +503,7 @@ struct ConstellationCanvas: View {
         }
 
         if progress < 0.999, let head {
-            let pulse = 1 + 0.22 * sin(t * 5)
-            for (r, o) in [(12.0 * pulse, 0.20), (6.5 * pulse, 0.38), (2.8, 1.0)] {
+            for (r, o) in [(12.0, 0.20), (6.5, 0.38), (2.8, 1.0)] {
                 ctx.fill(Circle().path(in: CGRect(x: head.x - r, y: head.y - r,
                                                   width: r * 2, height: r * 2)),
                          with: .color(.white.opacity(o)))
@@ -488,7 +511,7 @@ struct ConstellationCanvas: View {
         }
     }
 
-    private func drawNodes(_ ctx: GraphicsContext, pts: [Int: CGPoint], t: TimeInterval) {
+    private func drawNodes(_ ctx: GraphicsContext, pts: [Int: CGPoint]) {
         // Biggest last, so the places that held the day sit on top.
         for n in map.nodes.sorted(by: { $0.minutes < $1.minutes }) {
             guard let p = pts[n.id], isRevealed(n.id) else { continue }
@@ -496,8 +519,7 @@ struct ConstellationCanvas: View {
             let entry = 0.35 + 0.65 * Self.easeOutBack(max(age, 0))
             let isHot = hovered == n.id
             let isDown = pressed == n.id
-            let twinkle = 1 + 0.045 * sin(t * 1.3 + Double(n.id) * 2.1)
-            let r = radius(n) * entry * twinkle * (isHot ? 1.22 : 1) * (isDown ? 0.88 : 1)
+            let r = radius(n) * entry * (isHot ? 1.22 : 1) * (isDown ? 0.88 : 1)
             let c = hue(n.cluster)
             // Same reasoning as the labels: 0.3 made the unhovered map look
             // broken rather than out of focus.
@@ -665,6 +687,7 @@ struct ReinstateSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var moment: Moment?
     @State private var loading = true
+    @State private var loadingPulse = false
     @State private var appeared = false
 
     var body: some View {
