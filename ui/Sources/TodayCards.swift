@@ -106,6 +106,14 @@ struct LooseThreadsCard: View {
 
     @State private var dismissedKeys: Set<String> = []
     @State private var appeared = false
+    /// The last thread cleared, kept just long enough to offer it back.
+    ///
+    /// Dismissal is keyed on meaning so it survives the digest rewording a
+    /// thread overnight — which also means a mis-click has nothing you could
+    /// type to undo it. Without this the only recovery was hoping the digest
+    /// eventually described it differently enough to slip past the match.
+    @State private var undoable: RewispAPI.ThreadItem?
+    @State private var undoTask: Task<Void, Never>?
 
     private var items: [RewispAPI.ThreadItem] {
         (threads.items ?? []).filter { !dismissedKeys.contains($0.key) }
@@ -144,6 +152,25 @@ struct LooseThreadsCard: View {
                     }
                 }
 
+                if let u = undoable {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text("Cleared “\(u.text.prefix(38))\(u.text.count > 38 ? "…" : "")”")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Spacer()
+                        Button("Undo") { undo(u) }
+                            .buttonStyle(.plain)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Theme.accent)
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .background(.quaternary.opacity(0.3),
+                                in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+
                 if let d = threads.date {
                     Text("from the \(d) digest")
                         .font(.caption2).foregroundStyle(.tertiary)
@@ -168,9 +195,30 @@ struct LooseThreadsCard: View {
     private func dismiss(_ item: RewispAPI.ThreadItem) {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             _ = dismissedKeys.insert(item.key)
+            undoable = item
         }
         Task {
             try? await RewispAPI.post("thread/dismiss", body: ["text": item.text])
+            onChange()
+        }
+        // The offer expires on its own — a permanent undo row would be one more
+        // thing on a page that is meant to be scanned.
+        undoTask?.cancel()
+        undoTask = Task {
+            try? await Task.sleep(for: .seconds(8))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { undoable = nil }
+        }
+    }
+
+    private func undo(_ item: RewispAPI.ThreadItem) {
+        undoTask?.cancel()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            dismissedKeys.remove(item.key)
+            undoable = nil
+        }
+        Task {
+            try? await RewispAPI.post("thread/restore", body: ["text": item.text])
             onChange()
         }
     }

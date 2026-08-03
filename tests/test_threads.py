@@ -107,6 +107,34 @@ class TestDismissal:
                  "- Gmail opened and scanned but nothing answered, still unanswered")
         assert threads.open_threads(conn) == []
 
+
+    def test_undo_brings_a_dismissed_thread_back(self, conn):
+        _summary(conn, "2026-07-28", "- Gmail inbox untouched, nothing answered")
+        threads.dismiss(conn, "Gmail inbox untouched, nothing answered")
+        assert threads.open_threads(conn) == []
+        assert threads.restore(conn, "Gmail inbox untouched, nothing answered")
+        assert len(threads.open_threads(conn)) == 1
+
+    def test_undo_works_from_a_rewording_too(self, conn):
+        # The key is content words, so undo has to match the same way dismissal
+        # did — otherwise the button works only if you re-type it exactly.
+        _summary(conn, "2026-07-28", "- Gmail inbox untouched, nothing answered")
+        threads.dismiss(conn, "Gmail inbox untouched, nothing answered")
+        assert threads.restore(conn, "Gmail opened but nothing was answered")
+        assert len(threads.open_threads(conn)) == 1
+
+    def test_undoing_something_never_dismissed_is_a_no_op(self, conn):
+        assert threads.restore(conn, "a thread nobody ever dismissed") is False
+
+    def test_undo_leaves_other_dismissals_alone(self, conn):
+        _summary(conn, "2026-07-28", "- Gmail inbox untouched, nothing answered\n"
+                                     "- Projector research has no decision yet")
+        threads.dismiss(conn, "Gmail inbox untouched, nothing answered")
+        threads.dismiss(conn, "Projector research has no decision yet")
+        threads.restore(conn, "Gmail inbox untouched, nothing answered")
+        rest = threads.open_threads(conn)
+        assert len(rest) == 1 and "Gmail" in rest[0]["text"]
+
     def test_dismissing_one_leaves_the_others(self, conn):
         _summary(conn, "2026-07-28", "- Gmail inbox untouched, nothing answered\n"
                                      "- Projector research has no decision yet")

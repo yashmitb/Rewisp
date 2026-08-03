@@ -536,6 +536,14 @@ class Handler(BaseHTTPRequestHandler):
                 if not text:
                     return self._json({"error": "text required"}, 400)
                 self._json({"ok": True, "key": _threads.dismiss(conn, text)})
+            elif self.path == "/thread/restore":
+                # Undo. Dismissal is keyed on meaning, so without this a
+                # mis-click is unrecoverable — there is no wording to search for.
+                from . import threads as _threads
+                text = (body.get("text") or "").strip()
+                if not text:
+                    return self._json({"error": "text required"}, 400)
+                self._json({"ok": True, "restored": _threads.restore(conn, text)})
             elif self.path == "/precog/tapped":
                 from . import precog
                 precog.mark_tapped(conn, body.get("text", ""))

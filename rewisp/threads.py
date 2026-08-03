@@ -135,6 +135,33 @@ def dismiss(conn, text: str) -> str:
     return k
 
 
+def restore(conn, text: str) -> bool:
+    """Undo a dismissal.
+
+    Dismissal is keyed on meaning rather than wording, which is what makes it
+    survive the digest rewriting a thread every night — and also what makes a
+    mis-click expensive, because there is no wording to search for to get it
+    back. Undo removes the key outright, so the thread reappears on the next
+    read. Returns whether anything was actually undone.
+    """
+    _ensure_table(conn)
+    # Match the way dismissal is APPLIED, not the way it was written. A key is
+    # the exact stemmed word set, so deleting by key only works when undo is
+    # handed back the identical sentence. Dismissal itself blocks by fuzzy
+    # overlap, which means tomorrow's rewording of a thread stays hidden — and
+    # an exact-key undo could never reach it, leaving the thread permanently
+    # gone with nothing to type to get it back.
+    w = _words(text)
+    gone = [k for (k,) in conn.execute("SELECT key FROM thread_state WHERE status='dismissed'")
+            if _same(w, set(k.split()))]
+    if not gone:
+        return False
+    conn.executemany("DELETE FROM thread_state WHERE key = ?", [(k,) for k in gone])
+    conn.commit()
+    log.info("threads: restored %d dismissed thread(s)", len(gone))
+    return True
+
+
 def dismissed_keys(conn) -> list[set[str]]:
     _ensure_table(conn)
     return [set(k.split()) for (k,) in

@@ -243,3 +243,91 @@ def main(args: list[str]) -> None:
 
 if __name__ == "__main__":
     main(sys.argv[1:])
+
+
+# ── OCR shadow A/B verdict ───────────────────────────────────────────────────
+#
+# The macOS 26 document recogniser has been implemented, signed and shipped
+# switched off since v0.25, together with a shadow mode that runs BOTH engines on
+# every capture and logs metrics (never screen text). What never existed was the
+# thing that turns that log into a decision, so the comparison was never run and
+# the faster engine sat unused behind an env var.
+#
+# Usage:
+#   REWISP_OCR_SHADOW=1  (restart the daemon, browse normally for a while)
+#   python3 -m rewisp ocr-ab
+
+def ocr_ab(limit: int = 0) -> dict:
+    """Summarise ~/Rewisp/ocr_ab.jsonl into a recommendation."""
+    import json as _json
+    from . import config
+
+    path = config.OCR_AB_LOG
+    if not path.exists():
+        return {"records": 0,
+                "verdict": "No A/B log yet. Set REWISP_OCR_SHADOW=1 for the daemon, "
+                           "restart it, use your Mac normally for an hour, then re-run."}
+    rows = []
+    for line in path.read_text().splitlines():
+        try:
+            rows.append(_json.loads(line))
+        except ValueError:
+            continue
+    if limit:
+        rows = rows[-limit:]
+    ok = [r for r in rows if r.get("swift_ok")]
+    if not ok:
+        return {"records": len(rows),
+                "verdict": "The document engine never returned anything — it needs "
+                           "macOS 26 and the bundled rewisp-ocr helper. Keep the "
+                           "tiled path."}
+
+    def mean(key):
+        vals = [r.get(key, 0) or 0 for r in ok]
+        return sum(vals) / max(len(vals), 1)
+
+    out = {
+        "records": len(rows),
+        "comparable": len(ok),
+        "helper_failed": len(rows) - len(ok),
+        "chars":   {"tiled": round(mean("tiled_chars")),   "swift": round(mean("swift_chars"))},
+        "lines":   {"tiled": round(mean("tiled_lines"), 1), "swift": round(mean("swift_lines"), 1)},
+        "doubled": {"tiled": round(mean("tiled_doubled"), 2), "swift": round(mean("swift_doubled"), 2)},
+        "ms":      {"tiled": round(mean("tiled_ms")),      "swift": round(mean("swift_ms"))},
+        "overlap": round(mean("overlap"), 3),
+    }
+    # A recommendation, with the reasoning stated — the point is to decide, and a
+    # table of numbers is what let this sit undecided for five releases.
+    reasons = []
+    faster = out["ms"]["swift"] < out["ms"]["tiled"] * 0.9
+    # Strictly better, not merely equal — a tie on every metric is not a reason
+    # to change the engine that reads every screen you will ever see.
+    cleaner = out["doubled"]["swift"] < out["doubled"]["tiled"]
+    worse_doubling = out["doubled"]["swift"] > out["doubled"]["tiled"] * 1.5
+    # Recall is the one that must not regress: a faster engine that reads less of
+    # the screen makes every future answer worse, and silently.
+    keeps_text = out["chars"]["swift"] >= out["chars"]["tiled"] * 0.95
+    agrees = out["overlap"] >= 0.85
+
+    if faster:
+        reasons.append(f"{out['ms']['tiled'] / max(out['ms']['swift'], 1):.1f}x faster")
+    if cleaner:
+        reasons.append("no more doubling")
+    if not keeps_text:
+        reasons.append(f"reads {100 * (1 - out['chars']['swift'] / max(out['chars']['tiled'], 1)):.0f}% LESS text")
+    if not agrees:
+        reasons.append(f"only {out['overlap']:.0%} word overlap — the engines disagree about content")
+
+    if worse_doubling:
+        reasons.append(f"doubles words {out['doubled']['swift'] / max(out['doubled']['tiled'], 0.01):.1f}x more")
+    if keeps_text and agrees and not worse_doubling and (faster or cleaner):
+        out["verdict"] = ("SWITCH IT ON — set OCR_USE_DOCUMENTS = True in config.py. "
+                          + ", ".join(reasons))
+    elif not keeps_text or not agrees or worse_doubling:
+        out["verdict"] = "KEEP THE TILED PATH — " + ", ".join(reasons)
+    else:
+        out["verdict"] = "No clear win. Keep the tiled path; nothing to gain."
+    if out["comparable"] < 100:
+        out["verdict"] += (f"  (only {out['comparable']} comparable captures — "
+                           "collect a few hundred before trusting this)")
+    return out

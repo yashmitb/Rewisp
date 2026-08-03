@@ -1,4 +1,4 @@
-"""CLI: python3 -m rewisp [daemon|once|pause|resume|status|search <q>|ask <q>|bench [q...]|digest [--force]|vault|memory|export|report|embed-backfill|dream]"""
+"""CLI: python3 -m rewisp [daemon|once|pause|resume|status|search <q>|ask <q>|bench [q...]|ocr-ab|digest [--force]|vault|memory|export|report|embed-backfill|dream]"""
 
 import sys
 
@@ -118,6 +118,17 @@ def main():
         for app, m in list(r["totals"].items())[:12]:
             if m > 0:
                 print(f"  {app:<24} {m:>5}  {'█' * min(m // 15, 40)}")
+    elif cmd == "ocr-ab":
+        from . import bench
+        r = bench.ocr_ab()
+        if r.get("comparable"):
+            print(f"{r['comparable']} comparable captures "
+                  f"({r['helper_failed']} where the helper didn't answer)\n")
+            for k in ("chars", "lines", "doubled", "ms"):
+                a, b = r[k]["tiled"], r[k]["swift"]
+                print(f"  {k:<9} tiled {a:>8}   document {b:>8}")
+            print(f"  {'overlap':<9} {r['overlap']:>8}   (1.0 = identical words)\n")
+        print(r["verdict"])
     elif cmd == "bench":
         from . import bench
         bench.main(args[1:])
