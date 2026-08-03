@@ -82,6 +82,10 @@ DEFAULT_SETTINGS = {
     # name. Empty by default; the user adds their own (e.g. a game showing up as
     # "java" or "Lunar Client" that would otherwise flood the database).
     "excluded_apps": [],
+    # Personas: which "you" a value belongs to. The persona listed first when a
+    # question has several answers, and the default Copy value. Personal because
+    # most forms anyone fills are shopping and accounts.
+    "persona_primary": "personal",
     # The same "don't bother" idea, for the web.
     #
     # excluded_apps matches the APP name, which cannot reach a noisy website: a

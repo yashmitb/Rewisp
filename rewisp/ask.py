@@ -174,9 +174,14 @@ FACT_KEYWORDS = {
 }
 
 
-def vault_fact(conn, question: str) -> dict | None:
+def vault_fact(conn, question: str, rows=None) -> dict | None:
     """Deterministic lookup: 'what is my phone number' -> value from a Vault
-    file. Returns {answer, source, copy_text} or None (then the model runs)."""
+    file. Returns {answer, source, copy_text} or None (then the model runs).
+
+    `rows` lets a caller narrow the search to a subset of Vault files — how
+    personas ask the same question of one identity at a time without any of this
+    extraction logic being written twice.
+    """
     q = question.lower()
     if "my" not in q:
         return None
@@ -187,7 +192,8 @@ def vault_fact(conn, question: str) -> dict | None:
         vault.reindex(conn)
     except Exception:
         pass
-    rows = conn.execute("SELECT path, content FROM vault_files").fetchall()
+    if rows is None:
+        rows = conn.execute("SELECT path, content FROM vault_files").fetchall()
     kind = next((k for k, words in FACT_KEYWORDS.items()
                  if any(w in q for w in words)), None)
     if kind is None:
