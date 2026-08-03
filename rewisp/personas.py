@@ -28,6 +28,7 @@ Fully local. No model call: this is folders, string matching, and a lookup table
 """
 
 import logging
+import pathlib
 import re
 from urllib.parse import urlsplit
 
@@ -79,6 +80,8 @@ def known_personas(conn=None, paths: list[str] | None = None) -> list[str]:
     again — see values_for, where re-querying between calls was a real bug.
     """
     if paths is None:
+        if conn is None:
+            return []
         paths = [p for (p,) in conn.execute("SELECT path FROM vault_files")]
     found = {name for p in paths if (name := persona_of(p))}
     prim = primary()
@@ -88,15 +91,32 @@ def known_personas(conn=None, paths: list[str] | None = None) -> list[str]:
     return out
 
 
+def clean_name(name: str) -> str:
+    """A persona name that is safe to use as a folder.
+
+    This is a security boundary, not tidiness. apply_split joins the name onto
+    the Vault path, so an unsanitised "../../../tmp/evil" resolved outside the
+    Vault entirely and would have moved identity documents there. Stripped to
+    a single harmless path segment.
+    """
+    return re.sub(r"[^a-z0-9_-]", "", str(name or "").strip().lower())[:30]
+
+
 def label_for(name: str) -> str:
     return KNOWN.get(name, {}).get("label") or name.replace("-", " ").title()
 
 
-def _rows_for(rows, persona: str | None):
-    """Partition preloaded Vault rows for one persona. Shared (top-level) files
-    come last so a persona's own answer always wins over the common one."""
+def _rows_for(rows, persona: str | None, shared: bool = True):
+    """Partition preloaded Vault rows for one persona.
+
+    `shared=False` restricts to the persona's own files, which is what makes it
+    possible to say truthfully whose value something is. With shared included
+    they come last, so a persona's own answer still wins over the common one —
+    that ordering is what autofill wants, where falling back to the shared value
+    is better than filling nothing.
+    """
     own = [r for r in rows if persona_of(r[0]) == persona]
-    if persona is None:
+    if persona is None or not shared:
         return own
     return own + [r for r in rows if persona_of(r[0]) is None]
 
@@ -122,18 +142,33 @@ def values_for(conn, question: str) -> list[dict]:
     rows = conn.execute("SELECT path, content FROM vault_files").fetchall()
     out: list[dict] = []
     seen: set[str] = set()
+
+    # Each persona is asked about its OWN files only.
+    #
+    # The first version searched a persona's files PLUS the shared ones and
+    # de-duplicated by answer, which quietly credited a shared value to whoever
+    # happened to be listed first: a phone number that belongs to everybody
+    # showed up labelled "Personal", and had the order differed it would have
+    # been labelled "School". Both are wrong, and a persona feature that
+    # mislabels whose value something is has failed at its one job. Shared
+    # values are now asked for separately and labelled as shared.
     for name in known_personas(paths=[r[0] for r in rows]):
-        hit = ask.vault_fact(conn, question, rows=_rows_for(rows, name))
+        hit = ask.vault_fact(conn, question, rows=_rows_for(rows, name, shared=False))
         if not hit:
             continue
         answer = (hit.get("copy_text") or hit.get("answer") or "").strip()
-        # A value that comes from a shared file is the same fact for everyone —
-        # listing it once per persona would be noise pretending to be choice.
         if not answer or answer.lower() in seen:
             continue
         seen.add(answer.lower())
-        out.append({"persona": name, "label": label_for(name),
+        out.append({"persona": name, "label": label_for(name), "shared": False,
                     "answer": answer, "source": hit.get("source")})
+
+    shared = ask.vault_fact(conn, question, rows=_rows_for(rows, None))
+    if shared:
+        answer = (shared.get("copy_text") or shared.get("answer") or "").strip()
+        if answer and answer.lower() not in seen:
+            out.append({"persona": None, "label": "Everyone", "shared": True,
+                        "answer": answer, "source": shared.get("source")})
     return out
 
 
@@ -152,11 +187,12 @@ def host_of(url: str | None) -> str:
 
 
 def _ensure_table(conn) -> None:
+    # No commit: CREATE TABLE autocommits in SQLite, and committing here ran a
+    # write on every autofill lookup, which is a read.
     conn.execute("""CREATE TABLE IF NOT EXISTS site_persona (
         site TEXT PRIMARY KEY,      -- bare host, or 'app::<name>' for native apps
         persona TEXT,
         updated_at TEXT)""")
-    conn.commit()
 
 
 def site_key(url: str | None, app: str | None = None) -> str:
@@ -217,6 +253,16 @@ def all_sites(conn) -> list[dict]:
 
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 
+# Documents that belong to every persona no matter whose address is printed on
+# them. Caught by a dry run against a real Vault, which wanted to file a resume,
+# a portfolio and a transcript as School-only because they carry a .edu address.
+# They do — as contact information. A resume is a resume: you send it from
+# whichever identity you like, and locking it to one would mean the others
+# silently stop being able to answer from it.
+_SHARED_DOC = re.compile(
+    r"\b(resume|cv|curriculum[ _-]?vitae|transcript|portfolio|links|"
+    r"diploma|certificate|reference[s]?|cover[ _-]?letter)\b", re.I)
+
 # Only the signals strong enough to propose out loud. Everything else is left to
 # the user, because a wrong guess here files a document under the wrong identity
 # and then quietly answers from it forever.
@@ -225,9 +271,24 @@ _HINTS = [
     (re.compile(r"\b(ucsd|university|campus|student\s*id|transcript|canvas)\b", re.I), "school"),
     (re.compile(r"@(gmail|yahoo|outlook|hotmail|icloud|proton)\.", re.I), "personal"),
     (re.compile(r"\busers\.noreply\.github\.com\b", re.I), "rewisp"),
-    (re.compile(r"\b(rewisp|product hunt|producthunt)\b", re.I), "rewisp"),
-    (re.compile(r"\b(invoice|client|contract|freelance|llc|consult)\w*\b", re.I), "work"),
+    # Deliberately NOT matching the word "rewisp" or "client" in file contents:
+    # a portfolio that mentions the project is not a Rewisp-identity document,
+    # and "client" appears in "Lunar Client". A hint that fires on a passing
+    # mention files the wrong identity and then answers as the wrong person.
+    (re.compile(r"\b(invoice|contract|freelance|llc|consulting)\b", re.I), "work"),
 ]
+
+
+def _persona_of_email(addr: str) -> str | None:
+    """Which persona an address belongs to, by domain. None when it says nothing."""
+    a = addr.lower()
+    if re.search(r"\.edu$|\.edu\b", a):
+        return "school"
+    if "users.noreply.github.com" in a:
+        return "rewisp"
+    if re.search(r"@(gmail|yahoo|outlook|hotmail|icloud|proton(mail)?)\.", a):
+        return "personal"
+    return None
 
 
 def propose_split(conn) -> list[dict]:
@@ -236,28 +297,59 @@ def propose_split(conn) -> list[dict]:
     Deliberately a *proposal*. Nothing is moved: filing someone's identity
     documents into the wrong bucket, unasked, would be both wrong and invisible
     — the file would simply start answering as the wrong person. Every suggestion
-    carries the evidence that produced it so the user can judge it in one glance.
+    carries the evidence that produced it so the user can judge it at a glance.
+
+    The decision is driven by ADDRESSES first, because an address is the one
+    thing in these files that names an identity unambiguously. Counting regex
+    hits instead was the earlier mistake: two different patterns both matched the
+    same .edu address, so a file holding a school address AND a personal one
+    scored 2-1 for school and got confidently misfiled. If the addresses in a
+    file point at more than one persona, the file is ambiguous and gets no
+    suggestion at all — that is the honest answer, and the user can file it in
+    two seconds.
     """
     out: list[dict] = []
     for path, content in conn.execute("SELECT path, content FROM vault_files"):
         if persona_of(path):
             continue                       # already filed
-        votes: dict[str, list[str]] = {}
-        for pattern, name in _HINTS:
-            m = pattern.search(content or "")
-            if m:
-                votes.setdefault(name, []).append(m.group(0).strip()[:60])
-        if not votes:
-            continue
-        best = max(votes, key=lambda k: len(votes[k]))
+        # Underscores and hyphens are word characters, so a bare \b pattern
+        # never matched "College_Resume" — normalise them to spaces first. And
+        # check the opening of the document too: "latestcollegetrans.pdf" says
+        # nothing in its name and "Transcript" in its first line.
+        stem = re.sub(r"[_\-]+", " ", pathlib.PurePath(path).stem)
+        if _SHARED_DOC.search(stem) or _SHARED_DOC.search((content or "")[:300]):
+            continue                       # a resume is a resume
+        text = content or ""
+        emails = sorted({e for e in _EMAIL.findall(text)})
+        from_email = {p for e in emails if (p := _persona_of_email(e))}
+        if len(from_email) > 1:
+            continue                       # two identities in one file: ambiguous
+        if len(from_email) == 1:
+            best = next(iter(from_email))
+            evidence = [e for e in emails if _persona_of_email(e) == best][:3]
+        else:
+            # No address to go on. Fall back to keywords, and only when one
+            # persona clearly leads — a tie is a coin flip dressed as advice.
+            votes: dict[str, set[str]] = {}
+            for pattern, name in _HINTS:
+                for m in pattern.findall(text):
+                    votes.setdefault(name, set()).add(
+                        (m if isinstance(m, str) else m[0]).strip()[:60])
+            if not votes:
+                continue
+            ranked = sorted(votes, key=lambda k: -len(votes[k]))
+            best = ranked[0]
+            if len(ranked) > 1 and len(votes[ranked[1]]) == len(votes[best]):
+                continue
+            evidence = sorted(votes[best])[:3]
         out.append({
             "path": path,
             "suggested": best,
             "label": label_for(best),
-            # What convinced it. A proposal you can't check is a proposal you
-            # can only accept on faith.
-            "evidence": votes[best][:3],
-            "emails": sorted({e for e in _EMAIL.findall(content or "")})[:4],
+            # What convinced it. A proposal you cannot check is one you can only
+            # accept on faith.
+            "evidence": evidence,
+            "emails": emails[:4],
         })
     return out
 
@@ -274,21 +366,27 @@ def apply_split(conn, moves: list[dict]) -> dict:
     moved, failed = [], []
     for m in moves:
         rel = str(m.get("path") or "")
-        name = str(m.get("persona") or "").strip().lower()
+        name = clean_name(m.get("persona"))
         if not rel or not name or persona_of(rel):
             continue
+        root = config.VAULT_DIR.resolve()
         src = (config.VAULT_DIR / rel).resolve()
         # Same guard as /vault/delete: stay inside the Vault, no traversal.
-        if not src.is_file() or src.parent != config.VAULT_DIR.resolve():
+        if not src.is_file() or src.parent != root:
             failed.append(rel)
             continue
-        dest_dir = config.VAULT_DIR / name
-        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_dir = (config.VAULT_DIR / name).resolve()
+        # Belt and braces on top of clean_name: whatever the name turned out to
+        # be, the destination has to sit directly inside the Vault.
+        if dest_dir.parent != root:
+            failed.append(rel)
+            continue
         dest = dest_dir / src.name
         if dest.exists():
             failed.append(rel)
             continue
         try:
+            dest_dir.mkdir(parents=True, exist_ok=True)
             shutil.move(str(src), str(dest))
             moved.append(f"{name}/{src.name}")
         except OSError:
@@ -306,7 +404,7 @@ def ensure_folders(conn, names: list[str]) -> list[str]:
     from . import config
     made = []
     for n in names:
-        clean = re.sub(r"[^a-z0-9_-]", "", str(n).strip().lower())[:30]
+        clean = clean_name(n)
         if not clean:
             continue
         d = config.VAULT_DIR / clean

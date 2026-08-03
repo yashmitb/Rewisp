@@ -138,3 +138,143 @@ class TestProposedSplit:
         # under the wrong person and then answers from it forever.
         vault_dir("notes.md", "Remember to water the plants")
         assert personas.propose_split(conn) == []
+
+
+class TestFilingFilesIsSafe:
+    """apply_split MOVES the user's identity documents. It had no tests at all."""
+
+    def test_a_persona_name_cannot_escape_the_vault(self, conn, vault_dir, tmp_path):
+        # The one that mattered: '../../../tmp/evil' resolved outside the Vault
+        # entirely, so approving a split could have relocated identity documents
+        # anywhere the user could write.
+        vault_dir("info.md", "Email: me@gmail.com")
+        outside = tmp_path / "evil"
+        res = personas.apply_split(conn, [{"path": "info.md", "persona": "../../evil"}])
+        assert not outside.exists()
+        assert (config.VAULT_DIR / "info.md").exists() or res["moved"]
+        for moved in res["moved"]:
+            assert (config.VAULT_DIR / moved).resolve().is_relative_to(
+                config.VAULT_DIR.resolve())
+
+    def test_an_absolute_persona_name_is_neutered(self, conn, vault_dir):
+        vault_dir("info.md", "Email: me@gmail.com")
+        personas.apply_split(conn, [{"path": "/etc/passwd", "persona": "personal"}])
+        assert not (config.VAULT_DIR / "personal" / "passwd").exists()
+
+    def test_a_path_outside_the_vault_is_refused(self, conn, vault_dir):
+        vault_dir("info.md", "x")
+        res = personas.apply_split(conn, [{"path": "../../secrets.md", "persona": "work"}])
+        assert res["moved"] == []
+
+    def test_an_approved_file_is_moved_and_reindexed(self, conn, vault_dir):
+        vault_dir("info.md", "Email: me@ucsd.edu")
+        res = personas.apply_split(conn, [{"path": "info.md", "persona": "school"}])
+        assert res["moved"] == ["school/info.md"]
+        assert (config.VAULT_DIR / "school" / "info.md").is_file()
+        assert not (config.VAULT_DIR / "info.md").exists()
+        # The index keys on path, so a move that isn't reindexed keeps answering
+        # as a shared file.
+        paths = [p for (p,) in conn.execute("SELECT path FROM vault_files")]
+        assert "school/info.md" in paths and "info.md" not in paths
+
+    def test_only_approved_files_move(self, conn, vault_dir):
+        vault_dir("a.md", "Email: me@ucsd.edu")
+        vault_dir("b.md", "Email: me@gmail.com")
+        personas.apply_split(conn, [{"path": "a.md", "persona": "school"}])
+        assert (config.VAULT_DIR / "b.md").is_file()
+
+    def test_an_already_filed_file_is_left_alone(self, conn, vault_dir):
+        vault_dir("school/info.md", "Email: me@ucsd.edu")
+        res = personas.apply_split(conn, [{"path": "school/info.md", "persona": "work"}])
+        assert res["moved"] == []
+        assert (config.VAULT_DIR / "school" / "info.md").is_file()
+
+    def test_a_name_collision_fails_rather_than_overwriting(self, conn, vault_dir):
+        vault_dir("school/info.md", "Email: school@ucsd.edu")
+        vault_dir("info.md", "Email: other@gmail.com")
+        res = personas.apply_split(conn, [{"path": "info.md", "persona": "school"}])
+        assert res["failed"] == ["info.md"]
+        assert (config.VAULT_DIR / "school" / "info.md").read_text().startswith("Email: school@")
+
+    def test_empty_persona_name_is_ignored(self, conn, vault_dir):
+        vault_dir("info.md", "x")
+        assert personas.apply_split(conn, [{"path": "info.md", "persona": "   "}])["moved"] == []
+
+    def test_ensure_folders_only_creates_safe_names(self, conn, vault_dir):
+        vault_dir("info.md", "x")
+        made = personas.ensure_folders(conn, ["school", "../escape", "Work"])
+        assert "school" in made and "work" in made
+        assert (config.VAULT_DIR / "school").is_dir()
+        for d in config.VAULT_DIR.iterdir():
+            assert d.resolve().parent == config.VAULT_DIR.resolve()
+
+
+class TestHonestLabelling:
+    def test_a_shared_value_is_labelled_shared_not_a_persona(self, conn, vault_dir):
+        # A phone in a top-level file belongs to everyone. Crediting it to
+        # whichever persona sorted first was the bug: the label flipped with the
+        # ordering, and both answers were wrong.
+        vault_dir("shared.md", "Phone: (555) 123-4567")
+        vault_dir("school/info.md", "Email: me@ucsd.edu")
+        vals = personas.values_for(conn, "what is my phone number")
+        assert len(vals) == 1
+        assert vals[0]["shared"] is True
+        assert vals[0]["persona"] is None
+
+    def test_a_persona_value_is_not_marked_shared(self, vaulted):
+        vals = personas.values_for(vaulted, "what is my email")
+        assert all(v["shared"] is False for v in vals if v["persona"])
+
+    def test_a_persona_without_its_own_value_does_not_claim_the_shared_one(self, conn, vault_dir):
+        vault_dir("shared.md", "Email: everyone@example.com")
+        vault_dir("school/info.md", "Student ID: A1829")
+        vals = personas.values_for(conn, "what is my email")
+        assert [v["persona"] for v in vals] == [None]
+
+
+class TestProposalRefusesToGuess:
+    def test_an_ambiguous_file_gets_no_suggestion(self, conn, vault_dir):
+        # Both a .edu and a Gmail: genuinely could be either, so picking one by
+        # dict order would be a coin flip presented as advice.
+        vault_dir("info.md", "School: me@ucsd.edu\nPersonal: me@gmail.com")
+        assert personas.propose_split(conn) == []
+
+    def test_a_passing_mention_of_the_project_is_not_an_identity(self, conn, vault_dir):
+        vault_dir("portfolio.md", "Projects: Rewisp, an ambient memory for macOS")
+        assert personas.propose_split(conn) == []
+
+    def test_lunar_client_is_not_freelance_work(self, conn, vault_dir):
+        vault_dir("games.md", "Lunar Client settings and keybinds")
+        assert personas.propose_split(conn) == []
+
+
+class TestEdges:
+    def test_known_personas_with_nothing_to_read(self):
+        assert personas.known_personas() == []
+
+    def test_an_empty_vault_answers_nothing(self, conn, vault_dir):
+        vault_dir("empty.md", "nothing useful here")
+        assert personas.values_for(conn, "what is my email") == []
+
+    def test_nested_folders_belong_to_the_top_persona(self):
+        assert personas.persona_of("work/clients/acme/info.md") == "work"
+
+
+class TestSharedDocumentsStaySharedd:
+    """Caught by a dry run on a real Vault, not by any unit test."""
+
+    def test_a_resume_is_not_filed_under_the_address_printed_on_it(self, conn, vault_dir):
+        vault_dir("Yashmit_s_College_Resume.md",
+                  "Yashmit Bhaverisetti\nybhaverisetti@ucsd.edu\nExperience: ...")
+        assert personas.propose_split(conn) == []
+
+    def test_transcript_portfolio_and_links_stay_shared(self, conn, vault_dir):
+        for name in ("latestcollegetrans.md", "my_portfolio.md", "bhaverisetti_links.md"):
+            vault_dir(name, "UCSD transcript\nybhaverisetti@ucsd.edu")
+        assert personas.propose_split(conn) == []
+
+    def test_an_actual_contact_file_is_still_proposed(self, conn, vault_dir):
+        # The guard must not swallow the files personas are actually for.
+        vault_dir("school_info.md", "Email: me@ucsd.edu\nStudent ID: A1829")
+        s = personas.propose_split(conn)
+        assert len(s) == 1 and s[0]["suggested"] == "school"
