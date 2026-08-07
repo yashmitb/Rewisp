@@ -412,3 +412,145 @@ def ensure_folders(conn, names: list[str]) -> list[str]:
             d.mkdir(parents=True, exist_ok=True)
             made.append(clean)
     return made
+
+
+# ── splitting ONE file that holds several identities ────────────────────────
+#
+# The per-file model breaks on the file that matters most. A real Vault has a
+# single "personal info" note holding a student id, a university address, a
+# personal address, a home address and a phone number — three identities in
+# eight lines. Filing that note into one folder is impossible, so it gets no
+# suggestion at all, and it is precisely the file every autofill value comes
+# from. Splitting has to happen at the LINE, not the file.
+
+# Lines that name an identity without carrying an address.
+_LINE_HINTS = [
+    (re.compile(r"\b(pid|student\s*id|campus|university|college|major|gpa|"
+                r"transcript|semester|quarter|dorm)\b", re.I), "school"),
+    (re.compile(r"\bhome\s+address\b|\bpersonal\b", re.I), "personal"),
+]
+
+
+def classify_line(line: str) -> str | None:
+    """Which persona a single line belongs to, or None for 'everyone'.
+
+    An address decides on its own; otherwise a label word does. Anything else —
+    a name, a bare phone number — is deliberately left shared, because it is
+    genuinely the same for every persona and duplicating it would create two
+    copies to keep in sync.
+    """
+    for e in _EMAIL.findall(line):
+        if p := _persona_of_email(e):
+            return p
+    for pattern, name in _LINE_HINTS:
+        if pattern.search(line):
+            return name
+    return None
+
+
+# Only these are safe to rewrite: for anything else the indexed "content" is
+# EXTRACTED text, not the bytes on disk, so writing it back destroys the file.
+# Found the hard way — a sandbox run turned a 2-page PDF into a text file.
+PLAIN_TEXT = {".md", ".txt", ".markdown", ".text"}
+# An identity note is short. A portfolio is not: the first version happily
+# shredded a 90-line CV line by line into persona folders, which is nonsense —
+# a long document is a document, not a list of facts about who you are.
+MAX_SPLIT_LINES = 30
+
+
+def propose_line_split(conn) -> list[dict]:
+    """For each shared file holding MORE THAN ONE identity, propose a per-line
+    split. Returns [{path, personas, lines:[{text, persona}]}].
+
+    Restricted to short files, and to ones whose stored content IS their bytes.
+    A resume, transcript or portfolio is excluded outright: those belong to
+    every persona, and chopping them up would both mangle the document and
+    scatter one CV across three folders.
+    """
+    out = []
+    for path, content in conn.execute("SELECT path, content FROM vault_files"):
+        if persona_of(path) or not content:
+            continue
+        stem = re.sub(r"[_\-]+", " ", pathlib.PurePath(path).stem)
+        if _SHARED_DOC.search(stem) or _SHARED_DOC.search(content[:300]):
+            continue                      # a resume is a resume
+        lines = [ln for ln in content.splitlines() if ln.strip()]
+        if len(lines) > MAX_SPLIT_LINES:
+            continue                      # a document, not an identity note
+        assigned = [{"text": ln, "persona": classify_line(ln)} for ln in lines]
+        found = {a["persona"] for a in assigned if a["persona"]}
+        if len(found) < 2:
+            continue                      # one identity or none: the file-level
+        out.append({                      # proposal already handles it
+            "path": path,
+            "personas": sorted(found),
+            "lines": assigned,
+        })
+    return out
+
+
+def apply_line_split(conn, path: str, lines: list[dict]) -> dict:
+    """Write each persona's lines into its own file and leave the shared ones.
+
+    Non-destructive by construction. The original is copied to a DOT-prefixed
+    name first, which `vault.reindex` skips — so the bytes survive on disk, the
+    values are not duplicated into the index, and a split that turns out wrong
+    costs one rename to undo. Rewriting someone's identity file in place with no
+    way back is not a thing to do on a suggestion.
+    """
+    from . import config, vault
+
+    root = config.VAULT_DIR.resolve()
+    src = (config.VAULT_DIR / path).resolve()
+    if not src.is_file() or src.parent != root:
+        return {"error": "bad path"}
+
+    by: dict[str, list[str]] = {}
+    shared: list[str] = []
+    for item in lines:
+        text = str(item.get("text") or "")
+        name = clean_name(item.get("persona") or "")
+        if not text.strip():
+            continue
+        (by.setdefault(name, []) if name else shared).append(text)
+    if not by:
+        return {"error": "nothing assigned"}
+
+    backup = src.with_name("." + src.name + ".before-split")
+    written = []
+    try:
+        backup.write_bytes(src.read_bytes())
+        for name, own in by.items():
+            d = (config.VAULT_DIR / name).resolve()
+            if d.parent != root:               # clean_name should make this
+                continue                       # impossible; refuse anyway
+            d.mkdir(parents=True, exist_ok=True)
+            target = d / f"{src.stem}.md"
+            existing = target.read_text() if target.exists() else ""
+            body = (existing.rstrip() + "\n" if existing else "") + "\n".join(own) + "\n"
+            target.write_text(body)
+            written.append(f"{name}/{target.name}")
+        # What is left is what genuinely belongs to everyone.
+        #
+        # Critically, the leftovers are only written back IN PLACE when the file
+        # is genuinely plain text. For an .rtf or a .pdf the indexed content is
+        # extracted text, and writing it back replaces the document with a
+        # transcript of itself — a sandbox run destroyed a 2-page PDF exactly
+        # this way. Those originals are retired to the hidden backup instead and
+        # the shared lines go to a new .md, so nothing is corrupted and nothing
+        # is indexed twice.
+        plain = src.suffix.lower() in PLAIN_TEXT
+        if plain:
+            if shared:
+                src.write_text("\n".join(shared) + "\n")
+            else:
+                src.unlink()
+        else:
+            if shared:
+                (config.VAULT_DIR / f"{src.stem}.md").write_text("\n".join(shared) + "\n")
+            src.unlink()          # bytes preserved in the dot-prefixed backup
+    except OSError as e:
+        return {"error": str(e)}
+    vault.reindex(conn)
+    log.info("personas: split %s into %s", path, written)
+    return {"written": written, "shared_kept": len(shared), "backup": backup.name}

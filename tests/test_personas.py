@@ -278,3 +278,92 @@ class TestSharedDocumentsStaySharedd:
         vault_dir("school_info.md", "Email: me@ucsd.edu\nStudent ID: A1829")
         s = personas.propose_split(conn)
         assert len(s) == 1 and s[0]["suggested"] == "school"
+
+
+class TestSplittingOneFileWithSeveralIdentities:
+    """The case the per-file model cannot express, and the one that matters:
+    a single 'personal info' note holding a student id, a university address
+    and a personal address."""
+
+    def test_a_multi_identity_note_is_offered_for_splitting(self, conn, vault_dir):
+        vault_dir("info.md", "Name: A Person\nUCSD PID: A1829\n"
+                             "Personal email address: me@gmail.com\n"
+                             "UCSD school email address: me@ucsd.edu\n"
+                             "Phone number: 5551234567\n")
+        props = personas.propose_line_split(conn)
+        assert len(props) == 1
+        assert props[0]["personas"] == ["personal", "school"]
+
+    def test_a_single_identity_note_is_not(self, conn, vault_dir):
+        vault_dir("info.md", "Personal email address: me@gmail.com\nPhone: 5551234567\n")
+        assert personas.propose_line_split(conn) == []
+
+    def test_a_long_document_is_never_shredded(self, conn, vault_dir):
+        # A 90-line portfolio was being chopped line by line into persona
+        # folders. A long document is a document, not a list of identity facts.
+        body = "\n".join(["Personal project number %d" % i for i in range(40)]
+                         + ["UCSD school email address: me@ucsd.edu"])
+        vault_dir("notes.md", body)
+        assert personas.propose_line_split(conn) == []
+
+    def test_a_resume_is_never_split(self, conn, vault_dir):
+        vault_dir("my_resume.md", "Personal email address: me@gmail.com\n"
+                                  "UCSD school email address: me@ucsd.edu\n")
+        assert personas.propose_line_split(conn) == []
+
+    def test_splitting_writes_each_persona_its_own_file(self, conn, vault_dir):
+        vault_dir("info.md", "Name: A Person\nUCSD PID: A1829\n"
+                             "Personal email address: me@gmail.com\n"
+                             "UCSD school email address: me@ucsd.edu\n")
+        p = personas.propose_line_split(conn)[0]
+        res = personas.apply_line_split(conn, "info.md", p["lines"])
+        assert sorted(res["written"]) == ["personal/info.md", "school/info.md"]
+        assert "me@ucsd.edu" in (config.VAULT_DIR / "school" / "info.md").read_text()
+        assert "me@gmail.com" in (config.VAULT_DIR / "personal" / "info.md").read_text()
+        # The shared line stays shared.
+        assert "A Person" in (config.VAULT_DIR / "info.md").read_text()
+
+    def test_the_original_is_always_recoverable(self, conn, vault_dir):
+        vault_dir("info.md", "UCSD PID: A1829\nPersonal email address: me@gmail.com\n")
+        p = personas.propose_line_split(conn)[0]
+        res = personas.apply_line_split(conn, "info.md", p["lines"])
+        backup = config.VAULT_DIR / res["backup"]
+        assert backup.is_file() and "A1829" in backup.read_text()
+        # Dot-prefixed, so reindex ignores it and the values are not duplicated.
+        assert res["backup"].startswith(".")
+        paths = [x for (x,) in conn.execute("SELECT path FROM vault_files")]
+        assert not any(x.startswith(".") for x in paths)
+
+    def test_a_non_text_document_is_never_overwritten_with_text(self, conn, vault_dir, tmp_path):
+        # The bug that destroyed a 2-page PDF in a sandbox run: for anything but
+        # plain text the indexed content is EXTRACTED text, so writing it back
+        # replaces the document with a transcript of itself.
+        rtf = config.VAULT_DIR / "info.rtf"
+        rtf.write_text("Personal email address: me@gmail.com\n"
+                       "UCSD school email address: me@ucsd.edu\n")
+        original = rtf.read_bytes()
+        vault.reindex(conn)
+        props = [p for p in personas.propose_line_split(conn) if p["path"] == "info.rtf"]
+        if props:
+            personas.apply_line_split(conn, "info.rtf", props[0]["lines"])
+            # Either untouched, or retired to the backup with its bytes intact.
+            if rtf.exists():
+                assert rtf.read_bytes() == original
+            else:
+                assert (config.VAULT_DIR / ".info.rtf.before-split").read_bytes() == original
+
+
+class TestFactKindsDoNotCross:
+    def test_asking_for_an_address_never_returns_an_email(self, conn, vault_dir):
+        # "address" is a substring of "email address", so the postal lookup
+        # answered with a .edu address on real data.
+        vault_dir("personal/info.md", "UCSD school email address: me@ucsd.edu\n"
+                                      "Home address: 1 Main St, Springfield\n")
+        vals = personas.values_for(conn, "what is my address")
+        assert vals and "@" not in vals[0]["answer"]
+
+    def test_a_two_word_question_needs_two_word_agreement(self, conn, vault_dir):
+        vault_dir("school/info.md", "UCSD PID: A1829\n")
+        vault_dir("other.md", "Github: someone |someone.me\n")
+        vals = personas.values_for(conn, "what is my ucsd pid")
+        assert [v["answer"] for v in vals] == ["A1829"]

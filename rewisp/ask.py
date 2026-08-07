@@ -207,6 +207,12 @@ def vault_fact(conn, question: str, rows=None) -> dict | None:
             low = line.lower()
             if not any(w in low for w in FACT_KEYWORDS[kind]):
                 continue
+            # "address" is a substring of "email address", so asking for a
+            # postal address matched the line "UCSD school email address:" and
+            # handed back an email. Any line naming a DIFFERENT kind of fact is
+            # not the answer to this one.
+            if kind == "address" and re.search(r"e-?mail", low):
+                continue
             value = None
             if pattern:
                 m = pattern.search(line)
@@ -255,10 +261,26 @@ def _generic_vault_fact(rows, question: str) -> dict | None:
             value = value.strip()
             if not value or len(value) > 120:
                 continue
+            low_label = label.lower()
+            # The typed path already refuses to answer "my address" with an
+            # email; this fallback was handing back the same wrong value by a
+            # different route, because "UCSD school email address" contains the
+            # word the question asked for. If a label names a KIND of fact the
+            # question never mentioned, it is not the answer to that question.
+            if any(w in low_label for w in ("email", "e-mail")) and \
+               not any(w in question for w in ("email", "e-mail", "mail")):
+                continue
+            if "phone" in low_label and "phone" not in question and \
+               "number" not in question:
+                continue
             hits = sum(1 for t in terms if t in label.lower())
             if hits and (best is None or hits > best[0]):
                 best = (hits, value, path)
-    if best and best[0] >= max(1, len(terms) - 1):
+    # A two-word question needs two-word agreement. Accepting len(terms)-1 meant
+    # "my ucsd pid" was satisfied by a line matching only "ucsd", which pulled a
+    # stray resume line in beside the real answer. One term is still enough for a
+    # one-word question.
+    if best and best[0] >= (2 if len(terms) >= 2 else 1):
         return {"answer": best[1], "source": f"Vault · {best[2]}",
                 "copy_text": best[1]}
     return None
