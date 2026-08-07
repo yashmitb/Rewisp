@@ -110,6 +110,10 @@ final class NudgePillController: NSObject {
         p.level = .modalPanel   // over fullscreen apps too (matches the search panel)
         p.isOpaque = false
         p.backgroundColor = .clear
+        // Explicit as well as inherited: this panel floats over other apps and
+        // paints its own dark surface, so it must never resolve its text against
+        // a light system appearance. This is the window from the bug report.
+        p.appearance = NSAppearance(named: .darkAqua)
         p.hasShadow = false
         p.hidesOnDeactivate = false
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]

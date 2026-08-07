@@ -969,7 +969,7 @@ private struct ConfirmedRow: View {
 // MARK: - Settings
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case answers, local, cloud, digest, alerts, privacy, data, help
+    case answers, local, cloud, digest, alerts, personas, privacy, data, help
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -978,6 +978,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .cloud: "Cloud & keys"
         case .digest: "Digest"
         case .alerts: "Notifications"
+        case .personas: "Personas"
         case .privacy: "Privacy"
         case .data: "Your data"
         case .help: "Help"
@@ -990,6 +991,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .cloud: "Free Gemini or your own paid API key."
         case .digest: "The nightly recap of your day."
         case .alerts: "Notifications and search-panel behavior."
+        case .personas: "More than one you, and which goes where."
         case .privacy: "What Rewisp never captures."
         case .data: "Everything stays in ~/Rewisp on this Mac."
         case .help: "Manual, bug reports, and shortcuts."
@@ -1002,6 +1004,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .cloud: "key.fill"
         case .digest: "moon.stars.fill"
         case .alerts: "bell.badge.fill"
+        case .personas: "person.2.fill"
         case .privacy: "hand.raised.fill"
         case .data: "internaldrive.fill"
         case .help: "questionmark.circle.fill"
@@ -1108,6 +1111,7 @@ struct SettingsTab: View {
         case .cloud: cloudSection
         case .digest: digestSection
         case .alerts: alertsSection
+        case .personas: PersonasCard()
         case .privacy: privacySection
         case .data: dataSection
         case .help: helpSection

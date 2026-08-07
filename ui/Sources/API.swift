@@ -353,6 +353,66 @@ struct RewispAPI {
         var totals: [String: Int]
     }
 
+    // MARK: personas
+
+    struct Persona: Decodable, Identifiable, Hashable {
+        var name: String
+        var label: String
+        var symbol: String
+        var id: String { name }
+    }
+
+    struct PersonaValue: Decodable, Identifiable {
+        var persona: String?
+        var label: String
+        var shared: Bool
+        var answer: String
+        var source: String?
+        var id: String { (persona ?? "shared") + answer }
+    }
+
+    struct PersonaSite: Decodable, Identifiable {
+        var site: String
+        var persona: String
+        var label: String
+        var updated_at: String?
+        var id: String { site }
+    }
+
+    struct PersonaState: Decodable {
+        var personas: [Persona]
+        var primary: String
+        var known: [Persona]
+        var values: [PersonaValue]
+        var sites: [PersonaSite]
+    }
+
+    struct SplitLine: Codable, Identifiable {
+        var text: String
+        var persona: String?
+        var id: String { text }
+    }
+
+    struct LineSplit: Decodable, Identifiable {
+        var path: String
+        var personas: [String]
+        var lines: [SplitLine]
+        var id: String { path }
+    }
+
+    struct FileSplit: Decodable, Identifiable {
+        var path: String
+        var suggested: String
+        var label: String
+        var evidence: [String]
+        var id: String { path }
+    }
+
+    struct SplitProposal: Decodable {
+        var files: [FileSplit]
+        var lines: [LineSplit]
+    }
+
     struct KillList: Decodable {
         var default_apps: [String]
         var default_url_patterns: [String]

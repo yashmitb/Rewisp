@@ -25,6 +25,20 @@ struct MenuBarIcon: View {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Rewisp's surfaces are hardcoded dark — the pill, the panel, the cards,
+        // the map all paint their own near-black gradients. But the TEXT on them
+        // used `.primary` / `.secondary` / `.tertiary`, which are semantic and
+        // follow the SYSTEM appearance. On a Mac set to light mode that resolved
+        // to near-black text on a near-black background, and a user reported the
+        // notification pill as simply unreadable.
+        //
+        // The honest fix is to say what the design already is, once, rather than
+        // patch ~200 call sites across 19 files or half-adapt every surface. Every
+        // semantic colour then resolves against the appearance the surfaces were
+        // actually drawn for. Set before any window is built so nothing renders
+        // in the wrong scheme first.
+        NSApp.appearance = NSAppearance(named: .darkAqua)
+
         // Single instance: Spotlight may launch a second copy (e.g. the build in
         // the repo) while one is already running. Don't just die silently — tell
         // the running instance to show the main window, then bow out. This makes

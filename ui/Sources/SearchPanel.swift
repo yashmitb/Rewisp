@@ -146,6 +146,9 @@ final class SearchPanelController: NSObject, NSWindowDelegate {
         p.level = .modalPanel
         p.isOpaque = false
         p.backgroundColor = .clear
+        // Same reasoning as the nudge pill: it draws its own dark surface over
+        // whatever app is behind it, so its text must resolve against dark.
+        p.appearance = NSAppearance(named: .darkAqua)
         p.hasShadow = true
         p.hidesOnDeactivate = false
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
