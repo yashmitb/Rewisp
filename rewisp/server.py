@@ -206,6 +206,41 @@ class Handler(BaseHTTPRequestHandler):
                         (since, until))]
                     self._json({"source": "local", "time_report": report,
                                 "recent_titles": titles})
+            elif self.path.split("?")[0] == "/personas":
+                # Which "you" a value belongs to. Read-only: listing personas,
+                # what each answers, and which sites are already settled.
+                import urllib.parse as _up
+                from . import personas as _p
+                q = _up.parse_qs(_up.urlparse(self.path).query)
+                question = (q.get("q") or [""])[0]
+                self._json({
+                    "personas": [{"name": n, "label": _p.label_for(n),
+                                  "symbol": _p.KNOWN.get(n, {}).get("symbol", "person.fill")}
+                                 for n in _p.known_personas(conn)],
+                    "primary": _p.primary(),
+                    "known": [{"name": k, "label": v["label"], "symbol": v["symbol"]}
+                              for k, v in _p.KNOWN.items()],
+                    "values": _p.values_for(conn, question) if question else [],
+                    "sites": _p.all_sites(conn),
+                })
+            elif self.path == "/personas/propose":
+                # What setup would suggest. Purely a proposal — nothing here
+                # moves a file; that needs an explicit POST with approvals.
+                from . import personas as _p
+                self._json({"files": _p.propose_split(conn),
+                            "lines": _p.propose_line_split(conn)})
+            elif self.path.split("?")[0] == "/persona/for-site":
+                # None means the UI must OFFER. It must never fill on a guess.
+                import urllib.parse as _up
+                from . import personas as _p
+                q = _up.parse_qs(_up.urlparse(self.path).query)
+                url = (q.get("url") or [None])[0]
+                app = (q.get("app") or [None])[0]
+                name = _p.for_site(conn, url, app)
+                self._json({"persona": name,
+                            "label": _p.label_for(name) if name else None,
+                            "site": _p.site_key(url, app),
+                            "settled": name is not None})
             elif self.path == "/threads":
                 # `threads` (the raw markdown) stays for older clients; `items`
                 # carries the same threads aged against every previous digest, so
@@ -527,6 +562,37 @@ class Handler(BaseHTTPRequestHandler):
                 n = db.delete_captures(conn, ids)  # cascade choke point (fts + embedding)
                 log.info("deleted last-10-min captures: %d rows", n)
                 self._json({"deleted": n})
+            elif self.path == "/personas/folders":
+                from . import personas as _p
+                names = body.get("names") or []
+                self._json({"created": _p.ensure_folders(conn, names)})
+            elif self.path == "/personas/apply-split":
+                # Moves approved files into persona folders. Only what the user
+                # ticked; every name is sanitised to one path segment first.
+                from . import personas as _p
+                self._json(_p.apply_split(conn, body.get("moves") or []))
+            elif self.path == "/personas/apply-line-split":
+                # Splits ONE note whose lines belong to different identities.
+                from . import personas as _p
+                path = (body.get("path") or "").strip()
+                lines = body.get("lines") or []
+                if not path or not lines:
+                    return self._json({"error": "path and lines required"}, 400)
+                res = _p.apply_line_split(conn, path, lines)
+                return self._json(res, 400 if res.get("error") else 200)
+            elif self.path == "/persona/site":
+                # Settle a site on a persona, or forget it. Called when the user
+                # picks — including when they CHANGE it, which is what makes
+                # relying on the memory safe.
+                from . import personas as _p
+                url, app = body.get("url"), body.get("app")
+                if body.get("forget"):
+                    return self._json({"forgotten": _p.forget_site(conn, url, app)})
+                name = _p.clean_name(body.get("persona"))
+                if not name:
+                    return self._json({"error": "persona required"}, 400)
+                key = _p.remember_site(conn, url, name, app)
+                self._json({"ok": bool(key), "site": key, "persona": name})
             elif self.path == "/thread/dismiss":
                 # Keyed on content words, not the sentence: the digest rewords a
                 # thread every night, and a dismissed thread must stay dismissed

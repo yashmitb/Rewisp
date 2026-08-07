@@ -26,10 +26,10 @@ fi
 
 fail() { echo "✗ QUALITY GATE FAILED: $1"; exit 1 }
 
-echo "── 1/4 python tests ──"
+echo "── 1/5 python tests ──"
 "$PY" -m pytest tests/ -q || fail "pytest"
 
-echo "── 2/4 every module imports ──"
+echo "── 2/5 every module imports ──"
 "$PY" - <<'EOF' || fail "imports"
 import importlib, pathlib
 for f in sorted(pathlib.Path("rewisp").glob("*.py")):
@@ -39,7 +39,7 @@ for f in sorted(pathlib.Path("rewisp").glob("*.py")):
 print(f"ok — all modules import")
 EOF
 
-echo "── 3/4 swift build ──"
+echo "── 3/5 swift build ──"
 if [[ -n "$SKIP_BUILD" ]]; then
     echo "skipped (no ui/ changes)"
 else
@@ -51,7 +51,16 @@ else
     echo "ok — Rewisp.app builds"
 fi
 
-echo "── 4/4 daemon API smoke (if running) ──"
+echo "── 4/5 persona endpoints, end to end ──"
+# Runs the real server on a spare port against a COPY of the Vault. Unit tests
+# pass with a fixture; this is what catches a route that was never wired, a body
+# key the handler doesn't read, or a 500 that only appears through the socket.
+# It touches nothing live — its own sandbox, its own port, deleted after.
+"$PY" scripts/persona_e2e.py >/tmp/rewisp-persona-e2e.log 2>&1 \
+    || { tail -20 /tmp/rewisp-persona-e2e.log; fail "persona endpoints"; }
+echo "ok — $(grep -c PASS /tmp/rewisp-persona-e2e.log) checks passed"
+
+echo "── 5/5 daemon API smoke (if running) ──"
 TOK=$(cat ~/Rewisp/.api_token 2>/dev/null || true)
 if [[ -n "$TOK" ]] && curl -s -m 3 http://127.0.0.1:43117/status -H "X-Rewisp-Token: $TOK" | grep -q "capture_state"; then
     for ep in promises series precog nudges memory-layers; do
