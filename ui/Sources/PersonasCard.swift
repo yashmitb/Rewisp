@@ -75,7 +75,7 @@ struct PersonasCard: View {
                         HStack(spacing: 8) {
                             Text(line.text)
                                 .font(.caption.monospaced())
-                                .lineLimit(1)
+                                .lineLimit(1).truncationMode(.tail)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Picker("", selection: Binding(
                                 get: { personaFor(line) ?? "" },
@@ -136,6 +136,7 @@ struct PersonasCard: View {
                        trailing: "\(personas.count)")
             Text("A persona is a folder in your Vault. Files outside them belong to everyone.")
                 .font(.caption).foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
             ForEach(personas) { p in
                 HStack(spacing: 9) {
                     Image(systemName: p.symbol)
@@ -181,6 +182,7 @@ struct PersonasCard: View {
             let vals = state?.values ?? []
             if vals.isEmpty {
                 Text("No Vault answer for that.").font(.caption).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
                 ForEach(vals) { v in
                     HStack(spacing: 9) {
@@ -189,13 +191,14 @@ struct PersonasCard: View {
                             .foregroundStyle(v.shared ? Color.secondary : Theme.accent)
                             .frame(width: 74, alignment: .leading)
                         Text(v.answer).font(.callout).textSelection(.enabled)
-                            .lineLimit(1)
+                            .lineLimit(1).truncationMode(.middle)
                         Spacer()
                         CopyButton(text: v.answer)
                     }
                 }
                 Text("Every identity, labelled — rather than silently picking one.")
                     .font(.caption2).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

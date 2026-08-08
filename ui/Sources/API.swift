@@ -3,7 +3,18 @@ import Foundation
 // Client for the local Rewisp daemon (127.0.0.1 only).
 // Every request carries the shared secret from ~/Rewisp/.api_token.
 struct RewispAPI {
-    static let base = URL(string: "http://127.0.0.1:43117")!
+    /// The daemon's port, overridable for testing.
+    ///
+    /// Hardcoding it meant the only way to exercise the UI against unreleased
+    /// daemon code was to stop the user's capture daemon and borrow its port —
+    /// which takes capture down and puts the real database and Vault in front of
+    /// a build that might write to them. With an override the app can be pointed
+    /// at a throwaway server holding throwaway data, so destructive flows can be
+    /// clicked through for real. Ignored unless the variable is set.
+    static let base: URL = {
+        let port = ProcessInfo.processInfo.environment["REWISP_PORT"] ?? "43117"
+        return URL(string: "http://127.0.0.1:\(port)")!
+    }()
 
     // Read from disk until we get a real value, then cache.
     //
