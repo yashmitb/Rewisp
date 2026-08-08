@@ -114,16 +114,23 @@ struct DayMapCard: View {
     /// stays smooth and honest about elapsed time; self-terminating so the cost
     /// is bounded by the length of the animation rather than by uptime.
     @MainActor private func replay() async {
+        // One replay at a time. Each press started another loop, and two loops
+        // writing `progress` from different start times fight each other.
+        guard !replaying else { return }
         replaying = true
+        defer { replaying = false }
         let start = Date()
         while replaying {
             let p = min(Date().timeIntervalSince(start) / replayDuration, 1)
             progress = p
             if p >= 1 { break }
-            // ~60fps while playing. try? so a cancelled task just stops.
-            try? await Task.sleep(for: .milliseconds(16))
+            // ~60fps while playing. A CANCELLED sleep returns instantly, so
+            // swallowing the error with try? did not stop the loop — it removed
+            // the only thing pacing it, and switching tabs mid-replay span this
+            // at 100% of a core until the clock caught up. Cancellation ends it,
+            // leaving the map wherever it had unspooled to.
+            do { try await Task.sleep(for: .milliseconds(16)) } catch { return }
         }
-        replaying = false
     }
 
     var body: some View {

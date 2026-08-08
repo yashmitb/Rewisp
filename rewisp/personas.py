@@ -71,8 +71,24 @@ def persona_of(path: str) -> str | None:
     return parts[0].lower() if len(parts) > 1 and parts[0] else None
 
 
+def folder_personas() -> set[str]:
+    """Persona folders that exist in the Vault, even while still empty.
+
+    An empty folder is a persona the user has declared and not yet filled. Only
+    counting folders that already hold a file made "Create the folders for me"
+    a dead end: it made all four, said so, and the list stayed empty until the
+    user opened Finder and dragged something in.
+    """
+    from . import config
+    try:
+        return {d.name.lower() for d in config.VAULT_DIR.iterdir()
+                if d.is_dir() and not d.name.startswith(".")}
+    except OSError:
+        return set()
+
+
 def known_personas(conn=None, paths: list[str] | None = None) -> list[str]:
-    """Personas that actually exist, i.e. have at least one file. Ordered with
+    """Personas that exist — a folder in the Vault, filled or not. Ordered with
     the primary first, then the rest of the recognised ones, then anything the
     user invented, alphabetically.
 
@@ -83,7 +99,7 @@ def known_personas(conn=None, paths: list[str] | None = None) -> list[str]:
         if conn is None:
             return []
         paths = [p for (p,) in conn.execute("SELECT path FROM vault_files")]
-    found = {name for p in paths if (name := persona_of(p))}
+    found = {name for p in paths if (name := persona_of(p))} | folder_personas()
     prim = primary()
     order = [prim] + [k for k in KNOWN if k != prim]
     out = [p for p in order if p in found]
@@ -100,6 +116,18 @@ def clean_name(name: str) -> str:
     a single harmless path segment.
     """
     return re.sub(r"[^a-z0-9_-]", "", str(name or "").strip().lower())[:30]
+
+
+def is_valid_persona(conn, name: str) -> bool:
+    """Whether a name is a persona this Vault actually has.
+
+    clean_name only guarantees the name is HARMLESS, not that it means anything:
+    "../../etc" survives it as "etc", which the server then happily settled a
+    site on. The site is stuck answering as a persona with no files, which looks
+    exactly like autofill being broken. A name has to be one Rewisp offers or one
+    the user has made.
+    """
+    return bool(name) and (name in KNOWN or name in known_personas(conn))
 
 
 def label_for(name: str) -> str:
@@ -174,13 +202,27 @@ def values_for(conn, question: str) -> list[dict]:
 
 # ── which persona belongs to a site ──────────────────────────────────────────
 
+# Native apps have no URL, so their choice is stored under a key that cannot
+# collide with a hostname. It is NOT a URL and must never be parsed as one.
+APP_PREFIX = "app::"
+
+
 def host_of(url: str | None) -> str:
     """Bare host for a URL — the unit a persona choice is remembered against.
     Remembering per full URL would forget the moment a query string changed."""
-    if not url:
+    raw = (url or "").strip()
+    if not raw:
         return ""
+    if raw.lower().startswith(APP_PREFIX):
+        return ""          # a native-app key, not a URL. See site_key.
+    # A bare "example.com/signup" has no scheme, so urlsplit reads the whole
+    # thing as a path and the site can never be settled. "//" makes it a netloc.
+    if "://" not in raw and not raw.startswith("//"):
+        raw = "//" + raw
     try:
-        host = urlsplit(url.strip()).netloc.split("@")[-1].split(":")[0].lower()
+        # .hostname, not netloc split on ":" — hand-splitting on the port
+        # separator turns "[::1]:8080" into "[" and "app::mail" into "app".
+        host = (urlsplit(raw).hostname or "").lower()
     except ValueError:
         return ""
     return host[4:] if host.startswith("www.") else host
@@ -201,7 +243,7 @@ def site_key(url: str | None, app: str | None = None) -> str:
     host = host_of(url)
     if host:
         return host
-    return f"app::{(app or '').strip().lower()}" if app else ""
+    return f"{APP_PREFIX}{(app or '').strip().lower()}" if app else ""
 
 
 def for_site(conn, url: str | None, app: str | None = None) -> str | None:
@@ -212,7 +254,13 @@ def for_site(conn, url: str | None, app: str | None = None) -> str | None:
         return None
     _ensure_table(conn)
     row = conn.execute("SELECT persona FROM site_persona WHERE site = ?", (key,)).fetchone()
-    return row[0] if row else None
+    if not row:
+        return None
+    # A persona that no longer exists is not an answer. Rows written before the
+    # name was validated, or a folder the user has since deleted, would otherwise
+    # keep a site "settled" on an identity with nothing behind it — which reads
+    # as autofill silently doing nothing. Unsettled means OFFER, which is right.
+    return row[0] if is_valid_persona(conn, row[0]) else None
 
 
 def remember_site(conn, url: str | None, persona: str, app: str | None = None) -> str:
@@ -229,8 +277,17 @@ def remember_site(conn, url: str | None, persona: str, app: str | None = None) -
     return key
 
 
-def forget_site(conn, url: str | None, app: str | None = None) -> bool:
-    key = site_key(url, app)
+def forget_site(conn, url: str | None, app: str | None = None,
+                key: str | None = None) -> bool:
+    """Forget a settled site. `key` forgets the stored row EXACTLY.
+
+    The UI lists rows by their stored key and used to hand back "https://" + key
+    to forget one. That round-trip is lossy: an app row is stored as `app::mail`,
+    and re-parsing it as a URL yielded the host `app`, so the delete matched
+    nothing and a native app could never be un-settled from the list. Anything
+    listing rows should forget by key.
+    """
+    key = (key or "").strip().lower() or site_key(url, app)
     if not key:
         return False
     _ensure_table(conn)
@@ -451,7 +508,11 @@ def classify_line(line: str) -> str | None:
 # Only these are safe to rewrite: for anything else the indexed "content" is
 # EXTRACTED text, not the bytes on disk, so writing it back destroys the file.
 # Found the hard way — a sandbox run turned a 2-page PDF into a text file.
-PLAIN_TEXT = {".md", ".txt", ".markdown", ".text"}
+#
+# Exactly the suffixes `vault.extract_text` reads verbatim off disk. It listed
+# ".markdown" and ".text" too, which the indexer has never read at all — dead
+# entries that quietly implied a coverage this does not have.
+PLAIN_TEXT = {".md", ".txt"}
 # An identity note is short. A portfolio is not: the first version happily
 # shredded a 90-line CV line by line into persona folders, which is nonsense —
 # a long document is a document, not a list of facts about who you are.
@@ -512,12 +573,18 @@ def apply_line_split(conn, path: str, lines: list[dict]) -> dict:
         name = clean_name(item.get("persona") or "")
         if not text.strip():
             continue
+        if name and not is_valid_persona(conn, name):
+            # Same reason as remember_site: clean_name makes a name harmless,
+            # not meaningful. Filing lines into a folder named after a mangled
+            # traversal attempt is not something to do quietly.
+            return {"error": f"no such persona: {name}"}
         (by.setdefault(name, []) if name else shared).append(text)
     if not by:
         return {"error": "nothing assigned"}
 
     backup = src.with_name("." + src.name + ".before-split")
-    written = []
+    written: list[str] = []
+    shared_path: str | None = None
     try:
         backup.write_bytes(src.read_bytes())
         for name, own in by.items():
@@ -527,7 +594,17 @@ def apply_line_split(conn, path: str, lines: list[dict]) -> dict:
             d.mkdir(parents=True, exist_ok=True)
             target = d / f"{src.stem}.md"
             existing = target.read_text() if target.exists() else ""
-            body = (existing.rstrip() + "\n" if existing else "") + "\n".join(own) + "\n"
+            # Appending is right — a persona file is a place values accumulate.
+            # Appending a value that is ALREADY there is not: splitting the same
+            # note twice (or two notes sharing a stem) left "ucsd pid A123" and
+            # "ucsd pid B999" both live in one file, and the stale one answered
+            # first. Only lines the file does not already hold are added.
+            have = {ln.strip() for ln in existing.splitlines() if ln.strip()}
+            fresh = [ln for ln in own if ln.strip() not in have]
+            if not fresh and existing:
+                written.append(f"{name}/{target.name}")
+                continue
+            body = (existing.rstrip() + "\n" if existing else "") + "\n".join(fresh) + "\n"
             target.write_text(body)
             written.append(f"{name}/{target.name}")
         # What is left is what genuinely belongs to everyone.
@@ -543,14 +620,35 @@ def apply_line_split(conn, path: str, lines: list[dict]) -> dict:
         if plain:
             if shared:
                 src.write_text("\n".join(shared) + "\n")
+                shared_path = src.name
             else:
                 src.unlink()
         else:
             if shared:
-                (config.VAULT_DIR / f"{src.stem}.md").write_text("\n".join(shared) + "\n")
+                # NEVER a blind write. `{stem}.md` is a name someone else's file
+                # can already own — a Vault holding both `info.rtf` and `info.md`
+                # had the .md silently overwritten by the .rtf's leftovers, and
+                # the only backup taken was of the .rtf. That is unrelated data
+                # destroyed with nothing to restore from. Take a free name.
+                dest = _free_name(config.VAULT_DIR / f"{src.stem}.md")
+                dest.write_text("\n".join(shared) + "\n")
+                shared_path = dest.name
             src.unlink()          # bytes preserved in the dot-prefixed backup
     except OSError as e:
         return {"error": str(e)}
     vault.reindex(conn)
     log.info("personas: split %s into %s", path, written)
-    return {"written": written, "shared_kept": len(shared), "backup": backup.name}
+    return {"written": written, "shared_kept": len(shared),
+            "shared_path": shared_path, "backup": backup.name}
+
+
+def _free_name(path: pathlib.Path) -> pathlib.Path:
+    """`path` if nothing is there, otherwise the first `stem-shared[-N]` that is
+    free. Writing to a name already in use is how an unrelated file dies."""
+    if not path.exists():
+        return path
+    for n in range(2, 100):
+        alt = path.with_name(f"{path.stem}-shared{'' if n == 2 else f'-{n}'}{path.suffix}")
+        if not alt.exists():
+            return alt
+    raise OSError(f"no free name for {path.name}")

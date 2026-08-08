@@ -20,7 +20,13 @@ struct PersonasCard: View {
     @State private var proposal: RewispAPI.SplitProposal?
     @State private var busy = false
     @State private var note: String?
-    /// Per-line persona overrides while reviewing a split, keyed by line text.
+    /// Whether `note` is a failure. A refusal that reads like a confirmation is
+    /// worse than no message at all.
+    @State private var noteIsError = false
+    @State private var noteTask: Task<Void, Never>?
+    /// Per-line persona overrides while reviewing a split, keyed by file path and
+    /// line POSITION. Keying by the line's text meant two files proposing the
+    /// same line shared one override, and correcting it in one changed the other.
     @State private var edits: [String: String] = [:]
     @State private var probe = "what is my email"
 
@@ -40,7 +46,12 @@ struct PersonasCard: View {
                 emptyCard
             }
             if let note {
-                Text(note).font(.caption).foregroundStyle(.secondary)
+                Label(note, systemImage: noteIsError
+                      ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(noteIsError ? Color.orange : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
             }
         }
         .task { await load() }
@@ -65,21 +76,21 @@ struct PersonasCard: View {
                             .font(.caption).foregroundStyle(Theme.accent)
                         Text(split.path).font(.callout.weight(.medium))
                         Spacer()
-                        Text("\(split.lines.filter { personaFor($0) != nil }.count) of \(split.lines.count) lines")
+                        Text("\(assignedCount(split)) of \(split.lines.count) lines")
                             .font(.caption2).foregroundStyle(.tertiary)
                     }
                     // Every line, with the identity Rewisp thinks it belongs to
                     // and a way to disagree. A proposal you cannot correct is
                     // one you can only accept on faith.
-                    ForEach(split.lines) { line in
+                    ForEach(Array(split.lines.enumerated()), id: \.offset) { i, line in
                         HStack(spacing: 8) {
                             Text(line.text)
                                 .font(.caption.monospaced())
                                 .lineLimit(1).truncationMode(.tail)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Picker("", selection: Binding(
-                                get: { personaFor(line) ?? "" },
-                                set: { edits[line.text] = $0 })) {
+                                get: { personaFor(split, i) ?? "" },
+                                set: { edits[editKey(split, i)] = $0 })) {
                                 Text("Everyone").tag("")
                                 ForEach(state?.known ?? []) { k in
                                     Text(k.label).tag(k.name)
@@ -123,9 +134,17 @@ struct PersonasCard: View {
         }
     }
 
-    private func personaFor(_ line: RewispAPI.SplitLine) -> String? {
-        if let e = edits[line.text] { return e.isEmpty ? nil : e }
-        return line.persona
+    private func editKey(_ split: RewispAPI.LineSplit, _ i: Int) -> String {
+        "\(split.path)#\(i)"
+    }
+
+    private func personaFor(_ split: RewispAPI.LineSplit, _ i: Int) -> String? {
+        if let e = edits[editKey(split, i)] { return e.isEmpty ? nil : e }
+        return split.lines[i].persona
+    }
+
+    private func assignedCount(_ split: RewispAPI.LineSplit) -> Int {
+        split.lines.indices.filter { personaFor(split, $0) != nil }.count
     }
 
     // MARK: who you are
@@ -210,9 +229,14 @@ struct PersonasCard: View {
             CardHeader(title: "Sites you've settled", symbol: "checkmark.seal.fill",
                        trailing: (state?.sites.isEmpty ?? true) ? nil : "\(state?.sites.count ?? 0)")
             if state?.sites.isEmpty ?? true {
-                Text("None yet. The first time you fill a form on a site, Rewisp asks "
-                     + "which you it is — and never guesses. After that it's settled, "
-                     + "and always one tap to change.")
+                // Says what the build actually does. It used to describe the
+                // autofill prompt — "the first time you fill a form on a site,
+                // Rewisp asks which you it is" — which nothing implements yet.
+                // A settings pane claiming a behaviour the app does not have is
+                // how someone concludes the whole feature is broken.
+                Text("None yet — and nothing settles one yet either. Choosing an "
+                     + "identity at the form itself is still being built; when it "
+                     + "lands, every site you pick shows up here to change or undo.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
@@ -248,46 +272,101 @@ struct PersonasCard: View {
 
     // MARK: actions
 
+    /// Say what happened, and say it truthfully. `ok: false` colours the line as
+    /// a refusal; every message clears itself so a stale one never reads as the
+    /// result of the thing you just did.
+    @MainActor private func say(_ text: String, ok: Bool = true) {
+        note = text
+        noteIsError = !ok
+        noteTask?.cancel()
+        noteTask = Task {
+            try? await Task.sleep(for: .seconds(ok ? 6 : 12))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) { note = nil }
+        }
+    }
+
     private func load() async {
-        let q = probe.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        state = try? await RewispAPI.get("personas?q=\(q)", as: RewispAPI.PersonaState.self)
+        // URLComponents, not .urlQueryAllowed: that set permits "&" and "+", so
+        // "my email & phone" truncated at the ampersand and a "+" arrived as a
+        // space. The question has to reach the daemon as typed.
+        var comps = URLComponents()
+        comps.queryItems = [URLQueryItem(name: "q", value: probe)]
+        let q = comps.percentEncodedQuery ?? "q="
+        state = try? await RewispAPI.get("personas?\(q)", as: RewispAPI.PersonaState.self)
         proposal = try? await RewispAPI.get("personas/propose", as: RewispAPI.SplitProposal.self)
     }
 
     private func applyLineSplit(_ split: RewispAPI.LineSplit) async {
         busy = true; defer { busy = false }
-        let lines = split.lines.map {
-            ["text": $0.text, "persona": personaFor($0) ?? ""]
+        let lines = split.lines.indices.map {
+            ["text": split.lines[$0].text, "persona": personaFor(split, $0) ?? ""]
         }
         let body: [String: Any] = ["path": split.path, "lines": lines]
-        _ = try? await RewispAPI.post("personas/apply-line-split", body: body)
-        note = "Filed \(split.path). The original is kept as a hidden backup in your Vault."
+        do {
+            _ = try await RewispAPI.post("personas/apply-line-split", body: body)
+            say("Filed \(split.path). The original is kept as a hidden backup in your Vault.")
+        } catch let e as RewispAPI.APIError {
+            // This used to report success unconditionally: the daemon could
+            // refuse the split outright and the card still said it was filed.
+            say("Couldn't file \(split.path) — \(e.message)", ok: false)
+        } catch {
+            say("Couldn't reach Rewisp to file \(split.path).", ok: false)
+        }
         await load()
     }
 
     private func applyFileSplit(_ f: RewispAPI.FileSplit) async {
         busy = true; defer { busy = false }
         let body: [String: Any] = ["moves": [["path": f.path, "persona": f.suggested]]]
-        _ = try? await RewispAPI.post("personas/apply-split", body: body)
+        do {
+            let data = try await RewispAPI.post("personas/apply-split", body: body)
+            // apply-split answers 200 with a `failed` list rather than an error
+            // status, so a refusal here is in the body, not the code.
+            let res = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            if let failed = res?["failed"] as? [String], !failed.isEmpty {
+                say("Couldn't move \(f.path).", ok: false)
+            } else {
+                say("Filed \(f.path) under \(f.label).")
+            }
+        } catch {
+            say("Couldn't move \(f.path).", ok: false)
+        }
         await load()
     }
 
     private func makeFolders() async {
         busy = true; defer { busy = false }
         let names = (state?.known ?? []).map(\.name)
-        _ = try? await RewispAPI.post("personas/folders", body: ["names": names])
-        note = "Made the folders in ~/Rewisp/vault. Move a file into one and it belongs to that you."
+        do {
+            _ = try await RewispAPI.post("personas/folders", body: ["names": names])
+            say("Made the folders in ~/Rewisp/vault. Move a file into one and it belongs to that you.")
+        } catch {
+            say("Couldn't create the folders.", ok: false)
+        }
         await load()
     }
 
     private func setPrimary(_ name: String) async {
-        _ = try? await RewispAPI.post("settings", body: ["persona_primary": name])
+        do {
+            _ = try await RewispAPI.post("settings", body: ["persona_primary": name])
+        } catch {
+            say("Couldn't change the primary persona.", ok: false)
+        }
         await load()
     }
 
     private func forget(_ s: RewispAPI.PersonaSite) async {
-        _ = try? await RewispAPI.post("persona/site",
-                                         body: ["url": "https://\(s.site)", "forget": true])
+        // The stored key, verbatim. Rebuilding a URL from it ("https://" + key)
+        // could not express a native app: `app::mail` parsed back to the host
+        // `app`, the delete matched nothing, and the row stayed in this list
+        // with a button that looked broken.
+        do {
+            _ = try await RewispAPI.post("persona/site",
+                                         body: ["site": s.site, "forget": true])
+        } catch {
+            say("Couldn't forget \(s.site).", ok: false)
+        }
         await load()
     }
 }

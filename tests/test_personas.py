@@ -367,3 +367,111 @@ class TestFactKindsDoNotCross:
         vault_dir("other.md", "Github: someone |someone.me\n")
         vals = personas.values_for(conn, "what is my ucsd pid")
         assert [v["answer"] for v in vals] == ["A1829"]
+
+
+class TestSplittingNeverDestroysAnotherFile:
+    """Found by an adversarial pass, not by any of the tests above.
+
+    `apply_line_split` is documented as non-destructive, and it was — for the
+    file being split. It said nothing about the file it wrote its leftovers
+    into.
+    """
+
+    def test_shared_leftovers_never_overwrite_an_existing_note(self, conn, vault_dir):
+        # A Vault holding both `info.rtf` and `info.md`. Splitting the .rtf
+        # writes its shared lines to "<stem>.md" — which someone else owns.
+        vault_dir("info.md", "IMPORTANT UNRELATED NOTE\nPassport number 12345\n")
+        keep = (config.VAULT_DIR / "info.md").read_text()
+        (config.VAULT_DIR / "info.rtf").write_text("placeholder")
+
+        res = personas.apply_line_split(conn, "info.rtf", [
+            {"text": "me@ucsd.edu", "persona": "school"},
+            {"text": "me@gmail.com", "persona": "personal"},
+            {"text": "Phone: 5551234567", "persona": ""},
+        ])
+        assert "error" not in res
+        # The bystander is untouched, and the leftovers went somewhere else.
+        assert (config.VAULT_DIR / "info.md").read_text() == keep
+        assert res["shared_path"] != "info.md"
+        assert "Phone: 5551234567" in (config.VAULT_DIR / res["shared_path"]).read_text()
+
+    def test_splitting_the_same_value_twice_does_not_duplicate_it(self, conn, vault_dir):
+        vault_dir("notes.txt", "UCSD PID: A1829\nme@gmail.com\n")
+        lines = [{"text": "UCSD PID: A1829", "persona": "school"}]
+        personas.apply_line_split(conn, "notes.txt", lines)
+        (config.VAULT_DIR / "notes.txt").write_text("UCSD PID: A1829\n")
+        vault.reindex(conn)
+        personas.apply_line_split(conn, "notes.txt", lines)
+        body = (config.VAULT_DIR / "school" / "notes.md").read_text()
+        assert body.count("A1829") == 1, body
+
+    def test_a_line_may_not_be_filed_under_a_persona_that_does_not_exist(self, conn, vault_dir):
+        # clean_name turns "../../etc" into the harmless-but-meaningless "etc".
+        vault_dir("notes.txt", "x\n")
+        res = personas.apply_line_split(
+            conn, "notes.txt", [{"text": "x", "persona": "../../etc"}])
+        assert "error" in res
+        assert not (config.VAULT_DIR / "etc").exists()
+
+
+class TestSiteKeysRoundTrip:
+    def test_a_native_app_can_be_forgotten_from_the_list(self, conn):
+        # The list hands back the stored key. Rebuilding a URL from it
+        # ("https://app::mail") parsed to the host "app" and deleted nothing.
+        personas.remember_site(conn, None, "work", app="Mail")
+        key = personas.all_sites(conn)[0]["site"]
+        assert key == "app::mail"
+        assert personas.forget_site(conn, None, None, key=key) is True
+        assert personas.all_sites(conn) == []
+
+    def test_an_app_key_is_never_parsed_as_a_url(self):
+        assert personas.host_of("app::mail") == ""
+
+    def test_a_host_with_a_port_or_ipv6_is_not_mangled(self):
+        assert personas.host_of("https://[::1]:8080/x") == "::1"
+        assert personas.host_of("https://example.com:8443/x") == "example.com"
+
+    def test_a_url_without_a_scheme_still_settles(self):
+        # The whole memory is keyed on this; a bare host returning "" meant the
+        # site could never be settled at all.
+        assert personas.host_of("example.com/signup") == "example.com"
+        assert personas.host_of("www.example.com") == "example.com"
+
+
+class TestDeclaredPersonas:
+    def test_an_empty_folder_is_already_a_persona(self, conn, vault_dir):
+        # "Create the folders for me" made all four and then nothing appeared,
+        # because only folders holding a file counted.
+        vault_dir("resume.md", "shared")
+        assert personas.known_personas(conn) == []
+        personas.ensure_folders(conn, ["school", "work"])
+        assert set(personas.known_personas(conn)) == {"school", "work"}
+
+    def test_a_sanitised_traversal_is_not_a_real_persona(self, conn, vault_dir):
+        vault_dir("resume.md", "shared")
+        assert personas.is_valid_persona(conn, "school") is True   # offered
+        assert personas.is_valid_persona(conn, "etc") is False
+        assert personas.is_valid_persona(conn, "") is False
+
+
+class TestPlainTextMatchesTheIndexer:
+    def test_every_rewritable_suffix_is_one_the_indexer_reads_verbatim(self, tmp_path):
+        # PLAIN_TEXT decides whether a file may be rewritten in place. A suffix
+        # in it that the indexer never reads as bytes is a rewrite waiting to
+        # corrupt something.
+        for suffix in personas.PLAIN_TEXT:
+            f = tmp_path / f"sample{suffix}"
+            f.write_text("hello")
+            assert vault.extract_text(f) == "hello", suffix
+
+
+class TestADeadPersonaIsNotAnAnswer:
+    def test_a_site_settled_on_a_persona_that_no_longer_exists_is_unsettled(
+            self, conn, vault_dir):
+        vault_dir("resume.md", "shared")
+        personas.ensure_folders(conn, ["freelance"])
+        personas.remember_site(conn, "https://acme.com", "freelance")
+        assert personas.for_site(conn, "https://acme.com") == "freelance"
+        # The user deletes the folder in Finder.
+        (config.VAULT_DIR / "freelance").rmdir()
+        assert personas.for_site(conn, "https://acme.com") is None

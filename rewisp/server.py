@@ -587,12 +587,21 @@ class Handler(BaseHTTPRequestHandler):
                 from . import personas as _p
                 url, app = body.get("url"), body.get("app")
                 if body.get("forget"):
-                    return self._json({"forgotten": _p.forget_site(conn, url, app)})
+                    # `site` is the stored key, straight back from a list. Round-
+                    # tripping it through a URL loses the app:: form entirely.
+                    return self._json({"forgotten": _p.forget_site(
+                        conn, url, app, key=body.get("site"))})
                 name = _p.clean_name(body.get("persona"))
                 if not name:
                     return self._json({"error": "persona required"}, 400)
+                if not _p.is_valid_persona(conn, name):
+                    # Sanitised but meaningless: settling a site on a persona
+                    # that does not exist looks like autofill silently failing.
+                    return self._json({"error": f"no such persona: {name}"}, 400)
                 key = _p.remember_site(conn, url, name, app)
-                self._json({"ok": bool(key), "site": key, "persona": name})
+                if not key:
+                    return self._json({"error": "url or app required"}, 400)
+                self._json({"ok": True, "site": key, "persona": name})
             elif self.path == "/thread/dismiss":
                 # Keyed on content words, not the sentence: the digest rewords a
                 # thread every night, and a dismissed thread must stay dismissed

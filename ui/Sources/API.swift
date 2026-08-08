@@ -398,10 +398,12 @@ struct RewispAPI {
         var sites: [PersonaSite]
     }
 
-    struct SplitLine: Codable, Identifiable {
+    /// Deliberately NOT Identifiable on `text`: a note can hold the same line
+    /// twice, and identifying a line by its own text collapsed both into one row
+    /// with one shared picker. Callers index by position instead.
+    struct SplitLine: Codable {
         var text: String
         var persona: String?
-        var id: String { text }
     }
 
     struct LineSplit: Decodable, Identifiable {
@@ -449,14 +451,37 @@ struct RewispAPI {
     /// more. The daemon mints a new secret whenever it is re-provisioned, so a
     /// stale cached token would otherwise 401 every call until the app relaunched
     /// — indistinguishable, from the UI's side, from the daemon being down.
+    ///
+    /// A non-2xx reply THROWS. It used to be returned as ordinary data, which
+    /// made every refusal look like a success: `post` callers discard the body,
+    /// so a 400 saying "bad path" was reported to the user as the action having
+    /// worked, and a failed `get` surfaced as the view's empty state — a broken
+    /// daemon read as "you have no data" rather than as an error.
     private static func send(_ req: URLRequest) async throws -> Data {
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        guard (resp as? HTTPURLResponse)?.statusCode == 401 else { return data }
-        reloadToken()
-        var retry = req
-        retry.setValue(token, forHTTPHeaderField: "X-Rewisp-Token")
-        let (data2, _) = try await URLSession.shared.data(for: retry)
-        return data2
+        var (data, resp) = try await URLSession.shared.data(for: req)
+        if (resp as? HTTPURLResponse)?.statusCode == 401 {
+            reloadToken()
+            var retry = req
+            retry.setValue(token, forHTTPHeaderField: "X-Rewisp-Token")
+            (data, resp) = try await URLSession.shared.data(for: retry)
+        }
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else { throw APIError(status: code, data: data) }
+        return data
+    }
+
+    /// A refusal from the daemon, carrying whatever it said about why.
+    struct APIError: Error, LocalizedError {
+        let status: Int
+        let data: Data
+        /// The server's own `{"error": …}` when there is one — that text is
+        /// written to be shown, and is far better than "HTTP 400".
+        var message: String {
+            if let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let e = o["error"] as? String, !e.isEmpty { return e }
+            return "HTTP \(status)"
+        }
+        var errorDescription: String? { message }
     }
 
     static func get<T: Decodable>(_ path: String, as type: T.Type) async throws -> T {

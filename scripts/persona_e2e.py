@@ -137,9 +137,16 @@ def main() -> int:
 
         print("\n── hostile input ──")
         s, d = call("POST", "/persona/site", {"url": "https://x.com", "persona": "../../etc"})
+        check("a traversal persona name is refused outright", s == 400, f"HTTP {s} {d}")
         s2, d2 = call("GET", "/persona/for-site?url=https://x.com")
-        check("a traversal persona name is sanitised",
-              "/" not in (d2.get("persona") or ""), d2.get("persona"))
+        check("and nothing was settled on it", d2.get("settled") is False, d2)
+        # Against a file that really is there, so this cannot pass on "bad path".
+        call("POST", "/vault/note", {"title": "traversal probe", "text": "hello"})
+        s, d = call("POST", "/personas/apply-line-split",
+                    {"path": "traversal probe.md",
+                     "lines": [{"text": "hello", "persona": "../../etc"}]})
+        check("a line cannot be filed under a persona that does not exist",
+              s == 400 and "no such persona" in str(d), f"HTTP {s} {d}")
         s, d = call("POST", "/personas/apply-split",
                     {"moves": [{"path": "../../../etc/passwd", "persona": "work"}]})
         check("a path outside the Vault is refused", d.get("moved") == [], d)
@@ -179,6 +186,17 @@ def main() -> int:
                     {"app": "Mail", "persona": "work"})
         s, d = call("GET", "/persona/for-site?app=Mail")
         check("a native app can be settled too", d.get("persona") == "work", d)
+
+        # The settings list forgets by the STORED KEY. Handing back a URL rebuilt
+        # from it ("https://app::mail") parsed to the host "app", matched no row,
+        # and left a native app permanently settled with a dead button.
+        s, d = call("GET", "/personas")
+        keys = [x["site"] for x in d.get("sites", [])]
+        check("the app row is listed by its stored key", "app::mail" in keys, keys)
+        s, d = call("POST", "/persona/site", {"site": "app::mail", "forget": True})
+        check("forgetting by that key works", d.get("forgotten") is True, d)
+        s, d = call("GET", "/persona/for-site?app=Mail")
+        check("the app is unsettled again", d.get("settled") is False, d)
 
         s, d = call("GET", "/persona/for-site")
         check("no url and no app is simply unsettled", d.get("settled") is False, d)

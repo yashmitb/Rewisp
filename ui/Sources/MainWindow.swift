@@ -773,15 +773,20 @@ struct VaultTab: View {
                 Button("Cancel") { showNote = false }
                 Button("Save") {
                     Task { @MainActor in
-                        let data = try? await RewispAPI.post("vault/note",
-                            body: ["title": noteTitle, "text": noteText])
-                        if let data,
-                           let err = (try? JSONDecoder().decode([String: String].self, from: data))?["error"] {
-                            toast = "Refused: \(err)"
-                        } else {
+                        // The daemon refuses a note holding a credential, and
+                        // says why in the body of a 400. That refusal has to
+                        // reach the user — closing the sheet with "Note saved"
+                        // on a note that was never stored is the worst outcome.
+                        do {
+                            _ = try await RewispAPI.post("vault/note",
+                                body: ["title": noteTitle, "text": noteText])
                             toast = "Note saved"
                             noteTitle = ""; noteText = ""
                             showNote = false
+                        } catch let e as RewispAPI.APIError {
+                            toast = "Refused: \(e.message)"
+                        } catch {
+                            toast = "Couldn't save that note."
                         }
                         await reload()
                     }
