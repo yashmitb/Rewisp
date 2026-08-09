@@ -232,6 +232,8 @@ enum HelpContent {
               a: "Yes, by design. Screenshots are read in memory and discarded — never written to disk. Everything stays in one file on this Mac. Quick answers run on Apple’s on-device model. Messages, banking sites, password apps, and private windows are never captured at all."),
         .init(q: "How does form autofill work?",
               a: "On any signup or checkout page, press **⌘⇧Space** — Rewisp reads the fields and fills them from your Vault. It **never fills passwords or card numbers, and never submits** the form. You review and send."),
+        .init(q: "I have more than one email address — which one does it fill?",
+              a: "Whichever belongs to the *you* that site is for. A **persona** is just a folder inside your Vault (`school`, `personal`, `work`), and anything left outside a folder — your phone number, your resume — still answers for all of them. The first time you fill on a site, the panel asks which you it is and **won't fill until you say**; after that it's settled and never asks again. Set it up, and change any settled site, in **Settings → Personas**."),
         .init(q: "Which AI answers my questions?",
               a: "Apple’s free on-device model tries first (private, instant). If it comes up short, Rewisp escalates to whatever you’ve set up — Claude, ChatGPT, free Gemini, or a local model. A badge on each answer shows who replied."),
         .init(q: "Does it cost anything?",

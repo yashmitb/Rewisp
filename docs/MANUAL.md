@@ -423,6 +423,32 @@ Rewisp **never submits** — you always review and send it yourself — and it n
 fills passwords, card numbers, CVC, or SSNs, no matter what the Vault holds. If
 you'd rather paste by hand, every field still has its own Copy button.
 
+### Personas — more than one you (new in 0.31)
+You have several email addresses, and which one is right depends entirely on
+where you are: the .edu on a course site, the personal one on a shopping cart.
+
+A persona is just a **folder inside your Vault** — `vault/school/`,
+`vault/personal/`, `vault/work/`. Files at the top level belong to everyone: your
+resume is your resume, and your phone number is the same whoever is asking.
+Nothing new is stored anywhere; you can move a file between personas in Finder
+with the app closed.
+
+**Setting up.** Settings → Personas offers to make the folders, and if it finds
+a note holding more than one identity (a "personal info" file with a student ID,
+a university address and a home address) it offers to split it line by line.
+Every line shows the identity it would go to and a dropdown to disagree. Nothing
+moves until you approve it, and the original is always kept as a hidden backup
+in your Vault.
+
+**Filling a form.** The first time you fill on a site, the panel asks *which you
+is this?* and **will not fill until you answer** — a silently wrong identity in a
+form you then submit is the mistake you cannot take back. After that the site is
+settled and it never asks again. Every settled site is listed in Settings →
+Personas, one tap to change or forget.
+
+Values that live outside a persona folder still answer for every identity, so
+adding personas never makes Rewisp know less.
+
 ### Connect to AI agents (MCP)
 Rewisp can hand its memory to **Claude Desktop, Claude Code, or any MCP client**
 so an agent can search your screen history, diff pages, and read your promises

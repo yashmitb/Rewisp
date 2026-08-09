@@ -44,6 +44,7 @@ So Rewisp remembers it for me, and I ask instead of digging.
 - **Precognition** — the suggested questions are guessed from what's on screen right now plus what you usually ask.
 - **The forgetting model** — Rewisp learns *how you forget*, strengthens what you look up, and lets the rest fade.
 - **Nothing worth remembering gets crowded out** — a separate "don't bother" list keeps games and media players out of the database entirely, and Settings shows which apps are actually filling it.
+- **Personas** — you have more than one email address, and which is right depends on where you are. A persona is just a folder in your Vault, so autofill can answer as *that* you. On a site it has never seen it **asks once and refuses to fill until you answer**, because a silently wrong identity in a form you then submit is the mistake you can't take back.
 - **Connect your agents** — expose your memory to Claude Desktop, Cursor, or any MCP client as read-only tools. Local stdio, no network listener, Vault excluded.
 
 <div align="center">

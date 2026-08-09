@@ -440,3 +440,45 @@ function whenVisible(el, fn, { once = false } = {}) {
   render(1);
   if (!reduced) whenVisible(panel, () => { render(0); setTimeout(play, 220); }, { once: true });
 })();
+
+/* ── personas: which "you" a value belongs to ──────────────────────────────
+   Interactive rather than a loop. The product decision IS the click, so the
+   demo hands it over — but it also plays itself once on scroll, so a visitor
+   who never touches it still sees what the feature does.
+
+   Every value here is invented. Nothing from a real Vault goes on this page. */
+(function personaDemo() {
+  const el = $("#persona-demo");
+  if (!el) return;
+  const WHO = {
+    school:   { email: "a.rivera@university.edu",  addr: "Rm 214, North Hall, Campus Dr", site: "portal.university.edu" },
+    personal: { email: "alex.rivera@gmail.com",    addr: "88 Rosewood Ave, Apt 4",        site: "shop.example.com" },
+    work:     { email: "alex@riveradesign.co",     addr: "1 Market St, Suite 900",        site: "invoices.example.com" },
+  };
+  const PHONE = "(555) 018-2245";          // shared: the same for every you
+  const chips = $$("#persona-demo .pe-chip");
+  const form = $("#persona-demo .pe-form");
+  const note = $("#pe-note"), siteEl = $("#pe-site");
+  let settled = false;
+
+  async function pick(who, byUser) {
+    const v = WHO[who];
+    if (!v) return;
+    for (const c of chips) c.setAttribute("aria-pressed", String(c.dataset.who === who));
+    form.classList.add("swapping");
+    await sleep(180);
+    $("#pe-email").textContent = v.email;
+    $("#pe-addr").textContent = v.addr;
+    $("#pe-phone").textContent = PHONE;
+    siteEl.innerHTML = '<span class="pe-dot"></span> ' + v.site;
+    form.classList.remove("swapping");
+    if (byUser) settled = true;
+    siteEl.classList.toggle("settled", settled);
+    note.textContent = settled
+      ? "Settled. Rewisp won't ask again for this site — and it's one tap in Settings to change."
+      : "Rewisp won't fill until you pick. After that this site is settled.";
+  }
+
+  for (const c of chips) c.addEventListener("click", () => pick(c.dataset.who, true));
+  whenVisible(el, () => pick("school", false), { once: true });
+})();

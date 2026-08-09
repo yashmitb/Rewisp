@@ -6,7 +6,7 @@
 <title>Rewisp — an ambient memory for your Mac</title>
 <meta name="description" content="Rewisp remembers the text of everything you see on your Mac, so you can ask about it later. Private by construction — screenshots never touch disk.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23181c2c'/%3E%3Cpath d='M 1.44 14.80 L 1.97 15.86 L 2.50 16.79 L 3.02 17.55 L 3.55 18.13 L 4.08 18.52 L 4.61 18.71 L 5.14 18.69 L 5.66 18.48 L 6.19 18.07 L 6.72 17.50 L 7.25 16.78 L 7.78 15.93 L 8.30 14.98 L 8.83 13.96 L 9.36 12.91 L 9.89 11.86 L 10.42 10.84 L 10.94 9.87 L 11.47 8.99 L 12.00 8.23 L 12.53 7.59 L 13.06 7.10 L 13.58 6.77 L 14.11 6.60 L 14.64 6.60 L 15.17 6.76 L 15.70 7.07 L 16.22 7.52 L 16.75 8.09 L 17.28 8.75 L 17.81 9.50 L 18.34 10.30 L 18.86 11.13 L 19.39 11.96 L 19.92 12.77 L 20.45 13.52 L 20.98 14.21 L 21.50 14.82 L 22.03 15.32 L 22.56 15.70' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Ccircle cx='22.56' cy='15.70' r='1.0' fill='%23fff'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="css/styles.css?v=20260802a">
+<link rel="stylesheet" href="css/styles.css?v=20260808a">
 </head>
 <body>
 
@@ -175,6 +175,35 @@
         </div>
         <h3>It remembers what you promised</h3>
         <p class="cap">You said it once, in passing, and moved on. Rewisp caught the commitment as it scrolled by, held it, and brought it back the morning it was due — without you writing anything down.</p>
+      </div>
+
+      <!-- personas (v0.31) — the values above, but as the right "you".
+           Interactive on purpose: the chips are the actual product decision, so
+           the demo lets you make it. Synthetic details throughout — no real
+           Vault content ever goes on this page. -->
+      <div class="panel reveal wide" id="persona-demo">
+        <div class="ph"><span class="tag">Personas</span><span class="dots"><i></i><i></i><i></i></span></div>
+        <div class="persona-stage">
+          <div class="pe-side">
+            <div class="pe-ask">Which you is this?</div>
+            <div class="pe-chips" role="group" aria-label="Choose an identity">
+              <button class="pe-chip" type="button" data-who="school">🎓 School</button>
+              <button class="pe-chip" type="button" data-who="personal">🏠 Personal</button>
+              <button class="pe-chip" type="button" data-who="work">💼 Work</button>
+            </div>
+            <div class="pe-note" id="pe-note">Rewisp won't fill until you pick. After that this site is settled.</div>
+            <div class="pe-site" id="pe-site"><span class="pe-dot"></span> portal.university.edu</div>
+            <div class="pe-shared">A persona is just a folder in your Vault. Anything outside one — your phone number, your resume — stays shared, and answers for every you.</div>
+          </div>
+          <div class="form-demo pe-form">
+            <div class="field done"><div class="lab">Email</div><div class="val" id="pe-email">—</div><span class="src">Vault ✓</span></div>
+            <div class="field done"><div class="lab">Address</div><div class="val" id="pe-addr">—</div><span class="src">Vault ✓</span></div>
+            <div class="field done"><div class="lab">Phone</div><div class="val" id="pe-phone">—</div><span class="src">shared</span></div>
+            <div class="field skip"><div class="lab">Password</div><div class="val">•••••••• — never filled</div><span class="src">skipped</span></div>
+          </div>
+        </div>
+        <h3>More than one you</h3>
+        <p class="cap">A school address on a course site, a personal one on a shopping cart. Rewisp <b>asks once</b> which you a site belongs to — and never guesses, because a silently wrong identity in a submitted form is the mistake you can't take back. After that it's settled, and always one tap to change. <span class="soft">Try the chips.</span></p>
       </div>
 
       <!-- form autofill -->
@@ -483,7 +512,7 @@
   <img alt="Rewisp — an ambient memory for your Mac - See it once. Ask forever. | Product Hunt" width="250" height="54" loading="lazy" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1199790&theme=dark&t=1784448393504">
 </a>
 
-<script src="js/demos.js?v=20260802a"></script>
+<script src="js/demos.js?v=20260808a"></script>
 
 <!-- Analytics: GoatCounter. No cookies, no personal data, no cross-site tracking,
      nothing that needs a consent banner — which matters here, because a page

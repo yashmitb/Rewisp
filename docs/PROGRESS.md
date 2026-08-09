@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.30.0, 2026-08-02):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~1,150 wisps/day, 27,600+ wisps). 387 tests. 57 releases (v0.1.0 → v0.30.0).
+**Current status (v0.31.0, 2026-08-08):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~1,150 wisps/day, 27,600+ wisps). 470 tests. 58 releases (v0.1.0 → v0.31.0).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,37 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.31.0 — which "you" a value belongs to (2026-08-08)
+
+- **Personas.** You have several email addresses, and which one is right depends
+  entirely on where you are. A persona is just a **folder in the Vault**, so
+  nothing new is stored and a file can be moved between identities in Finder
+  with the app closed. Files left at the top level stay shared — a resume is a
+  resume, a phone number is the same whoever is asking — so adding personas
+  never makes Rewisp know less.
+- **The rule is the refusal.** On a site it has never seen, autofill **asks and
+  will not fill until you answer**. A silently wrong identity in a form you then
+  submit is the mistake you cannot take back, so /form-write returns a 409
+  rather than a guess. Picking settles the site; it never asks again, and every
+  settled site is one tap to change in Settings → Personas.
+- **Line-level splitting.** The per-file model broke on the file that matters
+  most: one "personal info" note holding a student ID, a university address and
+  a home address — three identities in eight lines. Setup proposes a split line
+  by line, shows what it thinks each line is, lets you disagree, and keeps the
+  original as a hidden backup.
+- **A review pass found six bugs, one of them destructive.** The splitter wrote
+  its leftovers to `<stem>.md` with a blind write, so a Vault holding both
+  `info.rtf` and `info.md` lost the `.md` — unrelated bytes, no backup. Also:
+  the app treated every HTTP 400/500 as success (a refusal was reported as
+  "Filed"), a cancelled replay loop spun at 100% of a core instead of stopping,
+  a native app could never be un-settled, "Create the folders for me" was a
+  visible dead end, and a sanitised-but-meaningless persona name ("../../etc" →
+  "etc") could be settled on.
+- **Filed files came back.** Putting a document in a persona folder had hidden
+  it from Settings → Vault entirely and made it undeletable — indexed,
+  answering, and invisible.
+- 470 tests, 47 endpoint checks.
 
 ## v0.30.0 — the menu bar app stops burning your battery (2026-08-02)
 

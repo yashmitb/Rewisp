@@ -11,7 +11,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 # REWISP_VERSION (e.g. 0.28.0-dev.1) so the bundle version carries the -dev.N
 # suffix the updater's semver compare needs. Keep the default in sync with the
 # real stable version on every release.
-VERSION="${REWISP_VERSION:-0.30.0}"
+VERSION="${REWISP_VERSION:-0.31.0}"
 
 # FoundationModels (on-device AI) is weak-linked: exists on macOS 26+,
 # app still launches on 15.0 where AskEngine falls back to Claude.
