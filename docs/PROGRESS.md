@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.31.0, 2026-08-08):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~1,150 wisps/day, 27,600+ wisps). 470 tests. 58 releases (v0.1.0 → v0.31.0).
+**Current status (v0.31.1, 2026-08-09):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~1,150 wisps/day, 27,600+ wisps). 491 tests. 59 releases (v0.1.0 → v0.31.1).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,40 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.31.1 — the refusal actually refuses (2026-08-09)
+
+0.31.0 shipped the persona feature with its one safety property broken, and a
+review pass found ten more bugs behind it.
+
+- **The refusal did not work from the panel.** /form-fill previews an identity
+  so the values are not a mixture of everyone; the panel then sent that preview
+  back as an explicit pick. So "Fill into fields" on a site never seen before
+  filled with the primary AND silently settled the site on it — exactly what the
+  feature exists to prevent, and what the release notes promised it would not do.
+  Preview and answer are now distinct states, and only an answer travels.
+- **A private window could settle the whole browser.** With no URL the key falls
+  back to the app, so one pick in a private window settled Safari itself.
+  Nothing is remembered on private, kill-listed or "don't bother" pages now.
+- **Firefox could never remember a persona.** browser.active_tab is AppleScript,
+  Firefox exposes no scripting dictionary, and Automation consent can be denied
+  for the rest — so those users were asked on every form, forever. The URL now
+  falls back to Accessibility (AXURL on the web area), which needs no consent and
+  cannot hang.
+- **Filed Vault documents were invisible and undeletable.** Putting a file in a
+  persona folder hid it from Settings → Vault and the delete guard refused it.
+- **The highlighted persona chip was not clickable** — it is the preview, so
+  there was no way to confirm the identity Rewisp had guessed.
+- Empty persona folders asked questions with no distinct answers; picking a
+  second chip mid-fill left the chip and the values disagreeing; the app treated
+  every HTTP 400/500 as success; a cancelled replay spun at 100% of a core.
+- **Site:** six panels were clipping their own captions at every desktop width
+  (Autofill's "never submits" line sat 75px below the visible bottom), the
+  capture strip overflowed at 320 and 375px, and backdrop-filter had no -webkit-
+  prefix for the Safari versions that still need it. Measured at ten widths in
+  two engines. The install page now states the macOS 15 / Apple Silicon
+  requirement where the download actually happens.
+- 491 tests, 51 endpoint checks.
 
 ## v0.31.0 — which "you" a value belongs to (2026-08-08)
 
