@@ -87,6 +87,20 @@ def folder_personas() -> set[str]:
         return set()
 
 
+def filled_personas(conn) -> list[str]:
+    """Personas that actually hold a file, i.e. ones that can change an answer.
+
+    Settings lists empty folders too, so "Create the folders for me" is not a
+    dead end. Autofill must not: an empty persona answers identically to every
+    other, so offering it turns the "which you is this?" question into four
+    chips that all do the same thing, on every site, for a Vault that has not
+    been sorted yet. Asking a question with no distinct answers is just friction.
+    """
+    paths = [p for (p,) in conn.execute("SELECT path FROM vault_files")]
+    found = {name for p in paths if (name := persona_of(p))}
+    return [p for p in known_personas(conn, paths=paths) if p in found]
+
+
 def known_personas(conn=None, paths: list[str] | None = None) -> list[str]:
     """Personas that exist — a folder in the Vault, filled or not. Ordered with
     the primary first, then the rest of the recognised ones, then anything the

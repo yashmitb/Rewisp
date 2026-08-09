@@ -104,3 +104,135 @@ class TestTheRefusal:
         vault_dir("personal/info.md", "Email: me@gmail.com\n")
         who = server._persona_for_form(conn, "Safari", {})
         assert len(who["choices"]) == 1
+
+
+class TestPreviewIsNotAPick:
+    """The panel previews an identity before the user has chosen one. Shipping
+    that preview back as `persona` made the daemon treat it as an answer — the
+    site filled with the primary and settled itself, which is precisely what the
+    refusal is for. The server contract has to make the two states distinct."""
+
+    def test_no_persona_in_the_body_leaves_the_site_unsettled(self, two_identities):
+        who = server._persona_for_form(two_identities, "Safari", {})
+        assert who["persona"] is None          # -> the caller must 409
+        assert who["showing"] is not None      # ...while still previewing
+
+    def test_only_an_explicit_pick_settles_the_site(self, two_identities):
+        conn = two_identities
+        # A preview alone must never reach remember_site.
+        assert personas.for_site(conn, None, "Safari") is None
+        who = server._persona_for_form(conn, "Safari", {"persona": "school"})
+        personas.remember_site(conn, who.get("url"), who["persona"], "Safari")
+        after = server._persona_for_form(conn, "Safari", {})
+        assert after["settled"] is True and after["persona"] == "school"
+
+
+class TestFindingTheAppWithoutWalkingAccessibility:
+    """/form-write needs the app name only to pick an identity; the fill is
+    already a deep AX walk. Asking for it made every fill walk twice."""
+
+    def test_the_body_is_believed_first(self):
+        assert server._form_app(123, {"app": "Safari"}) == "Safari"
+
+    def test_the_daemon_cache_answers_for_the_same_pid(self, monkeypatch):
+        import time
+        from rewisp import daemon
+        monkeypatch.setitem(daemon.STATE, "frontmost",
+                            {"app": "Google Chrome", "pid": 777, "ts": time.time()})
+        assert server._form_app(777, {}) == "Google Chrome"
+
+    def test_a_stale_or_mismatched_cache_is_not_used(self, monkeypatch):
+        import time
+        from rewisp import daemon, form
+        monkeypatch.setitem(daemon.STATE, "frontmost",
+                            {"app": "Google Chrome", "pid": 999, "ts": time.time() - 600})
+        called = []
+        monkeypatch.setattr(form, "query", lambda pid: called.append(pid) or None)
+        assert server._form_app(777, {}) is None
+        assert called == [777]          # fell through to the real walk
+
+
+class TestWhereAChoiceMayBeRemembered:
+    """Settling a site writes its address down. The kill list and private
+    windows are promised as absolute — "paused, so there is no row" — and a
+    site_persona row is a row. Autofill still works on those pages; the choice
+    just isn't kept, so it asks again rather than recording where you were."""
+
+    def _tab(self, monkeypatch, url, private=False):
+        from rewisp import browser
+        monkeypatch.setattr(browser, "is_browser", lambda app: True)
+        monkeypatch.setattr(browser, "active_tab",
+                            lambda app: (url, "a title", private))
+
+    def test_an_ordinary_page_is_keyed_on_its_host(self, two_identities, monkeypatch):
+        self._tab(monkeypatch, "https://shop.example.com/checkout")
+        who = server._persona_for_form(two_identities, "Safari", {})
+        assert who["site"] == "shop.example.com"
+
+    def test_a_private_window_is_never_keyed_on_its_url(self, two_identities, monkeypatch):
+        self._tab(monkeypatch, "https://shop.example.com/checkout", private=True)
+        who = server._persona_for_form(two_identities, "Safari", {})
+        assert "shop.example.com" not in who["site"]
+        assert who["url"] is None
+
+    def test_a_site_on_the_dont_bother_list_is_not_recorded(
+            self, two_identities, monkeypatch):
+        from rewisp import config as cfg
+        monkeypatch.setattr(cfg, "excluded_sites", lambda: ["shop.example.com"])
+        self._tab(monkeypatch, "https://shop.example.com/checkout")
+        who = server._persona_for_form(two_identities, "Safari", {})
+        assert who["url"] is None
+
+    def test_a_kill_listed_url_is_not_recorded(self, two_identities, monkeypatch):
+        from rewisp import killlist
+        monkeypatch.setattr(killlist.KillList, "reload",
+                            lambda self: setattr(self, "url_patterns", ["bank.example"])
+                            or setattr(self, "apps", set()))
+        self._tab(monkeypatch, "https://bank.example.com/transfer")
+        who = server._persona_for_form(two_identities, "Safari", {})
+        assert who["url"] is None
+
+    def test_autofill_still_works_there_it_just_is_not_remembered(
+            self, two_identities, monkeypatch):
+        self._tab(monkeypatch, "https://shop.example.com/x", private=True)
+        who = server._persona_for_form(two_identities, "Safari", {"persona": "school"})
+        assert who["persona"] == "school"        # the fill goes ahead
+        assert who["url"] is None                # nothing is written down
+
+
+class TestEmptyFoldersDoNotAskQuestions:
+    """Settings lists a persona folder the moment it exists, so "Create the
+    folders for me" isn't a dead end. Autofill must not follow suit: an empty
+    persona answers identically to every other, so offering it turns "which you
+    is this?" into four chips that all do the same thing, on every site."""
+
+    def test_an_empty_folder_is_not_offered_at_a_form(self, conn, vault_dir):
+        vault_dir("personal/info.md", "Email: me@gmail.com\n")
+        personas.ensure_folders(conn, ["school", "work", "rewisp"])
+        assert set(personas.known_personas(conn)) == {
+            "personal", "school", "work", "rewisp"}          # Settings
+        who = server._persona_for_form(conn, "Safari", {})
+        assert [c["name"] for c in who["choices"]] == ["personal"]   # the form
+
+    def test_a_half_set_up_vault_never_blocks_a_fill(self, conn, vault_dir):
+        vault_dir("personal/info.md", "Email: me@gmail.com\n")
+        personas.ensure_folders(conn, ["school", "work"])
+        who = server._persona_for_form(conn, "Safari", {})
+        # One choice -> the /form-write refusal (persona is None AND >1 choice)
+        # cannot trigger, so the fill goes ahead as it always did.
+        assert who["persona"] is None and len(who["choices"]) == 1
+
+    def test_a_private_window_pick_does_not_settle_the_whole_browser(
+            self, two_identities, monkeypatch):
+        # Blanking the URL alone was not enough: with no URL the key falls back
+        # to the APP, so one pick in a private window settled Safari itself and
+        # the next private window filled without asking.
+        from rewisp import browser
+        monkeypatch.setattr(browser, "is_browser", lambda app: True)
+        monkeypatch.setattr(browser, "active_tab",
+                            lambda app: ("https://x.example.com/y", "t", True))
+        who = server._persona_for_form(two_identities, "Safari", {"persona": "school"})
+        assert who["remember"] is False
+        assert who["site"] == ""
+        # Nothing was written, so the next visit is unsettled and asks again.
+        assert personas.for_site(two_identities, None, "Safari") is None

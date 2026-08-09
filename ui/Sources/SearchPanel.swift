@@ -210,7 +210,14 @@ struct SearchPanelView: View {
     /// question. nil `personaChoices` means the Vault has no personas, in which
     /// case none of this appears at all.
     @State private var personaShowing: String?
+    /// Whether the user has actually ANSWERED the question, as opposed to the
+    /// panel merely previewing an identity. The distinction is the whole safety
+    /// rule: sending the previewed persona made the daemon treat it as a pick,
+    /// so a brand-new site filled with the primary and quietly settled itself —
+    /// "Rewisp won't fill until you pick" was not true of the shipped panel.
+    @State private var personaPicked = false
     @State private var personaSettled = false
+    @State private var formApp: String?
     @State private var personaChoices: [RewispAPI.Persona] = []
     @State private var fillingForm = false
     @State private var writingForm = false
@@ -634,8 +641,10 @@ struct SearchPanelView: View {
         writingForm = false
         writeResult = nil
         personaShowing = nil
+        personaPicked = false
         personaSettled = false
         personaChoices = []
+        formApp = nil
     }
 
     // M2: write the resolved values into the actual form fields on the page (AX).
@@ -647,17 +656,25 @@ struct SearchPanelView: View {
         Task { @MainActor in
             var body: [String: Any] = [:]
             if let pid = SearchPanelState.shared.formPid { body["pid"] = pid }
-            // Sending the identity is what settles the site: the daemon refuses
-            // to fill an unseen site while more than one "you" could be meant,
-            // so this is the tap that answers the question — once, and never
-            // again for this site.
-            if let p = personaShowing { body["persona"] = p }
+            // ONLY an actual answer. A previewed identity must never be sent as
+            // though it were chosen — that is what settles the site, and doing it
+            // on the user's behalf is the exact failure this feature exists to
+            // prevent. Unpicked and unsettled, the daemon 409s and the panel asks.
+            if personaPicked, let p = personaShowing { body["persona"] = p }
+            // Saves the daemon a second deep Accessibility walk purely to learn
+            // the app's name — the fill itself is the walk that matters.
+            if let a = formApp { body["app"] = a }
             var written = 0
             var failure: String?
             do {
                 let res = try await RewispAPI.post("form-write", body: body)
                 if let obj = try? JSONSerialization.jsonObject(with: res) as? [String: Any] {
                     written = obj["written"] as? Int ?? 0
+                    // The daemon says whether the site ended up settled. Deciding
+                    // that here from "did anything get written" claimed a site was
+                    // settled even when there was no identity in play at all.
+                    personaSettled = obj["settled"] as? Bool ?? personaSettled
+                    if let who = obj["persona"] as? String { personaShowing = who }
                 }
             } catch let e as RewispAPI.APIError {
                 failure = e.status == 409 ? "Pick which you first" : e.message
@@ -670,7 +687,6 @@ struct SearchPanelView: View {
                 } else {
                     writeResult = written > 0 ? "Filled \(written) field\(written == 1 ? "" : "s")"
                                               : "Couldn't fill — try copying instead"
-                    if written > 0 { personaSettled = true }
                 }
                 writingForm = false
             }
@@ -706,7 +722,7 @@ struct SearchPanelView: View {
         Task { @MainActor in
             var body: [String: Any] = [:]
             if let pid = SearchPanelState.shared.formPid { body["pid"] = pid }
-            if let p = personaShowing, !personaSettled { body["persona"] = p }
+            if personaPicked, let p = personaShowing { body["persona"] = p }
             let res = try? await RewispAPI.post("form-fill", body: body)
             var parsed: RewispAPI.FormFill?
             if let res { parsed = try? JSONDecoder().decode(RewispAPI.FormFill.self, from: res) }
@@ -715,6 +731,7 @@ struct SearchPanelView: View {
                 personaChoices = parsed?.choices ?? []
                 personaSettled = parsed?.settled ?? false
                 personaShowing = parsed?.showing
+                formApp = parsed?.app
                 fillingForm = false
             }
         }
@@ -738,9 +755,13 @@ struct SearchPanelView: View {
                     ForEach(personaChoices) { p in
                         let on = p.name == personaShowing
                         Button {
-                            guard p.name != personaShowing else { return }
+                            // Deliberately NOT guarded on "already showing". The
+                            // highlighted chip is the PREVIEW, so refusing the
+                            // click left the user unable to confirm the identity
+                            // Rewisp had guessed — they had to pick another and
+                            // come back. Tapping it is how you say yes.
                             personaShowing = p.name
-                            personaSettled = false      // an explicit re-pick
+                            personaPicked = true
                             writeResult = nil
                             fillForm()                  // re-read as that you
                         } label: {
@@ -758,7 +779,9 @@ struct SearchPanelView: View {
                     Spacer()
                 }
                 if !personaSettled {
-                    Text("Rewisp won't fill until you pick — after that this site is settled, and you can change it in Settings → Personas.")
+                    Text(personaPicked
+                         ? "Fill now and this site is settled — it won't ask again, and you can change it in Settings → Personas."
+                         : "Rewisp won't fill until you pick — after that this site is settled, and you can change it in Settings → Personas.")
                         .font(.caption2).foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }

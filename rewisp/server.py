@@ -76,6 +76,27 @@ def _form_pid(body: dict) -> int | None:
     return None
 
 
+def _form_app(pid: int, body: dict) -> str | None:
+    """The name of the app the form is in, WITHOUT walking Accessibility for it.
+
+    /form-write only needs the app to decide whose values to fill; the fill
+    itself is already a deep AX walk. Asking form.query first made every fill do
+    that walk twice — and each one carries a half-second retry when a Chromium
+    tree comes back empty. The panel already learned the name from /form-fill,
+    and the daemon's tick caches it, so the walk is the last resort.
+    """
+    import time as _time
+    from . import daemon
+    named = (body.get("app") or "").strip()
+    if named:
+        return named
+    fm = daemon.STATE.get("frontmost")
+    if fm and fm.get("pid") == pid and _time.time() - fm.get("ts", 0) < 30:
+        return fm.get("app")
+    from . import form
+    return (form.query(pid) or {}).get("app")
+
+
 def _persona_for_form(conn, app: str | None, body: dict) -> dict:
     """Which identity this form belongs to, and everything the UI needs to ask.
 
@@ -87,21 +108,37 @@ def _persona_for_form(conn, app: str | None, body: dict) -> dict:
     the search panel is non-activating, so the page keeps focus, and asking the
     named app directly is what makes the answer deterministic.
     """
-    from . import browser
+    from . import browser, killlist
     from . import personas as _p
-    url = None
+    url, may_remember = None, True
     try:
         if app and browser.is_browser(app):
-            url = browser.active_tab(app)[0]
+            url, _title, private = browser.active_tab(app)
+            # A persona choice is REMEMBERED against this site, which means
+            # writing down where you were. The kill list and private windows are
+            # promised as absolute — "not filtered afterwards, paused, so there
+            # is no row" — and a site_persona row is a row.
+            #
+            # Blanking the URL alone was not enough: with no URL the key falls
+            # back to the APP, so a pick made in a private window settled the
+            # whole browser, and the next private window then filled without
+            # asking. On these pages nothing is remembered at all. Autofill still
+            # works; it just asks again, which is the correct behaviour for a
+            # window whose whole point is leaving no trace.
+            if (private or config.site_excluded(url)
+                    or killlist.KillList().blocks_url(url)):
+                url, may_remember = None, False
     except Exception:  # noqa: BLE001 — no URL just means we key on the app
         url = None
+    # Only personas that hold a file. An empty folder answers exactly like every
+    # other, so offering it asks a question with no distinct answers.
     choices = [{"name": n, "label": _p.label_for(n),
                 "symbol": _p.KNOWN.get(n, {}).get("symbol", "person.fill")}
-               for n in _p.known_personas(conn)]
+               for n in _p.filled_personas(conn)]
     picked = _p.clean_name(body.get("persona") or "")
     if picked and not _p.is_valid_persona(conn, picked):
         picked = ""
-    settled = _p.for_site(conn, url, app)
+    settled = _p.for_site(conn, url, app) if may_remember else None
     persona = picked or settled
     # What to SHOW while the question is still open. Resolving against the whole
     # Vault would answer from whichever identity matched first, which is exactly
@@ -114,8 +151,9 @@ def _persona_for_form(conn, app: str | None, body: dict) -> dict:
             "label": _p.label_for(persona) if persona else None,
             "showing": showing,
             "settled": settled is not None,
-            "site": _p.site_key(url, app),
+            "site": _p.site_key(url, app) if may_remember else "",
             "url": url,
+            "remember": may_remember,
             "choices": choices}
 
 
@@ -564,8 +602,7 @@ class Handler(BaseHTTPRequestHandler):
                 pid = _form_pid(body)
                 if not pid:
                     return self._json({"error": "no form detected", "written": 0})
-                found = form.query(pid)
-                app = (found or {}).get("app")
+                app = _form_app(pid, body)
                 who = _persona_for_form(conn, app, body)
                 # Rule 2 of the persona design, enforced where it counts: on a
                 # site never seen before, with more than one identity to choose
@@ -575,10 +612,14 @@ class Handler(BaseHTTPRequestHandler):
                 if who["persona"] is None and len(who["choices"]) > 1:
                     return self._json({"error": "choose an identity", "written": 0,
                                        **who}, 409)
-                if body.get("persona") and who["persona"]:
+                if body.get("persona") and who["persona"] and who["remember"]:
                     # An explicit pick settles the site, so it is asked once and
                     # never again — and can always be changed from Settings.
                     _p.remember_site(conn, who.get("url"), who["persona"], app)
+                    # Recompute so the reply tells the truth about what is now
+                    # settled. Reporting the state from BEFORE the write left the
+                    # panel to infer it, and it inferred wrong.
+                    who = _persona_for_form(conn, app, body)
                 result = form.apply(pid, who["persona"])   # crash-isolated subprocess
                 self._json({**(result or {"error": "no form detected", "written": 0}),
                             **who})
