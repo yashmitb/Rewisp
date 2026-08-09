@@ -134,6 +134,19 @@ def label_for(name: str) -> str:
     return KNOWN.get(name, {}).get("label") or name.replace("-", " ").title()
 
 
+def rows_for(conn, persona: str | None, shared: bool = True):
+    """Vault rows an identity may answer from, loaded fresh.
+
+    The public door onto `_rows_for` for callers outside this module — autofill,
+    mainly, which needs a persona's own files to win and the shared ones to be
+    there as a fallback rather than a competitor.
+    """
+    if not persona:
+        return None                       # None means "the whole Vault"
+    rows = conn.execute("SELECT path, content FROM vault_files").fetchall()
+    return _rows_for(rows, persona, shared=shared)
+
+
 def _rows_for(rows, persona: str | None, shared: bool = True):
     """Partition preloaded Vault rows for one persona.
 

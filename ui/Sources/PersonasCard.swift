@@ -229,14 +229,10 @@ struct PersonasCard: View {
             CardHeader(title: "Sites you've settled", symbol: "checkmark.seal.fill",
                        trailing: (state?.sites.isEmpty ?? true) ? nil : "\(state?.sites.count ?? 0)")
             if state?.sites.isEmpty ?? true {
-                // Says what the build actually does. It used to describe the
-                // autofill prompt — "the first time you fill a form on a site,
-                // Rewisp asks which you it is" — which nothing implements yet.
-                // A settings pane claiming a behaviour the app does not have is
-                // how someone concludes the whole feature is broken.
-                Text("None yet — and nothing settles one yet either. Choosing an "
-                     + "identity at the form itself is still being built; when it "
-                     + "lands, every site you pick shows up here to change or undo.")
+                Text("None yet. The first time you fill a form on a site, the search "
+                     + "panel asks which you it is — and won't fill until you say. "
+                     + "After that it's settled, it never asks again, and it's always "
+                     + "one tap here to change or forget.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {

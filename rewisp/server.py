@@ -26,6 +26,7 @@ POST /killlist        -> {"apps": [...], "url_patterns": [...]} user additions
 import hmac
 import json
 import logging
+import pathlib
 import threading
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -73,6 +74,49 @@ def _form_pid(body: dict) -> int | None:
     if fm and _time.time() - fm.get("ts", 0) < 30 and fm.get("app") != "Rewisp":
         return fm.get("pid")
     return None
+
+
+def _persona_for_form(conn, app: str | None, body: dict) -> dict:
+    """Which identity this form belongs to, and everything the UI needs to ask.
+
+    The safety order in one place, so /form-fill and /form-write cannot disagree
+    about it: an explicit pick wins, then whatever this site was settled on, and
+    otherwise None — which means OFFER, never guess. `choices` is what to offer.
+
+    The URL comes from the browser the form is in, not from the frontmost app:
+    the search panel is non-activating, so the page keeps focus, and asking the
+    named app directly is what makes the answer deterministic.
+    """
+    from . import browser
+    from . import personas as _p
+    url = None
+    try:
+        if app and browser.is_browser(app):
+            url = browser.active_tab(app)[0]
+    except Exception:  # noqa: BLE001 — no URL just means we key on the app
+        url = None
+    choices = [{"name": n, "label": _p.label_for(n),
+                "symbol": _p.KNOWN.get(n, {}).get("symbol", "person.fill")}
+               for n in _p.known_personas(conn)]
+    picked = _p.clean_name(body.get("persona") or "")
+    if picked and not _p.is_valid_persona(conn, picked):
+        picked = ""
+    settled = _p.for_site(conn, url, app)
+    persona = picked or settled
+    # What to SHOW while the question is still open. Resolving against the whole
+    # Vault would answer from whichever identity matched first, which is exactly
+    # the silent mixing personas exist to end — so an unsettled form previews the
+    # primary, says so, and offers the others.
+    showing = persona or (_p.primary() if choices else None)
+    if showing and showing not in [c["name"] for c in choices]:
+        showing = choices[0]["name"] if choices else None
+    return {"persona": persona or None,
+            "label": _p.label_for(persona) if persona else None,
+            "showing": showing,
+            "settled": settled is not None,
+            "site": _p.site_key(url, app),
+            "url": url,
+            "choices": choices}
 
 
 def _today_utc_bounds() -> tuple[str, str]:
@@ -262,13 +306,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"chats": [
                     {"ts": r[0], "role": r[1], "content": r[2]} for r in reversed(rows)]})
             elif self.path == "/vault":
+                # rglob, not glob: personas file documents into subfolders, and a
+                # top-level-only listing made every filed file disappear from
+                # Settings → Vault. They were indexed and answering the whole
+                # time, which is the worst way for a file to be missing.
                 files = []
-                for p in sorted(config.VAULT_DIR.glob("*")):
-                    if p.is_file() and not p.name.startswith("."):
-                        st = p.stat()
-                        files.append({"name": p.name, "size": st.st_size,
-                                      "mtime": int(st.st_mtime)})
-                self._json({"files": files, "path": str(config.VAULT_DIR)})
+                root = config.VAULT_DIR.resolve()
+                for p in sorted(config.VAULT_DIR.rglob("*")):
+                    rel = p.relative_to(config.VAULT_DIR)
+                    if not p.is_file() or any(part.startswith(".") for part in rel.parts):
+                        continue
+                    st = p.stat()
+                    files.append({"name": str(rel), "size": st.st_size,
+                                  "mtime": int(st.st_mtime)})
+                self._json({"files": files, "path": str(root)})
             elif self.path == "/settings":
                 self._json({**config.load_settings(),
                             "available": _engine_availability()})
@@ -503,14 +554,34 @@ class Handler(BaseHTTPRequestHandler):
                 if not found or not found.get("fields"):
                     return self._json({"error": "no form detected"}, 404)
                 labels = [f["label"] for f in found.get("fields", [])]
-                resolved = form.resolve(conn, labels)
-                self._json({"app": found.get("app"), "fields": resolved})
+                who = _persona_for_form(conn, found.get("app"), body)
+                resolved = form.resolve(conn, labels, who["showing"])
+                self._json({"app": found.get("app"), "fields": resolved, **who})
             elif self.path == "/form-write":
                 # Write resolved Vault values into the page's fields. Fills only.
                 from . import form
+                from . import personas as _p
                 pid = _form_pid(body)
-                result = form.apply(pid) if pid else None   # crash-isolated subprocess
-                self._json(result or {"error": "no form detected", "written": 0})
+                if not pid:
+                    return self._json({"error": "no form detected", "written": 0})
+                found = form.query(pid)
+                app = (found or {}).get("app")
+                who = _persona_for_form(conn, app, body)
+                # Rule 2 of the persona design, enforced where it counts: on a
+                # site never seen before, with more than one identity to choose
+                # from, OFFER. Filling a form with a silently guessed identity is
+                # the failure that would make nobody trust this again — so the
+                # write is refused until the UI has asked.
+                if who["persona"] is None and len(who["choices"]) > 1:
+                    return self._json({"error": "choose an identity", "written": 0,
+                                       **who}, 409)
+                if body.get("persona") and who["persona"]:
+                    # An explicit pick settles the site, so it is asked once and
+                    # never again — and can always be changed from Settings.
+                    _p.remember_site(conn, who.get("url"), who["persona"], app)
+                result = form.apply(pid, who["persona"])   # crash-isolated subprocess
+                self._json({**(result or {"error": "no form detected", "written": 0}),
+                            **who})
             elif self.path == "/chat-log":
                 q = (body.get("question") or "").strip()
                 a = (body.get("answer") or "").strip()
@@ -729,11 +800,18 @@ class Handler(BaseHTTPRequestHandler):
                 res["refused"] = [{"name": n, "reason": r} for n, r in res["refused"]]
                 self._json(res)
             elif self.path == "/vault/delete":
-                name = body.get("name", "")
+                name = str(body.get("name") or "")
+                root = config.VAULT_DIR.resolve()
                 target = (config.VAULT_DIR / name).resolve()
-                # Path-traversal guard: must stay a direct child of the vault.
-                if (not name or "/" in name or name.startswith(".")
-                        or target.parent != config.VAULT_DIR.resolve()
+                # Path-traversal guard. One folder deep is allowed because that
+                # is where personas file things — refusing any "/" meant a filed
+                # document could never be deleted from the app again. The real
+                # guard is the resolved path: it must sit in the Vault or in a
+                # folder directly inside it, and no path part may be hidden.
+                parts = pathlib.PurePosixPath(name).parts
+                if (not name or name.startswith("/") or len(parts) > 2
+                        or any(p.startswith(".") or p == ".." for p in parts)
+                        or (target.parent != root and target.parent.parent != root)
                         or not target.is_file()):
                     return self._json({"error": "bad name"}, 400)
                 target.unlink()

@@ -94,14 +94,16 @@ def query(pid: int) -> dict | None:
     return _clean(_HELPER.send({"op": "fields", "pid": pid}))
 
 
-def resolve_form(pid: int) -> dict | None:
+def resolve_form(pid: int, persona: str | None = None) -> dict | None:
     """{'app','fields':[{label,value,found}]} — fields resolved against the Vault."""
-    return _clean(_HELPER.send({"op": "resolve", "pid": pid}))
+    return _clean(_HELPER.send({"op": "resolve", "pid": pid, "persona": persona}))
 
 
-def apply(pid: int) -> dict | None:
-    """Fill the fields with Vault values. {'written', 'fields':[...]}."""
-    return _clean(_HELPER.send({"op": "write", "pid": pid}))
+def apply(pid: int, persona: str | None = None) -> dict | None:
+    """Fill the fields with Vault values. {'written', 'fields':[...]}.
+    `persona` travels through the helper so the identity decided by the caller is
+    the one that actually lands in the boxes."""
+    return _clean(_HELPER.send({"op": "write", "pid": pid, "persona": persona}))
 
 
 def focused() -> dict | None:
@@ -140,11 +142,12 @@ def helper_loop() -> None:
                 labels = [f["label"] for f in found.get("fields", [])]
                 if conn is None:
                     conn = db.connect()
-                out = {"app": found.get("app"), "fields": resolve(conn, labels)}
+                out = {"app": found.get("app"),
+                       "fields": resolve(conn, labels, cmd.get("persona"))}
             elif op == "write":
                 if conn is None:
                     conn = db.connect()
-                out = write(conn, pid) or {"written": 0, "fields": []}
+                out = write(conn, pid, cmd.get("persona")) or {"written": 0, "fields": []}
             else:
                 out = {"error": "unknown op"}
         except Exception as e:  # noqa: BLE001
@@ -303,13 +306,13 @@ _SENSITIVE = ("password", "passcode", "cvc", "cvv", "security code", "card numbe
               "ssn", "social security", "routing number", "account number")
 
 
-def _address_component(conn, which: str) -> str | None:
+def _address_component(conn, which: str, rows=None) -> str | None:
     """Pull city / state / zip / country / street out of the full Vault address,
     e.g. '1412 N Drago Way, Mountain House, California 95391, United States'."""
     import re
 
     from . import ask
-    hit = ask.vault_fact(conn, "what is my address")
+    hit = ask.vault_fact(conn, "what is my address", rows=rows)
     full = (hit.get("copy_text") or hit.get("answer")) if hit else None
     if not full or "," not in full:
         return None
@@ -340,7 +343,10 @@ def _address_component(conn, which: str) -> str | None:
     return None
 
 
-def _resolve_one(conn, label: str) -> str | None:
+def _resolve_one(conn, label: str, rows=None) -> str | None:
+    """`rows` narrows the Vault to one identity's files (plus the shared ones).
+    None means the whole Vault, which is the behaviour of a Vault with no
+    personas in it — so passing nothing keeps the old answer exactly."""
     from . import ask
     low = label.lower()
     # Payment / credential fields: never fill.
@@ -348,27 +354,27 @@ def _resolve_one(conn, label: str) -> str | None:
         return None
     # Address components come from the one full address in the Vault.
     if "country" in low:
-        c = _address_component(conn, "country")
+        c = _address_component(conn, "country", rows)
         if c:
             return c
     elif any(k in low for k in ("city", "town")):
-        c = _address_component(conn, "city")
+        c = _address_component(conn, "city", rows)
         if c:
             return c
     elif any(k in low for k in ("state", "province")):
-        c = _address_component(conn, "state")
+        c = _address_component(conn, "state", rows)
         if c:
             return c
     elif any(k in low for k in ("zip", "postal", "postcode")):
-        c = _address_component(conn, "zip")
+        c = _address_component(conn, "zip", rows)
         if c:
             return c
     elif "street" in low or "address line 1" in low:
-        c = _address_component(conn, "street")
+        c = _address_component(conn, "street", rows)
         if c:
             return c
 
-    hit = ask.vault_fact(conn, f"what is my {label}?")
+    hit = ask.vault_fact(conn, f"what is my {label}?", rows=rows)
     value = (hit.get("copy_text") or hit.get("answer")) if hit else None
     # A "name" Vault entry answers both first- and last-name fields with the full
     # name; split it so each field gets the right part.
@@ -380,12 +386,19 @@ def _resolve_one(conn, label: str) -> str | None:
     return value
 
 
-def resolve(conn, labels: list[str]) -> list[dict]:
+def resolve(conn, labels: list[str], persona: str | None = None) -> list[dict]:
     """Map each field label to the user's own value from the Vault.
-    [{'label', 'value'|None, 'found'}]. Never touches credentials — Vault refuses those."""
+    [{'label', 'value'|None, 'found'}]. Never touches credentials — Vault refuses those.
+
+    `persona` scopes the answer to one identity: its own files first, the shared
+    ones behind them. Without it the whole Vault answers, which is right for a
+    Vault that has no personas and is what this did before they existed.
+    """
+    from . import personas as _p
+    rows = _p.rows_for(conn, persona)
     out = []
     for label in labels:
-        v = _resolve_one(conn, label)
+        v = _resolve_one(conn, label, rows)
         out.append({"label": label, "value": v, "found": bool(v)})
     return out
 
@@ -407,9 +420,16 @@ def _collect_elements(element, out: list, depth: int, budget: list,
 
 
 @_locked
-def write(conn, pid: int) -> dict:
+def write(conn, pid: int, persona: str | None = None) -> dict:
     """Fill each form field on the page with the user's Vault value via AX.
-    Fills only — never clicks buttons, never submits. {'written', 'fields': [...]}."""
+    Fills only — never clicks buttons, never submits. {'written', 'fields': [...]}.
+
+    `persona` decides WHOSE values go in. Getting this wrong is the failure the
+    whole persona design exists to prevent, so the caller settles the identity
+    before this is ever reached — see the /form-write handler.
+    """
+    from . import personas as _p
+    rows = _p.rows_for(conn, persona)
     app_el = AXUIElementCreateApplication(pid)
     _enable_web_ax(app_el)
     win = _attr(app_el, "AXFocusedWindow") or _attr(app_el, "AXMainWindow")
@@ -432,7 +452,7 @@ def write(conn, pid: int) -> dict:
         if key in seen:
             continue
         seen.add(key)
-        value = _resolve_one(conn, label)
+        value = _resolve_one(conn, label, rows)
         ok = False
         if value:
             try:

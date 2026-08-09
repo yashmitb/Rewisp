@@ -206,6 +206,12 @@ struct SearchPanelView: View {
     @State private var fieldLabel: String?
     @State private var formFieldCount = 0        // whole-form detection
     @State private var formFill: [RewispAPI.ResolvedField]?
+    /// Which "you" this form belongs to, and whether that is settled or still a
+    /// question. nil `personaChoices` means the Vault has no personas, in which
+    /// case none of this appears at all.
+    @State private var personaShowing: String?
+    @State private var personaSettled = false
+    @State private var personaChoices: [RewispAPI.Persona] = []
     @State private var fillingForm = false
     @State private var writingForm = false
     @State private var writeResult: String?
@@ -627,6 +633,9 @@ struct SearchPanelView: View {
         fillingForm = false
         writingForm = false
         writeResult = nil
+        personaShowing = nil
+        personaSettled = false
+        personaChoices = []
     }
 
     // M2: write the resolved values into the actual form fields on the page (AX).
@@ -638,14 +647,31 @@ struct SearchPanelView: View {
         Task { @MainActor in
             var body: [String: Any] = [:]
             if let pid = SearchPanelState.shared.formPid { body["pid"] = pid }
-            let res = try? await RewispAPI.post("form-write", body: body)
+            // Sending the identity is what settles the site: the daemon refuses
+            // to fill an unseen site while more than one "you" could be meant,
+            // so this is the tap that answers the question — once, and never
+            // again for this site.
+            if let p = personaShowing { body["persona"] = p }
             var written = 0
-            if let res, let obj = try? JSONSerialization.jsonObject(with: res) as? [String: Any] {
-                written = obj["written"] as? Int ?? 0
+            var failure: String?
+            do {
+                let res = try await RewispAPI.post("form-write", body: body)
+                if let obj = try? JSONSerialization.jsonObject(with: res) as? [String: Any] {
+                    written = obj["written"] as? Int ?? 0
+                }
+            } catch let e as RewispAPI.APIError {
+                failure = e.status == 409 ? "Pick which you first" : e.message
+            } catch {
+                failure = "Couldn't fill — try copying instead"
             }
             withAnimation(spring) {
-                writeResult = written > 0 ? "Filled \(written) field\(written == 1 ? "" : "s")"
-                                          : "Couldn't fill — try copying instead"
+                if let failure {
+                    writeResult = failure
+                } else {
+                    writeResult = written > 0 ? "Filled \(written) field\(written == 1 ? "" : "s")"
+                                              : "Couldn't fill — try copying instead"
+                    if written > 0 { personaSettled = true }
+                }
                 writingForm = false
             }
         }
@@ -680,13 +706,64 @@ struct SearchPanelView: View {
         Task { @MainActor in
             var body: [String: Any] = [:]
             if let pid = SearchPanelState.shared.formPid { body["pid"] = pid }
+            if let p = personaShowing, !personaSettled { body["persona"] = p }
             let res = try? await RewispAPI.post("form-fill", body: body)
             var parsed: RewispAPI.FormFill?
             if let res { parsed = try? JSONDecoder().decode(RewispAPI.FormFill.self, from: res) }
             withAnimation(spring) {
                 formFill = parsed?.fields
+                personaChoices = parsed?.choices ?? []
+                personaSettled = parsed?.settled ?? false
+                personaShowing = parsed?.showing
                 fillingForm = false
             }
+        }
+    }
+
+    /// Which "you" these values belong to.
+    ///
+    /// The rule the whole persona design rests on: on a site never seen before,
+    /// OFFER — never guess and fill. So an unsettled site shows the question in
+    /// plain words with the primary previewed, and a settled one shows a quiet
+    /// row that is still one tap to change. With fewer than two identities in
+    /// the Vault there is nothing to ask, and none of this appears.
+    @ViewBuilder
+    private var personaChips: some View {
+        if personaChoices.count > 1 {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(personaSettled ? "Filling as" : "Which you is this?")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(personaSettled ? .tertiary : .secondary)
+                HStack(spacing: 6) {
+                    ForEach(personaChoices) { p in
+                        let on = p.name == personaShowing
+                        Button {
+                            guard p.name != personaShowing else { return }
+                            personaShowing = p.name
+                            personaSettled = false      // an explicit re-pick
+                            writeResult = nil
+                            fillForm()                  // re-read as that you
+                        } label: {
+                            Label(p.label, systemImage: p.symbol)
+                                .font(.caption.weight(on ? .semibold : .regular))
+                                .padding(.horizontal, 9).padding(.vertical, 4)
+                                .background(on ? Theme.accent.opacity(0.20) : .clear,
+                                            in: Capsule())
+                                .overlay(Capsule().strokeBorder(
+                                    on ? Theme.accent.opacity(0.55) : .white.opacity(0.10)))
+                                .foregroundStyle(on ? Theme.accent : Color.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer()
+                }
+                if !personaSettled {
+                    Text("Rewisp won't fill until you pick — after that this site is settled, and you can change it in Settings → Personas.")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.bottom, 2)
         }
     }
 
@@ -711,6 +788,7 @@ struct SearchPanelView: View {
                 .tint(pin.pinned ? Theme.accent : .secondary)
                 .help("Keep this panel on screen while you copy into the page")
             }
+            personaChips
             ForEach(fields) { f in
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(f.label)

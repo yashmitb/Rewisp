@@ -201,6 +201,21 @@ def main() -> int:
         s, d = call("GET", "/persona/for-site")
         check("no url and no app is simply unsettled", d.get("settled") is False, d)
 
+        print("\n── a filed file is still visible and still deletable ──")
+        # Filing a document into a persona folder used to hide it from
+        # Settings → Vault entirely (the listing was top-level only) and made it
+        # undeletable (the guard refused any "/"). Indexed, answering, invisible.
+        s, d = call("GET", "/vault")
+        names = [f["name"] for f in d.get("files", [])]
+        filed = [n for n in names if "/" in n]
+        check("filed files appear in the Vault listing", bool(filed), names[:6])
+        s, d = call("POST", "/vault/delete", {"name": filed[0] if filed else "x"})
+        check("a filed file can be deleted", s == 200, f"HTTP {s} {d}")
+        for bad in ("../../etc/passwd", "/etc/passwd", "school/../../etc/passwd",
+                    ".hidden.md", "a/b/c.md"):
+            s, _ = call("POST", "/vault/delete", {"name": bad})
+            check(f"delete refuses {bad!r}", s == 400, f"HTTP {s}")
+
         print("\n── documents survived ──")
         import subprocess
         pdfs = [p for p in config.VAULT_DIR.iterdir() if p.suffix.lower() == ".pdf"]

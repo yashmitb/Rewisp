@@ -248,10 +248,19 @@ struct RewispAPI {
         var field: FormField?
         var form: FormSummary?
     }
-    // Resolved values for each field (from the Vault).
+    // Resolved values for each field (from the Vault), and WHOSE they are.
     struct FormFill: Decodable {
         var app: String?
         var fields: [ResolvedField]
+        /// The identity settled for this site, or nil meaning the panel must ask.
+        var persona: String?
+        /// The identity these values were actually read from. On an unsettled
+        /// site that is the primary, shown as a preview while the question is
+        /// still open — never quietly filled.
+        var showing: String?
+        var settled: Bool?
+        var site: String?
+        var choices: [Persona]?
     }
     struct ResolvedField: Decodable, Hashable, Identifiable {
         var label: String
