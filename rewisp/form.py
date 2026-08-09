@@ -111,6 +111,22 @@ def focused() -> dict | None:
     return _clean(_HELPER.send({"op": "focused"}))
 
 
+def page_url(pid: int) -> dict | None:
+    """{'url', 'title'} for the page in a browser window, read from Accessibility.
+
+    The AppleScript bridge (browser.active_tab) is the daemon's usual route, and
+    it has two holes this fills. Firefox exposes NO scripting dictionary at all,
+    so it never returns a URL — which meant a persona choice could never be
+    remembered for any Firefox user. And Automation consent can be denied or
+    revoked for the others, with the same result.
+
+    Browsers publish the address on their web area as AXURL, so this needs no
+    consent, spawns no osascript, and cannot hang on a busy browser. Verified
+    reading AXURL off a Chromium window at depth 1.
+    """
+    return _clean(_HELPER.send({"op": "url", "pid": pid}))
+
+
 def helper_loop() -> None:
     """The axhelper subprocess: own all AX here. One JSON command per stdin line,
     one JSON result per stdout line. Long-lived so the browser AX tree stays built."""
@@ -144,6 +160,8 @@ def helper_loop() -> None:
                     conn = db.connect()
                 out = {"app": found.get("app"),
                        "fields": resolve(conn, labels, cmd.get("persona"))}
+            elif op == "url":
+                out = window_url(pid) or {}
             elif op == "write":
                 if conn is None:
                     conn = db.connect()
@@ -225,6 +243,43 @@ def _enable_web_ax(app_el) -> None:
             AXUIElementSetAttributeValue(app_el, attr, True)
         except Exception:  # noqa: BLE001
             pass
+
+
+def _find_url(element, depth: int, budget: list) -> str | None:
+    """First AXURL at or under `element`. The web area carries it, usually one
+    level under the window; the budget stops a pathological tree."""
+    if depth > 12 or budget[0] <= 0:
+        return None
+    budget[0] -= 1
+    for name in ("AXURL", "AXDocument"):
+        v = _attr(element, name)
+        if v:
+            text = str(v)
+            if text.startswith(("http://", "https://")):
+                return text
+    for child in (_attr(element, "AXChildren") or []):
+        found = _find_url(child, depth + 1, budget)
+        if found:
+            return found
+    return None
+
+
+@_locked
+def window_url(pid: int) -> dict | None:
+    """{'url', 'title'} for a browser's front window, straight from AX."""
+    app_el = AXUIElementCreateApplication(pid)
+    _enable_web_ax(app_el)
+    win = _attr(app_el, "AXFocusedWindow") or _attr(app_el, "AXMainWindow")
+    if win is None:
+        wins = _attr(app_el, "AXWindows") or []
+        win = wins[0] if wins else None
+    if win is None:
+        return None
+    url = _find_url(win, 0, [3000])
+    title = _attr(win, "AXTitle")
+    if not url:
+        return None
+    return {"url": url, "title": str(title) if title else None}
 
 
 @_locked

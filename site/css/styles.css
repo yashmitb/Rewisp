@@ -49,6 +49,10 @@ a { color: inherit; text-decoration: none; }
 /* nav */
 nav {
   position: sticky; top: 0; z-index: 50;
+  /* Prefixed first: Safari only learned the unprefixed property in 18, and the
+     iOS versions still in use do not have it. Without the blur this bar is page
+     text showing through page text the moment you scroll. */
+  -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
   background: rgba(11, 13, 22, .7);
   border-bottom: 1px solid var(--line);
@@ -131,7 +135,15 @@ h2 { font-size: clamp(28px, 4vw, 42px); font-weight: 700; letter-spacing: -.02em
 .panel {
   background: linear-gradient(180deg, var(--card-2), #141827);
   border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 22px; position: relative; overflow: hidden; height: 340px;
+  padding: 22px; position: relative; overflow: hidden;
+  /* min-height, NOT height. A fixed 340px with overflow:hidden silently ate any
+     panel whose content grew past it — measured across six widths, SIX panels
+     were clipping their own text, and Autofill's caption ("never fills
+     passwords... never submits") was 75px below the visible bottom, i.e. gone.
+     Grid rows stretch their items, so every panel in a row still matches its
+     neighbour's height and `h3 { margin-top: auto }` still pins the heading to
+     the bottom — the look is unchanged, the text is no longer thrown away. */
+  min-height: 340px;
   display: flex; flex-direction: column;
   transition: transform .2s var(--ease), border-color .2s var(--ease);
 }
@@ -254,7 +266,8 @@ h2 { font-size: clamp(28px, 4vw, 42px); font-weight: 700; letter-spacing: -.02em
 .car-nav {
   position: absolute; top: 50%; transform: translateY(-50%); z-index: 3;
   width: 44px; height: 44px; border-radius: 999px; border: 1px solid var(--line-2);
-  background: rgba(11,13,22,.6); backdrop-filter: blur(10px);
+  background: rgba(11,13,22,.6);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
   color: var(--text); font-size: 24px; line-height: 1; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   opacity: 0; transition: opacity .25s ease, background .2s ease, transform .15s ease;
@@ -299,6 +312,22 @@ h2 { font-size: clamp(28px, 4vw, 42px); font-weight: 700; letter-spacing: -.02em
 .capture-viz .store .cnt { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
 .wisp-dot { position: absolute; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px 2px rgba(142, 162, 255, .7); left: 130px; top: 50%; opacity: 0; z-index: 1; }
 .wisp-dot.fly { animation: fly 1.15s var(--ease) forwards; }
+
+/* The capture strip is a fixed 34px-padded row of four app chips plus the store
+   column, inside overflow:hidden. On a 320-375px phone — the two commonest
+   widths there are — the last chips and the whole "1,240 wisps" counter fell off
+   the right edge and were CLIPPED, not scrollable: the page reported no
+   horizontal overflow while the content was simply gone. Measured in a browser
+   at eight widths, not guessed. */
+@media (max-width: 480px) {
+  .capture-viz { padding: 0 16px; height: 132px; }
+  .capture-viz .app-src { gap: 6px; flex-wrap: wrap; max-width: 58%; }
+  .capture-viz .app-src .aname { padding: 5px 8px; font-size: 12px; }
+  /* Xcode and YouTube are the same point as Chrome and Canvas — the strip says
+     "wisps come from your apps", and two apps say it in the room available. */
+  .capture-viz .app-src .aname:nth-child(n + 3) { display: none; }
+  .wisp-dot { left: 96px; }
+}
 @keyframes fly { 0% { opacity: 0; transform: translate(0, -50%) scale(.6); } 15% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; transform: translate(var(--fx, 620px), -50%) scale(.4); } }
 
 /* features grid */
@@ -416,6 +445,7 @@ footer a:hover { color: var(--text); }
   border: 1px solid rgba(255, 255, 255, .08);
   border-radius: 14px;
   background: rgba(255, 255, 255, .03);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   animation: lsIn .5s ease both;
 }
@@ -695,7 +725,6 @@ footer a:hover { color: var(--text); }
    underneath, so on this one panel the height has to follow the content —
    otherwise the replay button, the card, the heading and the caption are all
    silently clipped away, which is exactly what happened. */
-#map-demo { height: auto; }
 
 .map-stage.js .map-trace { animation: none !important; }
 .map-svg { touch-action: manipulation; }
@@ -758,15 +787,19 @@ footer a:hover { color: var(--text); }
   .map-ctl { gap: 8px; }
   .map-time { min-width: 56px; font-size: 11.5px; }
 }
+/* At 320px — an iPhone SE, and the narrowest width worth supporting — the
+   Replay button, the scrub and the clock still did not fit on one line, and the
+   clock was clipped off the panel rather than wrapping. The row wraps instead. */
+@media (max-width: 360px) {
+  .map-ctl { flex-wrap: wrap; row-gap: 6px; }
+  .map-scrub { flex: 1 1 100%; order: 3; }
+  .map-time { min-width: 0; }
+}
 
 /* ── personas (v0.31): which "you" a value belongs to ──────────────────────
    Two columns: the question on the left, the form it answers on the right.
    The chips are real buttons because the whole point of the feature is that
    the choice is yours — a demo that only plays at you would undersell it. */
-/* The panel is a fixed 340px with overflow:hidden — a taller demo silently
-   loses its own heading off the bottom, which is exactly what happened here.
-   Same escape hatch #map-demo already uses. */
-#persona-demo { height: auto; }
 .cap .soft { color: var(--accent); }
 
 .persona-stage {

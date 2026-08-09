@@ -97,7 +97,7 @@ def _form_app(pid: int, body: dict) -> str | None:
     return (form.query(pid) or {}).get("app")
 
 
-def _persona_for_form(conn, app: str | None, body: dict) -> dict:
+def _persona_for_form(conn, app: str | None, body: dict, pid: int | None = None) -> dict:
     """Which identity this form belongs to, and everything the UI needs to ask.
 
     The safety order in one place, so /form-fill and /form-write cannot disagree
@@ -106,7 +106,9 @@ def _persona_for_form(conn, app: str | None, body: dict) -> dict:
 
     The URL comes from the browser the form is in, not from the frontmost app:
     the search panel is non-activating, so the page keeps focus, and asking the
-    named app directly is what makes the answer deterministic.
+    named app directly is what makes the answer deterministic. Two sources, in
+    order — AppleScript (which also reports incognito), then Accessibility (which
+    works for Firefox and without Automation consent).
     """
     from . import browser, killlist
     from . import personas as _p
@@ -114,7 +116,22 @@ def _persona_for_form(conn, app: str | None, body: dict) -> dict:
     in_browser = bool(app and browser.is_browser(app))
     try:
         if in_browser:
-            url, _title, private = browser.active_tab(app)
+            url, title, private = browser.active_tab(app)
+            if not url and pid:
+                # AppleScript came back empty. Firefox has no scripting
+                # dictionary at all, and Automation consent can be denied or
+                # revoked for the rest — in both cases a persona choice could
+                # never be remembered, so those users were asked on every single
+                # form forever. Accessibility publishes the address on the web
+                # area, needs no consent and cannot hang.
+                from . import form as _form
+                ax = _form.page_url(pid) or {}
+                url, title = ax.get("url"), ax.get("title")
+                # AX says nothing about private browsing, so fall back to the
+                # window-title heuristic the kill list already uses for Safari.
+                # Guessing wrong here writes down a page from a window whose
+                # entire purpose is leaving no trace.
+                private = killlist.KillList().blocks_private_window(title)
             # A persona choice is REMEMBERED against this site, which means
             # writing down where you were. The kill list and private windows are
             # promised as absolute — "not filtered afterwards, paused, so there
@@ -601,7 +618,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not found or not found.get("fields"):
                     return self._json({"error": "no form detected"}, 404)
                 labels = [f["label"] for f in found.get("fields", [])]
-                who = _persona_for_form(conn, found.get("app"), body)
+                who = _persona_for_form(conn, found.get("app"), body, pid)
                 resolved = form.resolve(conn, labels, who["showing"])
                 self._json({"app": found.get("app"), "fields": resolved, **who})
             elif self.path == "/form-write":
@@ -612,7 +629,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not pid:
                     return self._json({"error": "no form detected", "written": 0})
                 app = _form_app(pid, body)
-                who = _persona_for_form(conn, app, body)
+                who = _persona_for_form(conn, app, body, pid)
                 # Rule 2 of the persona design, enforced where it counts: on a
                 # site never seen before, with more than one identity to choose
                 # from, OFFER. Filling a form with a silently guessed identity is
@@ -628,7 +645,7 @@ class Handler(BaseHTTPRequestHandler):
                     # Recompute so the reply tells the truth about what is now
                     # settled. Reporting the state from BEFORE the write left the
                     # panel to infer it, and it inferred wrong.
-                    who = _persona_for_form(conn, app, body)
+                    who = _persona_for_form(conn, app, body, pid)
                 result = form.apply(pid, who["persona"])   # crash-isolated subprocess
                 self._json({**(result or {"error": "no form detected", "written": 0}),
                             **who})

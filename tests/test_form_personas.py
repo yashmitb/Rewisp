@@ -284,3 +284,63 @@ class TestABrowserWithNoURLNeverSettlesEverything:
                             lambda app: (_ for _ in ()).throw(OSError("no consent")))
         who = server._persona_for_form(two_identities, "Safari", {"persona": "school"})
         assert who["remember"] is False and who["site"] == ""
+
+
+class TestEveryBrowser:
+    """AppleScript is not available in every browser. Firefox exposes no
+    scripting dictionary at all, and Automation consent can be denied or revoked
+    for the rest — in both cases a persona choice could never be remembered, so
+    those users were asked on every single form, forever. Accessibility carries
+    the address on the web area for all of them."""
+
+    def _no_applescript(self, monkeypatch):
+        from rewisp import browser
+        monkeypatch.setattr(browser, "is_browser", lambda app: True)
+        monkeypatch.setattr(browser, "active_tab", lambda app: (None, None, False))
+
+    def test_firefox_is_remembered_via_accessibility(self, two_identities, monkeypatch):
+        from rewisp import form
+        self._no_applescript(monkeypatch)
+        monkeypatch.setattr(form, "page_url",
+                            lambda pid: {"url": "https://shop.example.com/cart",
+                                         "title": "Cart — Shop"})
+        who = server._persona_for_form(two_identities, "Firefox", {}, pid=42)
+        assert who["site"] == "shop.example.com"
+        assert who["remember"] is True
+
+    def test_a_private_window_is_still_caught_without_applescript(
+            self, two_identities, monkeypatch):
+        # AX says nothing about incognito, so the window title heuristic — the
+        # same one the kill list already uses for Safari — has to hold the line.
+        from rewisp import form
+        self._no_applescript(monkeypatch)
+        monkeypatch.setattr(form, "page_url",
+                            lambda pid: {"url": "https://shop.example.com/cart",
+                                         "title": "Cart — Private Browsing"})
+        who = server._persona_for_form(two_identities, "Safari", {}, pid=42)
+        assert who["remember"] is False and who["site"] == ""
+
+    def test_the_kill_list_still_applies_to_an_ax_url(self, two_identities, monkeypatch):
+        from rewisp import config as cfg, form
+        self._no_applescript(monkeypatch)
+        monkeypatch.setattr(cfg, "excluded_sites", lambda: ["shop.example.com"])
+        monkeypatch.setattr(form, "page_url",
+                            lambda pid: {"url": "https://shop.example.com/cart", "title": "Cart"})
+        who = server._persona_for_form(two_identities, "Firefox", {}, pid=42)
+        assert who["remember"] is False
+
+    def test_no_pid_means_no_accessibility_attempt(self, two_identities, monkeypatch):
+        from rewisp import form
+        self._no_applescript(monkeypatch)
+        called = []
+        monkeypatch.setattr(form, "page_url", lambda pid: called.append(pid) or None)
+        who = server._persona_for_form(two_identities, "Firefox", {})
+        assert called == [] and who["remember"] is False
+
+    def test_a_non_http_ax_value_is_ignored(self, two_identities, monkeypatch):
+        # AXDocument can be a file:// path on a local page; that is not a site.
+        from rewisp import form
+        self._no_applescript(monkeypatch)
+        monkeypatch.setattr(form, "page_url", lambda pid: None)
+        who = server._persona_for_form(two_identities, "Firefox", {}, pid=42)
+        assert who["remember"] is False
