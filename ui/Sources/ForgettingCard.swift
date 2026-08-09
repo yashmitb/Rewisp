@@ -156,19 +156,25 @@ struct ForgettingCard: View {
 private struct FadingRow: View {
     let wisp: RewispAPI.FadingWisp
     let tint: Color
-    @State private var dim = false
+    // Deliberately NOT an animated pulse.
+    //
+    // This breathed forever, once per row, for as long as the pane was on
+    // screen — the same shape as the TimelineView that once had the menu bar app
+    // at 39.5% CPU doing nothing. It also said less than it could: every row
+    // pulsed identically whether a memory was at 80% recall or 5%. Opacity now
+    // tracks the actual recall probability, so the list shows how far each thing
+    // has faded instead of animating the idea of fading.
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Circle().fill(tint).frame(width: 6, height: 6).padding(.top, 5)
             VStack(alignment: .leading, spacing: 1) {
                 Text(wisp.snippet).font(.callout).lineLimit(2)
-                    .opacity(dim ? 0.45 : 0.9)
-                    .animation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true), value: dim)
+                    .opacity(0.35 + 0.55 * min(max(wisp.p_recall, 0), 1))
                 Text("\(wisp.app) · \(Int(wisp.p_recall * 100))% recall left")
                     .font(.caption2).foregroundStyle(.tertiary)
             }
         }
-        .onAppear { dim = true }
+
     }
 }

@@ -30,6 +30,17 @@ final class SearchPanelController: NSObject, NSWindowDelegate {
         if let p = panel, p.isVisible { hide() } else { show() }
     }
 
+    /// Build the panel before it is ever summoned.
+    ///
+    /// `show()` builds on first use, so the FIRST ⌘⇧Space of a session paid for
+    /// constructing the whole SwiftUI hosting view while the user was already
+    /// waiting — every later summon was cheap by comparison. Doing it once at
+    /// launch, off the hot path, makes the first one feel like the rest. It is
+    /// only built here: nothing is shown, and no window is ordered in.
+    func prewarm() {
+        if panel == nil { build() }
+    }
+
     func show() {
         // Capture the frontmost app BEFORE we show — that's the app whose form we
         // want to read, AND the app that must keep focus behind us so the user's
@@ -40,7 +51,10 @@ final class SearchPanelController: NSObject, NSWindowDelegate {
         }
         if panel == nil { build() }
         guard let panel else { return }
-        let target = savedOrigin() ?? defaultOrigin()
+        // A saved origin can be stale: the display it was saved on may be gone,
+        // or smaller now. Summoning onto coordinates that no longer exist puts
+        // the panel somewhere the user cannot see or reach.
+        let target = onScreen(savedOrigin() ?? defaultOrigin())
         // The actual entrance (scale + opacity) is animated in SwiftUI — see
         // `appeared` in SearchPanelView. Here we just place the window and take
         // it from fully transparent to opaque so there's no hard-edged rectangle
@@ -81,6 +95,21 @@ final class SearchPanelController: NSObject, NSWindowDelegate {
             panel.orderOut(nil)
             panel.alphaValue = 1
         })
+    }
+
+    /// Nudge an origin back inside the visible area of whichever screen it is
+    /// nearest, so the panel is always reachable.
+    private func onScreen(_ origin: NSPoint) -> NSPoint {
+        guard let panel else { return origin }
+        let size = panel.frame.size
+        let screen = NSScreen.screens.first { $0.frame.contains(origin) }
+            ?? NSScreen.main
+        guard let visible = screen?.visibleFrame else { return origin }
+        let margin: CGFloat = 24
+        var p = origin
+        p.x = min(max(p.x, visible.minX + margin), visible.maxX - size.width - margin)
+        p.y = min(max(p.y, visible.minY + margin), visible.maxY - size.height - margin)
+        return p
     }
 
     private func defaultOrigin() -> NSPoint {
@@ -125,14 +154,44 @@ final class SearchPanelController: NSObject, NSWindowDelegate {
     // No AppKit animation here — SwiftUI animates the content and this fires
     // every frame of that animation, so the window tracks it 1:1. Animating
     // both layers fights and stutters.
+    /// Grow the panel to fit its content, without ever leaving the screen.
+    ///
+    /// The old version pinned the top and grew downward with no clamp at all, so
+    /// a long answer simply ran off the bottom edge and the rest of it could not
+    /// be read or scrolled to. Now the height is capped to the visible screen and
+    /// the window slides UP when growing down would overhang — the reading
+    /// position stays put until it has to move, which is what makes it feel
+    /// stable rather than jumpy.
     func resize(toContentHeight h: CGFloat) {
         guard let panel else { return }
-        guard abs(panel.frame.height - h) > 0.5 else { return }
-        let topY = panel.frame.maxY
+        let visible = (panel.screen ?? NSScreen.main)?.visibleFrame
+            ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let margin: CGFloat = 24
+        let maxH = max(visible.height - margin * 2, 220)
+        let newH = min(h, maxH)
+        publishRoom(visible: visible, margin: margin)
+        guard abs(panel.frame.height - newH) > 0.5 else { return }
+
         var f = panel.frame
-        f.size.height = h
-        f.origin.y = topY - h
+        let topY = f.maxY
+        f.size.height = newH
+        f.origin.y = topY - newH
+        // Off the bottom: lift it. Then, only if it is now off the top, pin it
+        // there — a panel taller than the screen must start at the top or its
+        // first line is unreachable.
+        if f.minY < visible.minY + margin { f.origin.y = visible.minY + margin }
+        if f.maxY > visible.maxY - margin { f.origin.y = visible.maxY - margin - newH }
         panel.setFrame(f, display: true)
+    }
+
+    /// Tell SwiftUI how tall the answer may get before it has to scroll: the
+    /// screen, less the margins and the input bar above it.
+    private func publishRoom(visible: NSRect, margin: CGFloat) {
+        let chrome: CGFloat = 132          // input row + suggestion row + padding
+        let room = max(visible.height - margin * 2 - chrome, 220)
+        if abs(PanelMetrics.shared.maxAnswerHeight - room) > 1 {
+            PanelMetrics.shared.maxAnswerHeight = room
+        }
     }
 
     private func build() {
@@ -178,6 +237,19 @@ extension Notification.Name {
     // Local automation hook: synthetic keystrokes can't reach a nonactivating
     // panel, so tests drive the search flow through this instead.
     static let rewispTestAsk = Notification.Name("rewispTestAsk")
+}
+
+/// How much room the panel actually has on the screen it is on.
+///
+/// The answer used to be capped at 60% of `NSScreen.main` height and grown
+/// DOWNWARD from a top edge sitting at 62% of the screen — so a long answer ran
+/// straight off the bottom, on the wrong screen's measurements, with nothing
+/// clamping the window. The controller measures the real screen and publishes
+/// the ceiling; the view caps its scroll view to it.
+final class PanelMetrics: ObservableObject {
+    static let shared = PanelMetrics()
+    /// Tallest the answer's scroll view may be. Beyond this it scrolls.
+    @Published var maxAnswerHeight: CGFloat = 380
 }
 
 // Shared flags/hooks between the AppKit panel and the SwiftUI view.
@@ -235,12 +307,23 @@ struct SearchPanelView: View {
     @State private var fixingSetup = false
     @State private var setupFixFailed = false
     @ObservedObject private var pin = PanelPin.shared
+    @ObservedObject private var metrics = PanelMetrics.shared
     @State private var suggestions: [String] = []
     @AppStorage("rewisp.formassist") private var formAssist = true
     @FocusState private var focused: Bool
     // Drives the entrance animation (scale + fade from the top). Set false the
     // instant we're summoned, then animated to true so every summon re-plays it.
     @State private var appeared = false
+    /// One-shot motion for the sparkle, fired by an actual event (summon, a
+    /// keystroke after an empty field, submit) and settled by a spring.
+    ///
+    /// Deliberately NOT a repeatForever idle animation. This view is built once
+    /// and KEPT — hiding the panel does not tear it down — so a looping
+    /// animation would go on driving layout with the panel off screen, which is
+    /// exactly how the menu bar app once reached 39.5% CPU doing nothing.
+    @State private var sparkKick = 0.0
+    /// Focus ring strength on the input. Rises when the field is live.
+    @State private var fieldLive = false
 
     private let spring = Animation.spring(response: 0.35, dampingFraction: 0.8)
     private let starters = [
@@ -259,8 +342,11 @@ struct SearchPanelView: View {
                     } else {
                         Image(systemName: "sparkles")
                             .font(.title3)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(query.isEmpty ? AnyShapeStyle(.secondary)
+                                                           : AnyShapeStyle(Theme.wisp))
                             .symbolRenderingMode(.hierarchical)
+                            .scaleEffect(1 + sparkKick * 0.22)
+                            .rotationEffect(.degrees(sparkKick * 18))
                     }
                 }
                 .frame(width: 22, height: 22)
@@ -269,6 +355,15 @@ struct SearchPanelView: View {
                     .font(.title3)
                     .focused($focused)
                     .onSubmit { ask() }
+                    .onChange(of: focused) { _, live in
+                        withAnimation(.easeOut(duration: 0.22)) { fieldLive = live }
+                    }
+                    .onChange(of: query) { old, new in
+                        // Only the transition into typing, not every keystroke —
+                        // a kick per character would be noise, and would animate
+                        // continuously while someone types a long question.
+                        if old.isEmpty && !new.isEmpty { kickSpark() }
+                    }
                 if query.isEmpty && result == nil && !asking {
                     Text("esc to close")
                         .font(.caption)
@@ -280,6 +375,13 @@ struct SearchPanelView: View {
             }
             .padding(.horizontal, 18)
             .frame(height: 56)
+            // A quiet sign the field is listening. Rises on focus, falls on blur;
+            // no animation runs while it sits at either end.
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Theme.accent.opacity(fieldLive ? 0.05 : 0))
+                    .padding(.horizontal, 8)
+            )
 
             if query.isEmpty, result == nil, !asking, fieldLabel == nil, !suggestions.isEmpty {
                 Divider().opacity(0.4)
@@ -287,6 +389,7 @@ struct SearchPanelView: View {
                     ForEach(Array(suggestions.enumerated()), id: \.element) { idx, s in
                         Button {
                             Task { try? await RewispAPI.post("precog/tapped", body: ["text": s]) }
+                            kickSpark()
                             query = s
                             ask()
                         } label: {
@@ -298,6 +401,14 @@ struct SearchPanelView: View {
                                 .overlay(Capsule().strokeBorder(.white.opacity(0.06)))
                         }
                         .buttonStyle(.plain)
+                        // Each chip arrives a beat after the one before it, so
+                        // the row assembles rather than appearing whole. The
+                        // delay is part of the entrance spring, so it plays once
+                        // per summon and then holds.
+                        .opacity(appeared ? 1 : 0)
+                        .offset(y: appeared ? 0 : 6)
+                        .animation(.spring(response: 0.34, dampingFraction: 0.8)
+                            .delay(0.05 + Double(idx) * 0.045), value: appeared)
                         .modifier(ShimmerChip(delay: Double(idx) * 0.08))
                     }
                     Spacer(minLength: 0)
@@ -431,10 +542,10 @@ struct SearchPanelView: View {
                 }
         }
         .scrollIndicators(.automatic)
-        // Height = content's natural size, capped at ~60% of the screen; beyond the
-        // cap it scrolls. Animate the frame itself for a smooth grow, without clipping.
-        .frame(height: min(max(answerHeight, 1),
-                           max((NSScreen.main?.frame.height ?? 900) * 0.6, 380)))
+        // Height = content's natural size, capped at the room the panel actually
+        // has on the screen it is on; beyond the cap it scrolls. Animate the
+        // frame itself for a smooth grow, without clipping.
+        .frame(height: min(max(answerHeight, 1), metrics.maxAnswerHeight))
         .animation(.spring(response: 0.32, dampingFraction: 0.85), value: answerHeight)
     }
 
@@ -625,11 +736,23 @@ struct SearchPanelView: View {
     // `false` state for one frame first, so the animation actually plays.
     private func playEntrance() {
         appeared = false
+        sparkKick = 0
         DispatchQueue.main.async {
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+            // Slightly quicker and a touch looser than before: the panel is
+            // summoned mid-thought, so it should be settled by the time the
+            // first keystroke lands rather than still easing into place.
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
                 appeared = true
             }
+            kickSpark()
         }
+    }
+
+    /// One turn of the sparkle, settled by a spring. Finite by construction —
+    /// it is set once and springs back, so nothing animates at rest.
+    private func kickSpark() {
+        sparkKick = 1
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.55)) { sparkKick = 0 }
     }
 
     private func reset() {
@@ -873,9 +996,18 @@ struct SearchPanelView: View {
     // Prior questions when there's history to draw on; canned starters on a
     // fresh install so the empty state never looks broken.
     private func loadSuggestions() {
+        // Something to look at on the very first frame. The row used to stay
+        // empty for the whole round trip and then pop in, which read as the
+        // panel still loading when it was already ready to type into.
+        if suggestions.isEmpty { suggestions = Array(starters.prefix(3)) }
         Task { @MainActor in
-            // Precognition first (screen + history guesses), then top up to 3 with
-            // recent questions, then canned starters — so the panel always shows 3.
+            // Both at once. Fetching precog and then chats in sequence added
+            // their latencies together for no reason — neither depends on the
+            // other, only their PRIORITY does.
+            async let precog = try? await RewispAPI.get("precog", as: RewispAPI.Precog.self)
+            async let history = try? await RewispAPI.get("chats", as: RewispAPI.Chats.self)
+            let (p, chats) = await (precog, history)
+
             var picks: [String] = []
             var seen = Set<String>()
             func add(_ items: [String]) {
@@ -883,14 +1015,14 @@ struct SearchPanelView: View {
                     picks.append(s)
                 }
             }
-            if let p = try? await RewispAPI.get("precog", as: RewispAPI.Precog.self) {
-                add(p.suggestions)
-            }
-            if picks.count < 3, let chats = try? await RewispAPI.get("chats", as: RewispAPI.Chats.self) {
-                add(chats.chats.filter { $0.role == "user" }.suffix(6).map(\.content).reversed())
-            }
+            add(p?.suggestions ?? [])
+            add((chats?.chats ?? []).filter { $0.role == "user" }
+                    .suffix(6).map(\.content).reversed())
             add(starters)
-            suggestions = picks
+            guard picks != suggestions else { return }   // no pointless re-layout
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                suggestions = picks
+            }
         }
     }
 

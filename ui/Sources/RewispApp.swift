@@ -70,6 +70,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         GlobalHotkey.register {
             SearchPanelController.shared.toggle()
         }
+        // Build the search panel before it is first summoned. It is the app's
+        // hot path — a global hotkey people hit mid-thought — and building the
+        // hosting view lazily meant the first ⌘⇧Space of every session was the
+        // slowest one. Deferred a beat so it never competes with launch itself.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            SearchPanelController.shared.prewarm()
+        }
         // Zero-step setup: the app bundles its own Python with all deps, so if
         // the background helper isn't installed yet we just install and start it.
         // No Terminal, no installer file for the user to find.
