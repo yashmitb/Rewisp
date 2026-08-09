@@ -7,7 +7,7 @@
 <meta name="description" content="How to install Rewisp on your Mac, including the one-time macOS security prompt.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23181c2c'/%3E%3Cpath d='M 1.44 14.80 L 3.55 18.13 L 5.66 18.48 L 7.78 15.93 L 9.89 11.86 L 12.00 8.23 L 14.11 6.60 L 16.22 7.52 L 18.34 10.30 L 20.45 13.52 L 22.56 15.70' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' fill='none'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/styles.css?v=20260808a">
-<link rel="stylesheet" href="css/install.css?v=20260721a">
+<link rel="stylesheet" href="css/install.css?v=20260809a">
 </head>
 <body>
 
@@ -30,6 +30,12 @@
     <div class="pill"><span class="dot"></span> <span id="dl-status">Your download is starting…</span></div>
     <h1>Four steps.<br><span class="soft">Two minutes.</span></h1>
     <p class="sub">Rewisp isn't in the App Store, so macOS asks once whether you trust it. Here's exactly what you'll see.</p>
+    <!-- The requirement was only on the landing page, and the Download button
+         jumps straight here — so an Intel or macOS 14 visitor downloaded a build
+         that cannot launch, and got an opaque failure instead of a reason. -->
+    <p class="req">Needs <b>macOS 15 or newer</b> on an <b>Apple Silicon</b> Mac (M1 and later).
+       Intel Macs aren't supported — the app is built arm64-only and won't open.
+       <span class="req-check" id="req-check" hidden></span></p>
   </div>
 </header>
 
@@ -196,6 +202,36 @@
       event: true,
     });
   });
+</script>
+<script>
+// Tell a visitor BEFORE they wrestle with the installer, not after. userAgent
+// cannot name the chip, so this only flags the cases it can actually be sure
+// of: a non-Mac, and an Intel Mac (Apple Silicon reports "Intel" in the UA
+// string for compatibility, so the WebGL renderer is what distinguishes them).
+(function () {
+  var el = document.getElementById('req-check');
+  if (!el) return;
+  var ua = navigator.userAgent;
+  var msg = '';
+  // iPhone and iPad both say "like Mac OS X", so they must be excluded before
+  // the Mac test or a phone visitor is told nothing at all.
+  if (/iPhone|iPad|iPod/.test(ua) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(ua))) {
+    msg = "Rewisp is a Mac app — open this page on your Mac to install it.";
+  } else if (!/Macintosh|Mac OS X/.test(ua)) {
+    msg = "This looks like it isn't a Mac — Rewisp is macOS only.";
+  } else {
+    try {
+      var gl = document.createElement('canvas').getContext('webgl');
+      var dbg = gl && gl.getExtension('WEBGL_debug_renderer_info');
+      var r = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : '';
+      // Apple Silicon reports "Apple M1/M2/...". An Intel Mac reports Intel or AMD.
+      if (r && !/Apple/i.test(r) && /(Intel|AMD|Radeon)/i.test(r)) {
+        msg = "This looks like an Intel Mac — Rewisp won't run on it.";
+      }
+    } catch (e) { /* no WebGL: say nothing rather than guess */ }
+  }
+  if (msg) { el.textContent = msg; el.hidden = false; }
+})();
 </script>
 </body>
 </html>

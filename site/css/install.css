@@ -140,3 +140,18 @@
 .sec-txt b{font-size:.9rem;font-weight:600}
 .sec-txt span{font-size:.8rem;color:var(--muted,#98a0b3)}
 .sec-btn{white-space:nowrap;flex-shrink:0}
+
+
+/* Requirements, stated where the download actually happens. */
+.req { margin-top: 14px; font-size: 13.5px; color: var(--muted); max-width: 620px; }
+.req b { color: var(--text); }
+.req-check {
+  display: block; margin-top: 8px; padding: 8px 12px;
+  border-radius: 10px; font-weight: 500;
+  color: #ffc48e; background: rgba(255, 196, 142, .10);
+  border: 1px solid rgba(255, 196, 142, .28);
+}
+/* An author `display` declaration beats the UA stylesheet's [hidden]{display:none},
+   so the warning box rendered as an empty amber bar on exactly the machines it
+   has nothing to say to — every supported Mac. Caught by looking at it. */
+.req-check[hidden] { display: none; }
