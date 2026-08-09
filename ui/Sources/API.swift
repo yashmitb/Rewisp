@@ -51,6 +51,8 @@ struct RewispAPI {
         var captures_today: Int
         var captures_total: Int
         var db_mb: Double
+        /// Leftover pre-encryption copy of the database, 0 when there is none.
+        var plaintext_backup_mb: Double?
         var digest_calls_this_month: Int
     }
 

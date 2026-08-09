@@ -16,6 +16,48 @@ log = logging.getLogger("rewisp")
 STATE = {"capture": "starting"}
 
 
+def housekeeping() -> None:
+    """Reclaim the files nothing else ever cleans up. Logs only — never data.
+
+    The Python log rotates itself (2 MB x 3). Two others do not, because launchd
+    owns them and a process cannot rotate a file its own stderr is attached to:
+
+      * com.rewisp.daemon.err — still written by the LaunchAgent. The duplicate
+        logging that once filled it is fixed, but nothing ever shortens it, so it
+        creeps up for the life of the install. Truncated when it gets large.
+      * daemon_launchd.log — written by an older plist that no longer exists.
+        Nothing has touched it since that install, and nothing ever will, so it
+        is dead weight sitting in the user's data folder.
+
+    Both are diagnostics. Deleting a stale one costs nothing; the current log and
+    its three rotations still hold recent history.
+    """
+    cap = 1_000_000
+    err = config.DATA_DIR / "com.rewisp.daemon.err"
+    try:
+        if err.is_file() and err.stat().st_size > cap:
+            # Truncate in place rather than unlink: launchd holds this file open,
+            # so removing it would leave the daemon writing to a deleted inode
+            # and the log would silently vanish until the next restart.
+            with open(err, "r+") as f:
+                tail = f.read()[-cap // 2:]
+                f.seek(0)
+                f.write(tail)
+                f.truncate()
+            log.info("housekeeping: trimmed %s", err.name)
+    except OSError as e:
+        log.debug("housekeeping: could not trim err log: %s", e)
+
+    orphan = config.DATA_DIR / "daemon_launchd.log"
+    try:
+        if orphan.is_file() and time.time() - orphan.stat().st_mtime > 7 * 86400:
+            size = orphan.stat().st_size
+            orphan.unlink()
+            log.info("housekeeping: removed orphaned %s (%d bytes)", orphan.name, size)
+    except OSError as e:
+        log.debug("housekeeping: could not remove orphan log: %s", e)
+
+
 class Daemon:
     def __init__(self):
         self.conn = db.connect()
@@ -283,6 +325,7 @@ class Daemon:
 
     def run(self) -> None:
         log.info("rewisp daemon starting (db=%s)", config.DB_PATH)
+        housekeeping()
         # API and hotkey come up first so the UI works (and can explain the
         # permission state) even while capture is blocked on Screen Recording.
         from . import hotkey, server

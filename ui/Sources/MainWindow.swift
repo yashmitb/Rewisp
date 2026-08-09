@@ -1514,6 +1514,51 @@ struct SettingsTab: View {
                 }
                 row("Retention", "Wisps ~6 months · summaries forever")
                 row("Location", "~/Rewisp — text only, this Mac only")
+                // The copy of the database from before encryption. Kept on
+                // purpose — it is the only way back if the conversion had gone
+                // wrong — but nothing ever removed it or even said it was there,
+                // so an UNENCRYPTED copy of the whole screen history sat next to
+                // the encrypted one indefinitely. Deleting it stays the user's
+                // decision; being told about it should not be.
+                if let mb = status.status?.plaintext_backup_mb, mb > 0 {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Unencrypted backup from before encryption",
+                              systemImage: "lock.open.trianglebadge.exclamationmark")
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(.orange)
+                        Text("\(String(format: "%.1f", mb)) MB. Kept when your database was encrypted, in case that had gone wrong. It hasn't — everything since has been read from the encrypted file. Until you delete it, a readable copy of your history is sitting on disk.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 10) {
+                            Button("Delete it") {
+                                Task { @MainActor in
+                                    do {
+                                        let d = try await RewispAPI.post("plaintext-backup/delete")
+                                        let r = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
+                                        exportResult = "Deleted the old backup — \(r?["freed_mb"] ?? 0) MB freed"
+                                        StatusModel.shared.refresh()
+                                    } catch let e as RewispAPI.APIError {
+                                        exportResult = "Couldn't delete it — \(e.message)"
+                                    } catch {
+                                        exportResult = "Couldn't delete it."
+                                    }
+                                }
+                            }
+                            .buttonStyle(.borderedProminent).controlSize(.small)
+                            Button("Show it in Finder") {
+                                NSWorkspace.shared.selectFile(
+                                    NSHomeDirectory() + "/Rewisp/rewisp.plaintext-backup",
+                                    inFileViewerRootedAtPath: NSHomeDirectory() + "/Rewisp")
+                            }
+                            .buttonStyle(.bordered).controlSize(.small)
+                        }
+                    }
+                    .padding(11)
+                    .background(.orange.opacity(0.10),
+                                in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(.orange.opacity(0.30)))
+                }
                 HStack(spacing: 10) {
                     Button("Export everything") {
                         Task { @MainActor in

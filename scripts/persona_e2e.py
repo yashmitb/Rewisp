@@ -227,6 +227,21 @@ def main() -> int:
         s, d = call("POST", "/vault/delete", {"name": "school/2024/notes.md"})
         check("and can be deleted", s == 200 and not deep.exists(), f"HTTP {s} {d}")
 
+        print("\n── the pre-encryption backup is surfaced, and deletable ──")
+        backup = config.DB_PATH.with_suffix(".plaintext-backup")
+        backup.write_bytes(b"SQLite format 3\x00" + b"x" * 400_000)
+        s, d = call("GET", "/status")
+        check("status reports the leftover backup", d.get("plaintext_backup_mb", 0) > 0,
+              d.get("plaintext_backup_mb"))
+        s, d = call("POST", "/plaintext-backup/delete")
+        check("it can be deleted", s == 200 and not backup.exists(), f"HTTP {s} {d}")
+        check("the live database is untouched", config.DB_PATH.is_file())
+        s, d = call("POST", "/plaintext-backup/delete")
+        check("deleting a second time is a clean 404", s == 404, f"HTTP {s}")
+        s, d = call("GET", "/status")
+        check("status stops reporting it", d.get("plaintext_backup_mb") == 0,
+              d.get("plaintext_backup_mb"))
+
         print("\n── documents survived ──")
         import subprocess
         pdfs = [p for p in config.VAULT_DIR.iterdir() if p.suffix.lower() == ".pdf"]

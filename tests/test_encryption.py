@@ -109,3 +109,55 @@ class TestNormalUseIsUnaffected:
         ).fetchone()[0]
         assert hit == 1, "search must work regardless of encryption state"
         conn.close()
+
+
+class TestHousekeeping:
+    """Files nothing else cleans up. Logs only — never data."""
+
+    def test_an_oversized_launchd_err_log_is_trimmed_not_deleted(self, tmp_path, monkeypatch):
+        # launchd holds this file open, so unlinking it would leave the daemon
+        # writing to a deleted inode and the log would silently vanish.
+        from rewisp import config, daemon
+        monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+        err = tmp_path / "com.rewisp.daemon.err"
+        err.write_text("x" * 3_000_000)
+        daemon.housekeeping()
+        assert err.exists()
+        assert err.stat().st_size < 1_000_000
+
+    def test_a_small_err_log_is_left_alone(self, tmp_path, monkeypatch):
+        from rewisp import config, daemon
+        monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+        err = tmp_path / "com.rewisp.daemon.err"
+        err.write_text("recent errors worth reading")
+        daemon.housekeeping()
+        assert err.read_text() == "recent errors worth reading"
+
+    def test_the_orphaned_launchd_log_is_removed_once_stale(self, tmp_path, monkeypatch):
+        import os
+        import time
+        from rewisp import config, daemon
+        monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+        old = tmp_path / "daemon_launchd.log"
+        old.write_text("written by a plist that no longer exists")
+        stale = time.time() - 30 * 86400
+        os.utime(old, (stale, stale))
+        daemon.housekeeping()
+        assert not old.exists()
+
+    def test_a_log_something_still_writes_is_kept(self, tmp_path, monkeypatch):
+        from rewisp import config, daemon
+        monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+        fresh = tmp_path / "daemon_launchd.log"
+        fresh.write_text("still being written")
+        daemon.housekeeping()
+        assert fresh.exists()
+
+    def test_housekeeping_never_touches_the_database_or_its_backup(self, tmp_path, monkeypatch):
+        from rewisp import config, daemon
+        monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+        for name in ("rewisp.db", "rewisp.plaintext-backup", "settings.json"):
+            (tmp_path / name).write_text("precious")
+        daemon.housekeeping()
+        for name in ("rewisp.db", "rewisp.plaintext-backup", "settings.json"):
+            assert (tmp_path / name).read_text() == "precious", name

@@ -60,6 +60,19 @@ def _engine_availability() -> dict:
             "ollama": ollama}
 
 
+def _plaintext_backup_mb() -> float:
+    """Size of the leftover pre-encryption database, or 0 when there isn't one."""
+    try:
+        b = config.DB_PATH.with_suffix(".plaintext-backup")
+        if not b.is_file():
+            return 0.0
+        # Never round a file that EXISTS down to zero: the UI hides the whole
+        # warning on 0, so a small leftover would be invisible rather than small.
+        return max(round(b.stat().st_size / 1e6, 1), 0.1)
+    except OSError:
+        return 0.0
+
+
 def _form_pid(body: dict) -> int | None:
     """The target app for form ops: the panel's captured pid, else the daemon's
     cached frontmost (must be recent and not Rewisp itself)."""
@@ -295,7 +308,14 @@ class Handler(BaseHTTPRequestHandler):
                     "permission_pending": pending,
                     "captures_today": n_today,
                     "captures_total": n_total,
-                    "db_mb": round(config.DB_PATH.stat().st_size / 1e6, 1)
+                    "db_mb": round(config.DB_PATH.stat().st_size / 1e6, 1),
+                    # The pre-encryption copy of the database, if one is still
+                    # here. Encryption keeps it deliberately — it is the only
+                    # way back if the conversion ever went wrong — but nothing
+                    # has ever removed it or even mentioned it, so an unencrypted
+                    # copy of the whole screen history sits next to the encrypted
+                    # one forever. Surfaced so it can be a decision.
+                    "plaintext_backup_mb": _plaintext_backup_mb()
                              if config.DB_PATH.exists() else 0,
                     "digest_calls_this_month": digest.calls_this_month(),
                 })
@@ -866,6 +886,17 @@ class Handler(BaseHTTPRequestHandler):
                 res = vault.reindex(conn)
                 res["refused"] = [{"name": n, "reason": r} for n, r in res["refused"]]
                 self._json(res)
+            elif self.path == "/plaintext-backup/delete":
+                # Removing it is the user's call, made once, from Settings. It is
+                # their only copy of the database from before encryption, so this
+                # never happens automatically.
+                b = config.DB_PATH.with_suffix(".plaintext-backup")
+                if not b.is_file():
+                    return self._json({"error": "nothing to delete"}, 404)
+                size = b.stat().st_size
+                b.unlink()
+                log.info("deleted the pre-encryption database backup (%d bytes)", size)
+                self._json({"deleted": b.name, "freed_mb": round(size / 1e6, 1)})
             elif self.path == "/vault/delete":
                 name = str(body.get("name") or "")
                 root = config.VAULT_DIR.resolve()
