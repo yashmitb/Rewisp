@@ -31,6 +31,19 @@ def vault_dir(conn, tmp_path, monkeypatch):
     return write
 
 
+@pytest.fixture(autouse=True)
+def no_real_browser(monkeypatch):
+    """Never let a test reach the real AppleScript bridge.
+
+    Tests naming "Safari" were quietly spawning osascript against whatever
+    Safari was actually doing — slow, machine-dependent, and up to a 3s timeout
+    each. Tests that care about browser behaviour override this themselves.
+    """
+    from rewisp import browser
+    monkeypatch.setattr(browser, "is_browser", lambda app: False)
+    monkeypatch.setattr(browser, "active_tab", lambda app: (None, None, False))
+
+
 @pytest.fixture
 def two_identities(conn, vault_dir):
     vault_dir("school/info.md", "Email: ybhaverisetti@ucsd.edu\n")
@@ -118,12 +131,14 @@ class TestPreviewIsNotAPick:
         assert who["showing"] is not None      # ...while still previewing
 
     def test_only_an_explicit_pick_settles_the_site(self, two_identities):
+        # Keyed on a native app, which is the case where the app IS the unit.
         conn = two_identities
         # A preview alone must never reach remember_site.
-        assert personas.for_site(conn, None, "Safari") is None
-        who = server._persona_for_form(conn, "Safari", {"persona": "school"})
-        personas.remember_site(conn, who.get("url"), who["persona"], "Safari")
-        after = server._persona_for_form(conn, "Safari", {})
+        assert personas.for_site(conn, None, "Mail") is None
+        who = server._persona_for_form(conn, "Mail", {"persona": "school"})
+        assert who["remember"] is True
+        personas.remember_site(conn, who.get("url"), who["persona"], "Mail")
+        after = server._persona_for_form(conn, "Mail", {})
         assert after["settled"] is True and after["persona"] == "school"
 
 
@@ -236,3 +251,36 @@ class TestEmptyFoldersDoNotAskQuestions:
         assert who["site"] == ""
         # Nothing was written, so the next visit is unsettled and asks again.
         assert personas.for_site(two_identities, None, "Safari") is None
+
+
+class TestABrowserWithNoURLNeverSettlesEverything:
+    """site_key falls back to the app when there is no URL. For a browser that
+    means `app::google chrome` — one pick settling every website in it. Firefox
+    exposes no URL at all, and Automation consent can be denied or revoked for
+    the rest, so this is a state real users are in."""
+
+    def test_no_url_in_a_browser_is_not_remembered(self, two_identities, monkeypatch):
+        from rewisp import browser
+        monkeypatch.setattr(browser, "is_browser", lambda app: True)
+        monkeypatch.setattr(browser, "active_tab", lambda app: (None, None, False))
+        who = server._persona_for_form(two_identities, "Firefox", {"persona": "school"})
+        assert who["remember"] is False
+        assert who["site"] == ""
+        assert who["persona"] == "school"      # the fill itself still happens
+
+    def test_a_native_app_still_settles_on_the_app(self, two_identities, monkeypatch):
+        # Mail has no URL and never will; the app IS the right unit there.
+        from rewisp import browser
+        monkeypatch.setattr(browser, "is_browser", lambda app: False)
+        who = server._persona_for_form(two_identities, "Mail", {"persona": "work"})
+        assert who["remember"] is True
+        assert who["site"] == "app::mail"
+
+    def test_consent_revoked_mid_session_does_not_settle_the_browser(
+            self, two_identities, monkeypatch):
+        from rewisp import browser
+        monkeypatch.setattr(browser, "is_browser", lambda app: True)
+        monkeypatch.setattr(browser, "active_tab",
+                            lambda app: (_ for _ in ()).throw(OSError("no consent")))
+        who = server._persona_for_form(two_identities, "Safari", {"persona": "school"})
+        assert who["remember"] is False and who["site"] == ""

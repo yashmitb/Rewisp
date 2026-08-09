@@ -212,9 +212,20 @@ def main() -> int:
         s, d = call("POST", "/vault/delete", {"name": filed[0] if filed else "x"})
         check("a filed file can be deleted", s == 200, f"HTTP {s} {d}")
         for bad in ("../../etc/passwd", "/etc/passwd", "school/../../etc/passwd",
-                    ".hidden.md", "a/b/c.md"):
+                    ".hidden.md", "school/.secret.md", "", "school"):
             s, _ = call("POST", "/vault/delete", {"name": bad})
             check(f"delete refuses {bad!r}", s == 400, f"HTTP {s}")
+        # A file nested deeper than a persona folder is indexed and listed by
+        # rglob, so a depth cap only moved "listed but undeletable" down a level.
+        deep = config.VAULT_DIR / "school" / "2024" / "notes.md"
+        deep.parent.mkdir(parents=True, exist_ok=True)
+        deep.write_text("a nested note\n")
+        call("POST", "/vault/reindex")
+        s, d = call("GET", "/vault")
+        listed = [f["name"] for f in d.get("files", [])]
+        check("a deeply nested file is listed", "school/2024/notes.md" in listed, listed[:8])
+        s, d = call("POST", "/vault/delete", {"name": "school/2024/notes.md"})
+        check("and can be deleted", s == 200 and not deep.exists(), f"HTTP {s} {d}")
 
         print("\n── documents survived ──")
         import subprocess

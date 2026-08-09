@@ -830,7 +830,15 @@ struct VaultTab: View {
 
     private func delete(_ name: String) {
         Task { @MainActor in
-            _ = try? await RewispAPI.post("vault/delete", body: ["name": name])
+            // A refused delete used to do nothing at all: the row stayed, with
+            // no reason given, which reads as the button being broken.
+            do {
+                _ = try await RewispAPI.post("vault/delete", body: ["name": name])
+            } catch let e as RewispAPI.APIError {
+                toast = "Couldn't delete \(name) — \(e.message)"
+            } catch {
+                toast = "Couldn't delete \(name)."
+            }
             await reload()
         }
     }
@@ -1768,11 +1776,32 @@ struct SettingsTab: View {
         digestRunning = true
         digestError = nil
         Task { @MainActor in
-            _ = try? await RewispAPI.post("digest", body: ["force": true])
+            do {
+                _ = try await RewispAPI.post("digest", body: ["force": true])
+            } catch let e as RewispAPI.APIError {
+                // 409 = one is already running; keep polling that one rather
+                // than reporting a failure the user did not cause.
+                if e.status != 409 {
+                    digestRunning = false
+                    digestError = e.message
+                    return
+                }
+            } catch {
+                digestRunning = false
+                digestError = "Couldn't reach Rewisp."
+                return
+            }
             // poll until the worker finishes
-            while true {
+            while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
-                guard let d = try? await RewispAPI.get("digest/status", as: RewispAPI.DigestStatus.self) else { break }
+                guard let d = try? await RewispAPI.get("digest/status",
+                                                       as: RewispAPI.DigestStatus.self) else {
+                    // Breaking without clearing this left the spinner turning
+                    // for the rest of the session on one failed poll.
+                    digestRunning = false
+                    digestError = "Lost contact with Rewisp while it was running."
+                    break
+                }
                 if !d.running {
                     digestRunning = false
                     digestError = d.error

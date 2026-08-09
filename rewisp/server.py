@@ -111,8 +111,9 @@ def _persona_for_form(conn, app: str | None, body: dict) -> dict:
     from . import browser, killlist
     from . import personas as _p
     url, may_remember = None, True
+    in_browser = bool(app and browser.is_browser(app))
     try:
-        if app and browser.is_browser(app):
+        if in_browser:
             url, _title, private = browser.active_tab(app)
             # A persona choice is REMEMBERED against this site, which means
             # writing down where you were. The kill list and private windows are
@@ -128,8 +129,16 @@ def _persona_for_form(conn, app: str | None, body: dict) -> dict:
             if (private or config.site_excluded(url)
                     or killlist.KillList().blocks_url(url)):
                 url, may_remember = None, False
-    except Exception:  # noqa: BLE001 — no URL just means we key on the app
+    except Exception:  # noqa: BLE001 — treated the same as no URL at all
         url = None
+    if in_browser and not url:
+        # A browser with no URL must NOT fall back to the app key. site_key would
+        # produce `app::google chrome`, so one pick would settle every website in
+        # that browser at once and every later form would fill silently as that
+        # identity. This happens for real: Firefox exposes no URL at all, and
+        # Automation consent can be denied or revoked for the others. Asking
+        # every time is a small cost; settling the whole browser is not.
+        may_remember = False
     # Only personas that hold a file. An empty folder answers exactly like every
     # other, so offering it asks a question with no distinct answers.
     choices = [{"name": n, "label": _p.label_for(n),
@@ -844,15 +853,17 @@ class Handler(BaseHTTPRequestHandler):
                 name = str(body.get("name") or "")
                 root = config.VAULT_DIR.resolve()
                 target = (config.VAULT_DIR / name).resolve()
-                # Path-traversal guard. One folder deep is allowed because that
-                # is where personas file things — refusing any "/" meant a filed
-                # document could never be deleted from the app again. The real
-                # guard is the resolved path: it must sit in the Vault or in a
-                # folder directly inside it, and no path part may be hidden.
+                # Path-traversal guard, expressed as containment rather than as a
+                # depth limit. `reindex` walks the Vault with rglob, so a file at
+                # ANY depth is indexed and listed — and a cap of one folder just
+                # moved the "listed but undeletable" bug down a level instead of
+                # fixing it. The real guard is that the RESOLVED path lives inside
+                # the Vault, which also refuses a symlink pointing out of it.
                 parts = pathlib.PurePosixPath(name).parts
-                if (not name or name.startswith("/") or len(parts) > 2
+                if (not name or name.startswith("/")
                         or any(p.startswith(".") or p == ".." for p in parts)
-                        or (target.parent != root and target.parent.parent != root)
+                        or not target.is_relative_to(root)
+                        or target == root
                         or not target.is_file()):
                     return self._json({"error": "bad name"}, 400)
                 target.unlink()

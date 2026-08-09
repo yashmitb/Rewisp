@@ -216,6 +216,9 @@ struct SearchPanelView: View {
     /// so a brand-new site filled with the primary and quietly settled itself —
     /// "Rewisp won't fill until you pick" was not true of the shipped panel.
     @State private var personaPicked = false
+    /// Identifies the newest /form-fill request, so a slower earlier one cannot
+    /// land on top of it.
+    @State private var formFillToken = 0
     @State private var personaSettled = false
     @State private var formApp: String?
     @State private var personaChoices: [RewispAPI.Persona] = []
@@ -716,21 +719,31 @@ struct SearchPanelView: View {
     }
 
     // Gather every field's value from the Vault and show them in the answer area.
+    //
+    // Latest request wins. A fill is a deep Accessibility walk, so it takes about
+    // a second — long enough to tap a second persona chip during. Refusing the
+    // second tap (the old `guard !fillingForm`) left the highlighted chip and the
+    // values disagreeing about whose they were, which is the one thing this whole
+    // feature must never do. Now a newer request supersedes an older one, and a
+    // late reply from a superseded request is dropped rather than applied.
     private func fillForm() {
-        guard !fillingForm else { return }
+        formFillToken &+= 1
+        let token = formFillToken
         fillingForm = true
         Task { @MainActor in
             var body: [String: Any] = [:]
             if let pid = SearchPanelState.shared.formPid { body["pid"] = pid }
             if personaPicked, let p = personaShowing { body["persona"] = p }
             let res = try? await RewispAPI.post("form-fill", body: body)
+            guard token == formFillToken else { return }   // a newer pick won
             var parsed: RewispAPI.FormFill?
             if let res { parsed = try? JSONDecoder().decode(RewispAPI.FormFill.self, from: res) }
             withAnimation(spring) {
                 formFill = parsed?.fields
                 personaChoices = parsed?.choices ?? []
                 personaSettled = parsed?.settled ?? false
-                personaShowing = parsed?.showing
+                // Never let the reply un-pick what the user just chose.
+                if let showing = parsed?.showing { personaShowing = showing }
                 formApp = parsed?.app
                 fillingForm = false
             }
