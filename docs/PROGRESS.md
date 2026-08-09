@@ -1,6 +1,6 @@
 # Rewisp — Build Progress
 
-**Current status (v0.31.1, 2026-08-09):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~1,150 wisps/day, 27,600+ wisps). 491 tests. 59 releases (v0.1.0 → v0.31.1).
+**Current status (v0.32.0, 2026-08-09):** Phases 0–5 shipped, plus the "intelligent memory" cycle, the Forgetting Model, the MCP connector, and — as of v0.12 — a genuinely installable app. In daily use (~1,150 wisps/day, 27,600+ wisps). 496 tests. 60 releases (v0.1.0 → v0.32.0).
 **Next up:** Personas (auto-select the autofill profile from app/site context — researched, in `todo.md`). Also queued: app-level encryption at rest, and a Developer ID certificate (which would end the update-permission dance outright).
 
 > The v1 build plan (Phases 0–5) is preserved below as the permanent timeline.
@@ -192,6 +192,43 @@ What it actually produced, in order of usefulness:
 - **135 downloads** in the first two days, two clear spikes.
 - Five vendor emails, none of which mentioned anything not already on the
   landing page. Worth ignoring as a class.
+
+## v0.32.0 — the panel stays on screen, and an old plaintext copy stops hiding (2026-08-09)
+
+- **The search panel could run off the bottom of the screen.** It pinned its top
+  edge and grew downward with nothing clamping it, and capped the answer against
+  `NSScreen.main` — the wrong display on a multi-monitor setup. Summoned at its
+  default spot, 62% up the screen, a long answer ran straight off the bottom and
+  the rest could not be read or scrolled to. The height now caps to the visible
+  frame of the screen the panel is actually on, the window slides up when growing
+  down would overhang, and beyond the cap the answer scrolls. A saved origin is
+  clamped on summon too, in case that display is gone or smaller now.
+- **An unencrypted copy of the whole database was sitting on disk.** Encrypting
+  keeps the plaintext original on purpose — it is the only way back if the
+  conversion had gone wrong — but nothing ever removed it or said it was there.
+  Settings → Your data now shows it with its size, explains why it exists, and
+  offers to delete it or reveal it in Finder. Still never deleted automatically:
+  quietly destroying someone's only backup is not a housekeeping decision.
+- **Two logs nothing could rotate** are handled at daemon start. The launchd
+  stderr file is trimmed in place past 1 MB (never unlinked — the daemon would
+  end up writing to a deleted inode), and a log written by a plist that no longer
+  exists is removed once stale. Logs only; a test asserts the database, its
+  backup and settings.json are never touched.
+- **The panel is built at launch** rather than on first use, so the first
+  ⌘⇧Space of a session is no longer the slowest one. Suggestions appear
+  instantly and upgrade in place instead of leaving the row empty for a round
+  trip. The endpoints themselves were never slow (20-80ms), which is why the
+  fix was elsewhere.
+- **It feels awake without animating at rest.** The sparkle turns once on open,
+  once when typing starts, once on a tapped suggestion; the input tints while
+  focused; chips arrive staggered. All finite springs fired by events — no
+  repeatForever, because the view is built once and kept.
+- **Another perpetual animation found and removed:** the fading-wisp list ran a
+  repeatForever pulse per row for as long as Settings → Your data was open. Row
+  opacity now tracks the real recall probability, which costs nothing and says
+  more — every row used to breathe identically whether a memory was at 80%
+  recall or 5%.
+- 496 tests, 56 endpoint checks.
 
 ## v0.31.1 — the refusal actually refuses (2026-08-09)
 
